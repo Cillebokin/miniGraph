@@ -11,11 +11,6 @@ int main(int argumentCount, char *argumentValues[])
     QApplication app(argumentCount, argumentValues);
 
     mini_graph::CanvasDocument canvasDocument;
-    canvasDocument.AddLine(QPointF(-100.0, -50.0), QPointF(100.0, -50.0), QColor(80, 190, 255));
-    canvasDocument.AddLine(QPointF(100.0, -50.0), QPointF(100.0, 50.0), QColor(80, 190, 255));
-    canvasDocument.AddLine(QPointF(100.0, 50.0), QPointF(-100.0, 50.0), QColor(80, 190, 255));
-    canvasDocument.AddLine(QPointF(-100.0, 50.0), QPointF(-100.0, -50.0), QColor(80, 190, 255));
-    canvasDocument.AddLine(QPointF(-100.0, -50.0), QPointF(100.0, 50.0), QColor(255, 180, 80));
 
     QMainWindow wndMain;
     auto *widCanvas = new mini_graph::CanvasView;
@@ -30,6 +25,22 @@ int main(int argumentCount, char *argumentValues[])
                      &QAction::toggled,
                      widCanvas,
                      &mini_graph::CanvasView::SetGridVisible);
+
+    QAction *actAxis = tlbCanvas->addAction(QObject::tr("Axes"));
+    actAxis->setCheckable(true);
+    actAxis->setChecked(widCanvas->IsAxisVisible());
+    QObject::connect(actAxis,
+                     &QAction::toggled,
+                     widCanvas,
+                     &mini_graph::CanvasView::SetAxisVisible);
+
+    QAction *actRuler = tlbCanvas->addAction(QObject::tr("Ruler"));
+    actRuler->setCheckable(true);
+    actRuler->setChecked(widCanvas->IsRulerVisible());
+    QObject::connect(actRuler,
+                     &QAction::toggled,
+                     widCanvas,
+                     &mini_graph::CanvasView::SetRulerVisible);
 
     QAction *actReset = tlbCanvas->addAction(QObject::tr("Reset view"));
     QObject::connect(actReset,

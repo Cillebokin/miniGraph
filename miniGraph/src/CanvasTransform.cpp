@@ -5,7 +5,7 @@
 namespace mini_graph {
 
 namespace {
-const qreal MINIMUM_ZOOM = 0.01;
+const qreal MINIMUM_ZOOM = 0.000001;
 const qreal MAXIMUM_ZOOM = 100000.0;
 }
 

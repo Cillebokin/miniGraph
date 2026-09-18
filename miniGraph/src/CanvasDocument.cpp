@@ -31,6 +31,11 @@ bool CanvasDocument::RemoveItem(ItemId id)
     for (int lineIndex = 0; lineIndex < m_Lines.size(); ++lineIndex) {
         if (m_Lines.at(lineIndex).id == id) {
             m_Lines.remove(lineIndex);
+            const bool selectionChanged = m_SelectedIds.contains(id);
+            m_SelectedIds.remove(id);
+            if (selectionChanged) {
+                emit SelectionChanged();
+            }
             emit Changed();
             return true;
         }
@@ -41,12 +46,20 @@ bool CanvasDocument::RemoveItem(ItemId id)
 
 void CanvasDocument::Clear()
 {
-    if (m_Lines.isEmpty()) {
+    const bool contentChanged = !m_Lines.isEmpty();
+    const bool selectionChanged = !m_SelectedIds.isEmpty();
+    if (!contentChanged && !selectionChanged) {
         return;
     }
 
     m_Lines.clear();
-    emit Changed();
+    m_SelectedIds.clear();
+    if (selectionChanged) {
+        emit SelectionChanged();
+    }
+    if (contentChanged) {
+        emit Changed();
+    }
 }
 
 int CanvasDocument::GetItemCount() const
@@ -57,6 +70,109 @@ int CanvasDocument::GetItemCount() const
 const QVector<StruLinePrimitive> &CanvasDocument::GetLinePrimitives() const
 {
     return m_Lines;
+}
+
+int CanvasDocument::GetSelectedItemCount() const
+{
+    return m_SelectedIds.size();
+}
+
+QVector<ItemId> CanvasDocument::GetSelectedItemIds() const
+{
+    QVector<ItemId> selectedIds;
+    selectedIds.reserve(m_SelectedIds.size());
+    for (const StruLinePrimitive &line : m_Lines) {
+        if (m_SelectedIds.contains(line.id)) {
+            selectedIds.append(line.id);
+        }
+    }
+    return selectedIds;
+}
+
+bool CanvasDocument::IsItemSelected(ItemId id) const
+{
+    return m_SelectedIds.contains(id);
+}
+
+void CanvasDocument::SelectItem(ItemId id)
+{
+    for (const StruLinePrimitive &line : m_Lines) {
+        if (line.id == id && !m_SelectedIds.contains(id)) {
+            m_SelectedIds.insert(id);
+            emit SelectionChanged();
+            return;
+        }
+    }
+}
+
+void CanvasDocument::ToggleItemSelection(ItemId id)
+{
+    for (const StruLinePrimitive &line : m_Lines) {
+        if (line.id != id) {
+            continue;
+        }
+
+        if (m_SelectedIds.contains(id)) {
+            m_SelectedIds.remove(id);
+        } else {
+            m_SelectedIds.insert(id);
+        }
+        emit SelectionChanged();
+        return;
+    }
+}
+
+void CanvasDocument::SelectItems(const QVector<ItemId> &ids,
+                                 bool append,
+                                 bool toggle)
+{
+    QSet<ItemId> existingIds;
+    existingIds.reserve(m_Lines.size());
+    for (const StruLinePrimitive &line : m_Lines) {
+        existingIds.insert(line.id);
+    }
+
+    QSet<ItemId> validIds;
+    for (const ItemId id : ids) {
+        if (existingIds.contains(id)) {
+            validIds.insert(id);
+        }
+    }
+
+    QSet<ItemId> nextSelection = append ? m_SelectedIds : QSet<ItemId>();
+    if (toggle) {
+        for (const ItemId id : validIds) {
+            if (nextSelection.contains(id)) {
+                nextSelection.remove(id);
+            } else {
+                nextSelection.insert(id);
+            }
+        }
+    } else {
+        nextSelection.unite(validIds);
+    }
+
+    if (nextSelection == m_SelectedIds) {
+        return;
+    }
+
+    m_SelectedIds = nextSelection;
+    emit SelectionChanged();
+}
+
+void CanvasDocument::ToggleItems(const QVector<ItemId> &ids)
+{
+    SelectItems(ids, true, true);
+}
+
+void CanvasDocument::ClearSelection()
+{
+    if (m_SelectedIds.isEmpty()) {
+        return;
+    }
+
+    m_SelectedIds.clear();
+    emit SelectionChanged();
 }
 
 QRectF CanvasDocument::GetBounds() const
