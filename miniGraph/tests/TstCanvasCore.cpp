@@ -37,6 +37,9 @@ private slots:
     void PanByMovesWorldPointWithViewportDelta();
     void DocumentTracksLinesAndBounds();
     void DocumentChangesEmitSignals();
+    void DocumentStoresMixedGeometryPools();
+    void DocumentMixedGeometryBoundsAndOrder();
+    void DocumentRejectsInvalidCircularGeometry();
     void CanvasViewWheelUsesCadLabScale();
     void CanvasViewMiddlePanUsesDeadband();
     void CanvasViewKeyboardAndContextSignals();
@@ -125,6 +128,147 @@ void CanvasCoreTest::DocumentChangesEmitSignals()
 
     QCOMPARE(changedSpy.count(), 4);
     QCOMPARE(document.GetItemCount(), 0);
+}
+
+void CanvasCoreTest::DocumentStoresMixedGeometryPools()
+{
+    mini_graph::CanvasDocument document;
+
+    mini_graph::StruPointGeometry pointGeometry;
+    pointGeometry.position = QPointF(1.0, 2.0);
+    const mini_graph::ItemId pointId = document.AddPoint(pointGeometry);
+
+    mini_graph::StruLineGeometry lineGeometry;
+    lineGeometry.startPoint = QPointF(-2.0, 0.0);
+    lineGeometry.endPoint = QPointF(3.0, 4.0);
+    const mini_graph::ItemId lineId = document.AddLine(lineGeometry);
+
+    mini_graph::StruArcGeometry arcGeometry;
+    arcGeometry.center = QPointF(10.0, 10.0);
+    arcGeometry.radius = 5.0;
+    arcGeometry.startAngle = 0.0;
+    arcGeometry.endAngle = 1.5707963267948966;
+    arcGeometry.reversed = false;
+    const mini_graph::ItemId arcId = document.AddArc(arcGeometry);
+
+    mini_graph::StruCircleGeometry circleGeometry;
+    circleGeometry.center = QPointF(-10.0, -5.0);
+    circleGeometry.radius = 2.0;
+    const mini_graph::ItemId circleId = document.AddCircle(circleGeometry);
+
+    QVERIFY(pointId != 0);
+    QVERIFY(lineId != 0);
+    QVERIFY(arcId != 0);
+    QVERIFY(circleId != 0);
+    QVERIFY(pointId != lineId);
+    QVERIFY(lineId != arcId);
+    QVERIFY(arcId != circleId);
+    QCOMPARE(document.GetItemCount(), 4);
+    QCOMPARE(document.GetPointPrimitives().size(), 1);
+    QCOMPARE(document.GetLinePrimitives().size(), 1);
+    QCOMPARE(document.GetArcPrimitives().size(), 1);
+    QCOMPARE(document.GetCirclePrimitives().size(), 1);
+    QCOMPARE(document.GetPointPrimitives().at(0).geometry.position,
+             pointGeometry.position);
+    QCOMPARE(document.GetLinePrimitives().at(0).geometry.startPoint,
+             lineGeometry.startPoint);
+    QCOMPARE(document.GetLinePrimitives().at(0).geometry.endPoint,
+             lineGeometry.endPoint);
+    QCOMPARE(document.GetArcPrimitives().at(0).geometry.center,
+             arcGeometry.center);
+    QCOMPARE(document.GetArcPrimitives().at(0).geometry.radius,
+             arcGeometry.radius);
+    QCOMPARE(document.GetArcPrimitives().at(0).geometry.startAngle,
+             arcGeometry.startAngle);
+    QCOMPARE(document.GetArcPrimitives().at(0).geometry.endAngle,
+             arcGeometry.endAngle);
+    QCOMPARE(document.GetArcPrimitives().at(0).geometry.reversed,
+             arcGeometry.reversed);
+    QCOMPARE(document.GetCirclePrimitives().at(0).geometry.center,
+             circleGeometry.center);
+    QCOMPARE(document.GetCirclePrimitives().at(0).geometry.radius,
+             circleGeometry.radius);
+    QCOMPARE(static_cast<int>(document.GetItemType(pointId)),
+             static_cast<int>(mini_graph::CanvasEntityType::Point));
+    QCOMPARE(static_cast<int>(document.GetItemType(lineId)),
+             static_cast<int>(mini_graph::CanvasEntityType::Line));
+    QCOMPARE(static_cast<int>(document.GetItemType(arcId)),
+             static_cast<int>(mini_graph::CanvasEntityType::Arc));
+    QCOMPARE(static_cast<int>(document.GetItemType(circleId)),
+             static_cast<int>(mini_graph::CanvasEntityType::Circle));
+    QCOMPARE(document.GetItemIds(),
+             QVector<mini_graph::ItemId>() << pointId << lineId << arcId << circleId);
+}
+
+void CanvasCoreTest::DocumentMixedGeometryBoundsAndOrder()
+{
+    mini_graph::CanvasDocument document;
+
+    mini_graph::StruPointGeometry pointGeometry;
+    pointGeometry.position = QPointF(30.0, 40.0);
+    const mini_graph::ItemId pointId = document.AddPoint(pointGeometry);
+
+    mini_graph::StruLineGeometry lineGeometry;
+    lineGeometry.startPoint = QPointF(-5.0, -2.0);
+    lineGeometry.endPoint = QPointF(2.0, 3.0);
+    const mini_graph::ItemId lineId = document.AddLine(lineGeometry);
+
+    mini_graph::StruArcGeometry arcGeometry;
+    arcGeometry.center = QPointF(10.0, 10.0);
+    arcGeometry.radius = 5.0;
+    arcGeometry.startAngle = 0.0;
+    arcGeometry.endAngle = 1.5707963267948966;
+    arcGeometry.reversed = false;
+    const mini_graph::ItemId arcId = document.AddArc(arcGeometry);
+
+    mini_graph::StruCircleGeometry circleGeometry;
+    circleGeometry.center = QPointF(-10.0, -5.0);
+    circleGeometry.radius = 2.0;
+    const mini_graph::ItemId circleId = document.AddCircle(circleGeometry);
+
+    QCOMPARE(document.GetBounds(), QRectF(-12.0, -7.0, 42.0, 47.0));
+
+    document.SelectItems(QVector<mini_graph::ItemId>()
+                             << pointId << lineId << arcId << circleId,
+                         false,
+                         false);
+    QCOMPARE(document.GetSelectedItemCount(), 4);
+    QVERIFY(document.RemoveItem(arcId));
+    QCOMPARE(document.GetItemCount(), 3);
+    QCOMPARE(static_cast<int>(document.GetItemType(arcId)),
+             static_cast<int>(mini_graph::CanvasEntityType::Invalid));
+    QCOMPARE(document.GetSelectedItemCount(), 3);
+    QCOMPARE(document.GetItemIds(),
+             QVector<mini_graph::ItemId>() << pointId << lineId << circleId);
+    QCOMPARE(document.GetSelectedItemIds(),
+             QVector<mini_graph::ItemId>() << pointId << lineId << circleId);
+}
+
+void CanvasCoreTest::DocumentRejectsInvalidCircularGeometry()
+{
+    mini_graph::CanvasDocument document;
+    QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
+
+    mini_graph::StruCircleGeometry zeroRadiusCircle;
+    zeroRadiusCircle.center = QPointF(0.0, 0.0);
+    zeroRadiusCircle.radius = 0.0;
+    QCOMPARE(document.AddCircle(zeroRadiusCircle), mini_graph::ItemId(0));
+
+    mini_graph::StruCircleGeometry negativeRadiusCircle;
+    negativeRadiusCircle.center = QPointF(0.0, 0.0);
+    negativeRadiusCircle.radius = -1.0;
+    QCOMPARE(document.AddCircle(negativeRadiusCircle), mini_graph::ItemId(0));
+
+    mini_graph::StruArcGeometry zeroSweepArc;
+    zeroSweepArc.center = QPointF(0.0, 0.0);
+    zeroSweepArc.radius = 1.0;
+    zeroSweepArc.startAngle = 0.5;
+    zeroSweepArc.endAngle = 0.5;
+    zeroSweepArc.reversed = false;
+    QCOMPARE(document.AddArc(zeroSweepArc), mini_graph::ItemId(0));
+
+    QCOMPARE(document.GetItemCount(), 0);
+    QCOMPARE(changedSpy.count(), 0);
 }
 
 void CanvasCoreTest::CanvasViewWheelUsesCadLabScale()

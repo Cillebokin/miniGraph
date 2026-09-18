@@ -920,11 +920,11 @@ void CanvasView::UploadLineBuffer()
         const float green = color.greenF();
         const float blue = color.blueF();
         const float alpha = color.alphaF();
-        vertices.append({static_cast<float>(line.start.x()),
-                         static_cast<float>(line.start.y()),
+        vertices.append({static_cast<float>(line.geometry.startPoint.x()),
+                         static_cast<float>(line.geometry.startPoint.y()),
                          red, green, blue, alpha});
-        vertices.append({static_cast<float>(line.end.x()),
-                         static_cast<float>(line.end.y()),
+        vertices.append({static_cast<float>(line.geometry.endPoint.x()),
+                         static_cast<float>(line.geometry.endPoint.y()),
                          red, green, blue, alpha});
     }
 
@@ -1005,8 +1005,8 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
     for (int lineIndex = lines.size() - 1; lineIndex >= 0; --lineIndex) {
         const StruLinePrimitive &line = lines.at(lineIndex);
         const qreal distanceSquared = DistanceSquaredToSegment(worldPosition,
-                                                                line.start,
-                                                                line.end);
+                                                                line.geometry.startPoint,
+                                                                line.geometry.endPoint);
         if (distanceSquared <= bestDistanceSquared) {
             if (hitId == 0 || distanceSquared < bestDistanceSquared) {
                 bestDistanceSquared = distanceSquared;
@@ -1030,9 +1030,11 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
     const QVector<StruLinePrimitive> &lines = m_Document->GetLinePrimitives();
     for (const StruLinePrimitive &line : lines) {
         const bool selected = crossing
-                ? SegmentIntersectsRect(line.start, line.end, normalizedRect)
-                : (normalizedRect.contains(line.start)
-                   && normalizedRect.contains(line.end));
+                ? SegmentIntersectsRect(line.geometry.startPoint,
+                                        line.geometry.endPoint,
+                                        normalizedRect)
+                : (normalizedRect.contains(line.geometry.startPoint)
+                   && normalizedRect.contains(line.geometry.endPoint));
         if (selected) {
             selectedIds.append(line.id);
         }
