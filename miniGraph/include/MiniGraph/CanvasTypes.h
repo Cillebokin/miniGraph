@@ -5,6 +5,7 @@
 #include <QColor>
 #include <QMetaType>
 #include <QPointF>
+#include <QVector>
 #include <QtGlobal>
 
 namespace mini_graph {
@@ -19,7 +20,8 @@ enum class CanvasEntityType : quint8
     Point,
     Line,
     Arc,
-    Circle
+    Circle,
+    Polyline
 };
 
 // 画布中的点几何数据。
@@ -98,6 +100,67 @@ struct StruCircleGeometry
     qreal radius;
 };
 
+// 画布中的多段线几何数据。
+struct StruPolylineGeometry
+{
+    // 创建一个开放且不含顶点的多段线几何数据。
+    StruPolylineGeometry()
+        : closed(false)
+    {
+    }
+
+    // 按绘制顺序排列的世界坐标顶点。
+    QVector<QPointF> vertices;
+
+    // 是否闭合；闭合时自动连接末点与首点。
+    bool closed;
+};
+
+// 画布图元的统一显示样式。
+struct StruCanvasStyle
+{
+    // 创建默认的画布图元显示样式。
+    StruCanvasStyle()
+        : strokeColor(Qt::white)
+        , selectedStrokeColor(165, 71, 71)
+        , strokeWidth(1.0)
+        , pointSize(6.0)
+        , visible(true)
+    {
+    }
+
+    // 图元未选中时使用的颜色。
+    QColor strokeColor;
+
+    // 图元选中时使用的颜色。
+    QColor selectedStrokeColor;
+
+    // 图元线宽，单位为视口像素。
+    qreal strokeWidth;
+
+    // 点图元的显示尺寸，单位为视口像素。
+    qreal pointSize;
+
+    // 是否显示图元。
+    bool visible;
+
+    // 比较两个显示样式是否完全相同。
+    bool operator==(const StruCanvasStyle &other) const
+    {
+        return strokeColor == other.strokeColor
+                && selectedStrokeColor == other.selectedStrokeColor
+                && strokeWidth == other.strokeWidth
+                && pointSize == other.pointSize
+                && visible == other.visible;
+    }
+
+    // 比较两个显示样式是否存在差异。
+    bool operator!=(const StruCanvasStyle &other) const
+    {
+        return !(*this == other);
+    }
+};
+
 // 画布中的点图元存储数据。
 struct StruPointPrimitive
 {
@@ -106,6 +169,9 @@ struct StruPointPrimitive
 
     // 点的几何数据。
     StruPointGeometry geometry;
+
+    // 点图元的显示样式。
+    StruCanvasStyle style;
 };
 
 // 画布中的线段图元存储数据。
@@ -118,10 +184,15 @@ struct StruLinePrimitive
     // 线段几何数据。
     StruLineGeometry geometry;
 
-    // 线段颜色，默认使用白色。
+    // 线段的显示样式。
+    StruCanvasStyle style;
+
+    // 兼容旧接口的线段颜色镜像值。
+    // 新代码应通过 style.strokeColor 访问和修改显示样式。
     QColor color = QColor(Qt::white);
 
-    // 线段宽度，默认值为 1.0。
+    // 兼容旧接口的线段宽度镜像值。
+    // 新代码应通过 style.strokeWidth 访问和修改显示样式。
     qreal width = 1.0;
 };
 
@@ -133,6 +204,9 @@ struct StruArcPrimitive
 
     // 圆弧的几何数据。
     StruArcGeometry geometry;
+
+    // 圆弧图元的显示样式。
+    StruCanvasStyle style;
 };
 
 // 画布中的圆图元存储数据。
@@ -143,6 +217,22 @@ struct StruCirclePrimitive
 
     // 圆的几何数据。
     StruCircleGeometry geometry;
+
+    // 圆图元的显示样式。
+    StruCanvasStyle style;
+};
+
+// 画布中的多段线图元存储数据。
+struct StruPolylinePrimitive
+{
+    // 图元唯一标识，由 CanvasDocument 分配。
+    ItemId id = 0;
+
+    // 多段线几何数据。
+    StruPolylineGeometry geometry;
+
+    // 多段线图元的显示样式。
+    StruCanvasStyle style;
 };
 
 } // namespace mini_graph
@@ -152,7 +242,10 @@ Q_DECLARE_METATYPE(mini_graph::StruPointGeometry)
 Q_DECLARE_METATYPE(mini_graph::StruLineGeometry)
 Q_DECLARE_METATYPE(mini_graph::StruArcGeometry)
 Q_DECLARE_METATYPE(mini_graph::StruCircleGeometry)
+Q_DECLARE_METATYPE(mini_graph::StruPolylineGeometry)
+Q_DECLARE_METATYPE(mini_graph::StruCanvasStyle)
 Q_DECLARE_METATYPE(mini_graph::StruPointPrimitive)
 Q_DECLARE_METATYPE(mini_graph::StruLinePrimitive)
 Q_DECLARE_METATYPE(mini_graph::StruArcPrimitive)
 Q_DECLARE_METATYPE(mini_graph::StruCirclePrimitive)
+Q_DECLARE_METATYPE(mini_graph::StruPolylinePrimitive)

@@ -39,18 +39,48 @@ public:
 
     // 向文档中添加一个点。
     // 返回新建图元的唯一标识。
+    ItemId AddPoint(const QPointF &position);
+
+    // 按几何数据向文档中添加一个点。
+    // 返回新建图元的唯一标识。
     ItemId AddPoint(const StruPointGeometry &geometry);
 
     // 向文档中添加一段圆弧。
+    // 半径必须大于 0，起止角不能相同；非法几何返回 0。
+    ItemId AddArc(const QPointF &center,
+                  qreal radius,
+                  qreal startAngle,
+                  qreal endAngle,
+                  bool reversed = false);
+
+    // 按几何数据向文档中添加一段圆弧。
     // 半径必须大于 0，起止角不能相同；非法几何返回 0。
     ItemId AddArc(const StruArcGeometry &geometry);
 
     // 向文档中添加一个圆。
     // 半径必须大于 0；非法几何返回 0。
+    ItemId AddCircle(const QPointF &center,
+                     qreal radius);
+
+    // 按几何数据向文档中添加一个圆。
+    // 半径必须大于 0；非法几何返回 0。
     ItemId AddCircle(const StruCircleGeometry &geometry);
+
+    // 按顶点列表向文档中添加一条多段线。
+    // 开放多段线至少需要 2 个有限顶点，闭合多段线至少需要 3 个有限顶点。
+    ItemId AddPolyline(const QVector<QPointF> &vertices,
+                       bool closed = false);
+
+    // 按几何数据向文档中添加一条多段线；非法几何返回 0。
+    ItemId AddPolyline(const StruPolylineGeometry &geometry);
 
     // 按图元标识删除图元，找到并删除时返回 true，否则返回 false。
     bool RemoveItem(ItemId id);
+
+    // 按世界坐标增量平移指定图元。
+    // ids 中不存在的图元会被忽略；发生实际变化时发出 Changed()。
+    bool TranslateItems(const QVector<ItemId> &ids,
+                        const QPointF &delta);
 
     // 清空文档中的全部图元。
     void Clear();
@@ -74,11 +104,53 @@ public:
     // 返回值是文档内部容器的只读引用，文档发生修改后引用内容可能变化。
     const QVector<StruCirclePrimitive> &GetCirclePrimitives() const;
 
+    // 返回当前保存的多段线图元列表。
+    // 返回值是文档内部容器的只读引用，文档发生修改后引用内容可能变化。
+    const QVector<StruPolylinePrimitive> &GetPolylinePrimitives() const;
+
     // 返回全部图元标识，结果按照图元添加顺序排列。
     QVector<ItemId> GetItemIds() const;
 
     // 返回指定图元的几何类型，不存在时返回 Invalid。
     CanvasEntityType GetItemType(ItemId id) const;
+
+    // 返回指定图元的显示样式。
+    // 图元不存在或 style 为空时返回 false。
+    bool GetItemStyle(ItemId id, StruCanvasStyle *style) const;
+
+    // 设置指定图元的显示样式。
+    // 图元不存在或样式参数非法时返回 false；样式发生变化时发出 Changed()。
+    bool SetItemStyle(ItemId id, const StruCanvasStyle &style);
+
+    // 返回指定点图元的几何数据，图元类型不匹配或 geometry 为空时返回 false。
+    bool GetPointGeometry(ItemId id, StruPointGeometry *geometry) const;
+
+    // 更新指定点图元的几何数据，数据发生变化时发出 Changed()。
+    bool SetPointGeometry(ItemId id, const StruPointGeometry &geometry);
+
+    // 返回指定线段图元的几何数据，图元类型不匹配或 geometry 为空时返回 false。
+    bool GetLineGeometry(ItemId id, StruLineGeometry *geometry) const;
+
+    // 更新指定线段图元的几何数据，数据发生变化时发出 Changed()。
+    bool SetLineGeometry(ItemId id, const StruLineGeometry &geometry);
+
+    // 返回指定圆弧图元的几何数据，图元类型不匹配或 geometry 为空时返回 false。
+    bool GetArcGeometry(ItemId id, StruArcGeometry *geometry) const;
+
+    // 更新指定圆弧图元的几何数据，非法数据或类型不匹配时返回 false。
+    bool SetArcGeometry(ItemId id, const StruArcGeometry &geometry);
+
+    // 返回指定圆图元的几何数据，图元类型不匹配或 geometry 为空时返回 false。
+    bool GetCircleGeometry(ItemId id, StruCircleGeometry *geometry) const;
+
+    // 更新指定圆图元的几何数据，非法数据或类型不匹配时返回 false。
+    bool SetCircleGeometry(ItemId id, const StruCircleGeometry &geometry);
+
+    // 返回指定多段线图元的几何数据，类型不匹配或 geometry 为空时返回 false。
+    bool GetPolylineGeometry(ItemId id, StruPolylineGeometry *geometry) const;
+
+    // 更新指定多段线图元的几何数据，非法数据或类型不匹配时返回 false。
+    bool SetPolylineGeometry(ItemId id, const StruPolylineGeometry &geometry);
 
     // 返回当前被选中的图元数量。
     int GetSelectedItemCount() const;
@@ -113,6 +185,10 @@ public:
     // 文档非空时返回包围矩形，文档为空时返回空矩形。
     QRectF GetBounds() const;
 
+    // 计算指定图元集合的包围矩形。
+    // 不存在的图元会被忽略，ids 为空时返回空矩形。
+    QRectF GetBounds(const QVector<ItemId> &ids) const;
+
 signals:
     // 文档中的图元集合或图元数据发生变化时发出。
     void Changed();
@@ -121,6 +197,12 @@ signals:
     void SelectionChanged();
 
 private:
+    // 查找指定图元的可写显示样式。
+    StruCanvasStyle *FindItemStyle(ItemId id);
+
+    // 查找指定图元的只读显示样式。
+    const StruCanvasStyle *FindItemStyle(ItemId id) const;
+
     // 当前文档保存的点图元。
     QVector<StruPointPrimitive> m_Points;
 
@@ -132,6 +214,9 @@ private:
 
     // 当前文档保存的圆图元。
     QVector<StruCirclePrimitive> m_Circles;
+
+    // 当前文档保存的多段线图元。
+    QVector<StruPolylinePrimitive> m_Polylines;
 
     // 当前文档中全部图元的添加顺序。
     QVector<ItemId> m_ItemOrder;

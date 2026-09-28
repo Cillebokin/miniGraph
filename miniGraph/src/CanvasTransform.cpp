@@ -2,6 +2,8 @@
 
 #include <QtGlobal>
 
+#include <cmath>
+
 namespace mini_graph {
 
 namespace {
@@ -74,6 +76,51 @@ void CanvasTransform::ZoomAt(const QPointF &viewportPoint,
     const QPointF worldPoint = MapToWorld(viewportPoint, viewportSize);
     SetZoom(m_Zoom * factor);
     m_Center += worldPoint - MapToWorld(viewportPoint, viewportSize);
+}
+
+bool CanvasTransform::FitRect(const QRectF &worldRect,
+                              const QSizeF &viewportSize,
+                              qreal marginPixels)
+{
+    if (!std::isfinite(static_cast<double>(viewportSize.width()))
+            || !std::isfinite(static_cast<double>(viewportSize.height()))
+            || viewportSize.width() <= 0.0
+            || viewportSize.height() <= 0.0) {
+        return false;
+    }
+
+    const qreal coordinates[] = {
+        worldRect.left(),
+        worldRect.top(),
+        worldRect.right(),
+        worldRect.bottom()
+    };
+    for (const qreal coordinate : coordinates) {
+        if (!std::isfinite(static_cast<double>(coordinate))) {
+            return false;
+        }
+    }
+
+    const QRectF normalizedRect = worldRect.normalized();
+    const qreal requestedMargin = std::isfinite(static_cast<double>(marginPixels))
+            ? qMax<qreal>(0.0, marginPixels)
+            : 0.0;
+    const qreal maximumMargin = qMin(viewportSize.width(),
+                                     viewportSize.height()) * 0.49;
+    const qreal effectiveMargin = qMin(requestedMargin, maximumMargin);
+    const qreal availableWidth = qMax<qreal>(1.0,
+                                             viewportSize.width()
+                                             - effectiveMargin * 2.0);
+    const qreal availableHeight = qMax<qreal>(1.0,
+                                              viewportSize.height()
+                                              - effectiveMargin * 2.0);
+    const qreal worldWidth = qMax<qreal>(1.0, normalizedRect.width());
+    const qreal worldHeight = qMax<qreal>(1.0, normalizedRect.height());
+
+    m_Center = normalizedRect.center();
+    SetZoom(qMin(availableWidth / worldWidth,
+                 availableHeight / worldHeight));
+    return true;
 }
 
 void CanvasTransform::Reset()

@@ -1,45 +1,60 @@
 #include "MiniGraph/CanvasView.h"
 
+#include "CanvasPainterRenderer.h"
 #include "MiniGraph/CanvasDocument.h"
+#include "MiniGraph/CanvasGeometry.h"
+#include "MiniGraph/CanvasRenderer.h"
+#include "MiniGraph/CanvasSnap.h"
 
-#include <QOpenGLBuffer>
-#include <QOpenGLContext>
-#include <QOpenGLFunctions>
-#include <QOpenGLShader>
-#include <QOpenGLShaderProgram>
-#include <QMatrix4x4>
 #include <QFont>
+#include <QImage>
 #include <QKeyEvent>
 #include <QLineF>
 #include <QMouseEvent>
-#include <QDebug>
+#include <QPaintEvent>
 #include <QPainter>
+#include <QResizeEvent>
 #include <QWheelEvent>
+#include <QtGlobal>
 
 #include <cmath>
+#include <limits>
 
 namespace mini_graph {
 
 namespace {
 
-struct StruLineVertex
-{
-    float x;
-    float y;
-    float r;
-    float g;
-    float b;
-    float a;
-};
-
 const qreal CADLAB_MIN_GRID_PIXEL_SPACING = 10.0;
 const qreal CADLAB_MAX_GRID_PIXEL_SPACING = 100.0;
 const qreal SELECTION_DRAG_THRESHOLD = 7.0;
 const qreal SELECTION_HIT_TOLERANCE_PIXELS = 6.0;
+const qreal EDIT_HANDLE_SIZE_PIXELS = 7.0;
+const qreal EDIT_HANDLE_HIT_TOLERANCE_PIXELS = 9.0;
 
 const QColor CADLAB_WINDOW_SELECTION_COLOR(9, 9, 255, 60);
 const QColor CADLAB_CROSSING_SELECTION_COLOR(9, 255, 9, 60);
-const QColor CADLAB_SELECTED_ITEM_COLOR(165, 71, 71);
+const QColor CADLAB_EDIT_HANDLE_COLOR(0, 170, 255);
+const QColor CADLAB_ACTIVE_EDIT_HANDLE_COLOR(255, 165, 0);
+const QColor CADLAB_SNAP_MARKER_COLOR(255, 220, 0);
+
+bool HasBoundedIntersection(const QLineF &first, const QLineF &second)
+{
+    QPointF intersection;
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    return first.intersects(second, &intersection) == QLineF::BoundedIntersection;
+#else
+    return first.intersect(second, &intersection) == QLineF::BoundedIntersection;
+#endif
+}
+
+QPointF GetWheelEventPosition(const QWheelEvent *event)
+{
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    return event->position();
+#else
+    return event->posF();
+#endif
+}
 
 qreal CalculateCadLabGridSpacing(qreal baseSpacing, qreal zoom)
 {
@@ -95,8 +110,7 @@ bool SegmentIntersectsRect(const QPointF &start,
     };
 
     for (const QLineF &edge : edges) {
-        QPointF intersection;
-        if (segment.intersect(edge, &intersection) == QLineF::BoundedIntersection) {
+        if (HasBoundedIntersection(segment, edge)) {
             return true;
         }
     }
@@ -104,24 +118,101 @@ bool SegmentIntersectsRect(const QPointF &start,
     return false;
 }
 
-const char *LINE_VERTEX_SHADER =
-        "attribute vec2 a_position;\n"
-        "attribute vec4 a_color;\n"
-        "uniform mat4 u_matrix;\n"
-        "varying vec4 v_color;\n"
-        "void main() {\n"
-        "    gl_Position = u_matrix * vec4(a_position, 0.0, 1.0);\n"
-        "    v_color = a_color;\n"
-        "}\n";
+bool PolylineIntersectsRect(const QVector<QPointF> &points,
+                            const QRectF &rect,
+                            bool closed = false)
+{
+    if (points.isEmpty()) {
+        return false;
+    }
 
-const char *LINE_FRAGMENT_SHADER =
-        "#ifdef GL_ES\n"
-        "precision mediump float;\n"
-        "#endif\n"
-        "varying vec4 v_color;\n"
-        "void main() {\n"
-        "    gl_FragColor = v_color;\n"
-        "}\n";
+    for (const QPointF &point : points) {
+        if (rect.contains(point)) {
+            return true;
+        }
+    }
+
+    for (int index = 1; index < points.size(); ++index) {
+        if (SegmentIntersectsRect(points.at(index - 1),
+                                  points.at(index),
+                                  rect)) {
+            return true;
+        }
+    }
+
+    if (closed && points.size() > 2
+            && SegmentIntersectsRect(points.last(), points.first(), rect)) {
+        return true;
+    }
+
+    return false;
+}
+
+bool IsGeometryBoundsContained(const QRectF &geometryBounds,
+                               const QRectF &selectionRect)
+{
+    return selectionRect.contains(geometryBounds.topLeft())
+            && selectionRect.contains(geometryBounds.bottomRight());
+}
+
+qreal DistanceSquaredToArc(const QPointF &point,
+                           const StruArcGeometry &geometry)
+{
+    const QPointF delta = point - geometry.center;
+    const qreal distance = std::hypot(delta.x(), delta.y());
+    if (distance > 0.0 && IsAngleOnArc(geometry, std::atan2(delta.y(), delta.x()))) {
+        const qreal radialDelta = distance - geometry.radius;
+        return radialDelta * radialDelta;
+    }
+
+    const QPointF startPoint = CalculateArcPoint(geometry, geometry.startAngle);
+    const QPointF endPoint = CalculateArcPoint(geometry, geometry.endAngle);
+    const QPointF startDelta = point - startPoint;
+    const QPointF endDelta = point - endPoint;
+    return qMin(QPointF::dotProduct(startDelta, startDelta),
+                QPointF::dotProduct(endDelta, endDelta));
+}
+
+qreal DistanceSquaredToCircle(const QPointF &point,
+                              const StruCircleGeometry &geometry)
+{
+    const QPointF delta = point - geometry.center;
+    const qreal distance = std::hypot(delta.x(), delta.y());
+    const qreal radialDelta = distance - geometry.radius;
+    return radialDelta * radialDelta;
+}
+
+qreal DistanceSquaredToPolyline(const QPointF &point,
+                                const StruPolylineGeometry &geometry)
+{
+    qreal bestDistanceSquared = std::numeric_limits<qreal>::max();
+    for (int index = 1; index < geometry.vertices.size(); ++index) {
+        bestDistanceSquared = qMin(
+                    bestDistanceSquared,
+                    DistanceSquaredToSegment(point,
+                                             geometry.vertices.at(index - 1),
+                                             geometry.vertices.at(index)));
+    }
+
+    if (geometry.closed && geometry.vertices.size() > 2) {
+        bestDistanceSquared = qMin(
+                    bestDistanceSquared,
+                    DistanceSquaredToSegment(point,
+                                             geometry.vertices.last(),
+                                             geometry.vertices.first()));
+    }
+
+    return bestDistanceSquared;
+}
+
+qreal CalculateHitToleranceSquared(qreal zoom, qreal displaySize)
+{
+    const qreal halfDisplaySize = qMax<qreal>(0.0, displaySize) * 0.5;
+    const qreal pixelTolerance = qMax(SELECTION_HIT_TOLERANCE_PIXELS,
+                                      halfDisplaySize);
+    const qreal worldTolerance = pixelTolerance / zoom;
+    return worldTolerance * worldTolerance;
+}
 
 } // namespace
 
@@ -129,19 +220,15 @@ class CanvasViewPrivate
 {
 public:
     CanvasViewPrivate()
-        : m_LineBuffer(QOpenGLBuffer::VertexBuffer)
+        : m_DefaultRenderer(new CanvasPainterRenderer)
     {
     }
 
-    QOpenGLFunctions *m_GL = nullptr;
-    QOpenGLShaderProgram m_LineProgram;
-    QOpenGLBuffer m_LineBuffer;
-    bool m_LineProgramReady = false;
-    bool m_LineBufferDirty = true;
+    std::unique_ptr<CanvasPainterRenderer> m_DefaultRenderer;
 };
 
 CanvasView::CanvasView(QWidget *parent)
-    : QOpenGLWidget(parent)
+    : QWidget(parent)
     , m_GridVisible(true)
     , m_GridSpacing(10.0)
     , m_AxisVisible(true)
@@ -154,6 +241,18 @@ CanvasView::CanvasView(QWidget *parent)
     , m_SelectionStartPosition(0.0, 0.0)
     , m_SelectionCurrentPosition(0.0, 0.0)
     , m_SelectionModifiers(Qt::NoModifier)
+    , m_PressedItemId(0)
+    , m_MoveLastWorldPosition(0.0, 0.0)
+    , m_MoveTotalWorldDelta(0.0, 0.0)
+    , m_SnapEnabled(false)
+    , m_GridSnapEnabled(true)
+    , m_GeometrySnapEnabled(true)
+    , m_CurrentMousePosition(0.0, 0.0)
+    , m_EditHandleType(EditHandleType::None)
+    , m_EditVertexIndex(-1)
+    , m_EditItemId(0)
+    , m_EditEntityType(CanvasEntityType::Invalid)
+    , m_EditGeometryChanged(false)
     , m_PrivateData(new CanvasViewPrivate)
 {
     setFocusPolicy(Qt::StrongFocus);
@@ -162,7 +261,6 @@ CanvasView::CanvasView(QWidget *parent)
 
 CanvasView::~CanvasView()
 {
-    CleanupGL();
 }
 
 CanvasDocument *CanvasView::GetDocument() const
@@ -176,11 +274,14 @@ void CanvasView::SetDocument(CanvasDocument *document)
         return;
     }
 
+    CancelEdit();
+    CancelMove();
     QObject::disconnect(m_DocumentConnection);
     QObject::disconnect(m_DocumentSelectionConnection);
     m_Document = document;
-    m_PrivateData->m_LineBufferDirty = true;
     m_SelectionState = SelectionState::Idle;
+    m_PressedItemId = 0;
+    m_SelectionModifiers = Qt::NoModifier;
 
     if (m_Document) {
         m_DocumentConnection = connect(m_Document.data(),
@@ -193,6 +294,47 @@ void CanvasView::SetDocument(CanvasDocument *document)
                                                 &CanvasView::OnSelectionChanged);
     }
 
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
+    update();
+}
+
+CanvasRenderer *CanvasView::GetCustomRenderer() const
+{
+    return m_CustomRenderer.data();
+}
+
+void CanvasView::SetCustomRenderer(CanvasRenderer *renderer)
+{
+    if (m_CustomRenderer.data() == renderer) {
+        return;
+    }
+
+    QObject::disconnect(m_CustomRendererDestroyedConnection);
+    QObject::disconnect(m_CustomRendererUpdateConnection);
+    m_CustomRenderer = renderer;
+
+    if (m_CustomRenderer) {
+        m_CustomRendererDestroyedConnection = connect(
+                    m_CustomRenderer.data(),
+                    &QObject::destroyed,
+                    this,
+            [this]() {
+            m_CustomRenderer = nullptr;
+            m_CustomRendererDestroyedConnection = QMetaObject::Connection();
+            m_CustomRendererUpdateConnection = QMetaObject::Connection();
+            update();
+        });
+        m_CustomRendererUpdateConnection = connect(
+                    m_CustomRenderer.data(),
+                    &CanvasRenderer::UpdateRequested,
+                    this,
+                    [this]() {
+            update();
+        });
+    } else {
+        m_CustomRendererDestroyedConnection = QMetaObject::Connection();
+        m_CustomRendererUpdateConnection = QMetaObject::Connection();
+    }
     update();
 }
 
@@ -225,6 +367,7 @@ void CanvasView::SetGridSpacing(qreal spacing)
 
     m_GridSpacing = spacing;
     emit GridSpacingChanged(m_GridSpacing);
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
     update();
 }
 
@@ -293,10 +436,98 @@ bool CanvasView::IsOrthogonalMode() const
     return m_OrthogonalMode;
 }
 
+bool CanvasView::IsSnapEnabled() const
+{
+    return m_SnapEnabled;
+}
+
+void CanvasView::SetSnapEnabled(bool enabled)
+{
+    if (m_SnapEnabled == enabled) {
+        return;
+    }
+
+    m_SnapEnabled = enabled;
+    emit SnapEnabledChanged(m_SnapEnabled);
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
+}
+
+bool CanvasView::IsGridSnapEnabled() const
+{
+    return m_GridSnapEnabled;
+}
+
+void CanvasView::SetGridSnapEnabled(bool enabled)
+{
+    if (m_GridSnapEnabled == enabled) {
+        return;
+    }
+
+    m_GridSnapEnabled = enabled;
+    emit GridSnapEnabledChanged(m_GridSnapEnabled);
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
+}
+
+bool CanvasView::IsGeometrySnapEnabled() const
+{
+    return m_GeometrySnapEnabled;
+}
+
+void CanvasView::SetGeometrySnapEnabled(bool enabled)
+{
+    if (m_GeometrySnapEnabled == enabled) {
+        return;
+    }
+
+    m_GeometrySnapEnabled = enabled;
+    emit GeometrySnapEnabledChanged(m_GeometrySnapEnabled);
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
+}
+
+CanvasSnapResult CanvasView::GetCurrentSnapResult() const
+{
+    return m_CurrentSnapResult;
+}
+
 void CanvasView::ResetView()
 {
     m_Transform.Reset();
     emit ZoomChanged(m_Transform.GetZoom());
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
+    update();
+}
+
+bool CanvasView::FitAll(qreal marginPixels)
+{
+    if (!m_Document || m_Document->GetItemCount() <= 0) {
+        return false;
+    }
+
+    return FitWorldRect(m_Document->GetBounds(), marginPixels);
+}
+
+bool CanvasView::FitSelection(qreal marginPixels)
+{
+    if (!m_Document) {
+        return false;
+    }
+
+    const QVector<ItemId> selectedIds = m_Document->GetSelectedItemIds();
+    if (selectedIds.isEmpty()) {
+        return false;
+    }
+
+    return FitWorldRect(m_Document->GetBounds(selectedIds), marginPixels);
+}
+
+void CanvasView::CenterOnWorld(const QPointF &worldPosition)
+{
+    if (m_Transform.GetCenter() == worldPosition) {
+        return;
+    }
+
+    m_Transform.SetCenter(worldPosition);
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
     update();
 }
 
@@ -310,44 +541,11 @@ void CanvasView::SetOrthogonalModeInternal(bool enabled)
     emit OrthogonalModeChanged(m_OrthogonalMode);
 }
 
-void CanvasView::initializeGL()
+void CanvasView::resizeEvent(QResizeEvent *event)
 {
-    m_PrivateData->m_GL = context()->functions();
-    m_PrivateData->m_GL->initializeOpenGLFunctions();
-    m_PrivateData->m_LineProgramReady = false;
-    if (m_PrivateData->m_LineBuffer.isCreated()) {
-        m_PrivateData->m_LineBuffer.destroy();
-    }
-    m_PrivateData->m_LineProgram.removeAllShaders();
-
-    connect(context(),
-            &QOpenGLContext::aboutToBeDestroyed,
-            this,
-            &CanvasView::CleanupGL,
-            Qt::DirectConnection);
-
-    m_PrivateData->m_LineProgramReady = m_PrivateData->m_LineProgram.addShaderFromSourceCode(
-                QOpenGLShader::Vertex,
-                LINE_VERTEX_SHADER)
-            && m_PrivateData->m_LineProgram.addShaderFromSourceCode(QOpenGLShader::Fragment,
-                                                                     LINE_FRAGMENT_SHADER)
-            && m_PrivateData->m_LineProgram.link();
-
-    if (!m_PrivateData->m_LineProgramReady) {
-        qWarning("MiniGraph: failed to initialize the line shader: %s",
-                 qPrintable(m_PrivateData->m_LineProgram.log()));
-        m_PrivateData->m_LineProgram.removeAllShaders();
-        return;
-    }
-
-    m_PrivateData->m_LineBuffer.create();
-    m_PrivateData->m_LineBufferDirty = true;
-}
-
-void CanvasView::resizeGL(int width, int height)
-{
-    Q_UNUSED(width)
-    Q_UNUSED(height)
+    QWidget::resizeEvent(event);
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
+    update();
 }
 
 void CanvasView::keyPressEvent(QKeyEvent *event)
@@ -361,9 +559,15 @@ void CanvasView::keyPressEvent(QKeyEvent *event)
     }
 
     if (event->key() == Qt::Key_Escape) {
+        CancelEdit();
+        CancelMove();
         m_PanState = PanState::Idle;
         m_SelectionState = SelectionState::Idle;
         m_SelectionModifiers = Qt::NoModifier;
+        m_PressedItemId = 0;
+        if (m_Document) {
+            m_Document->ClearSelection();
+        }
         SetOrthogonalModeInternal(false);
         unsetCursor();
         emit InteractionCancelled();
@@ -372,7 +576,26 @@ void CanvasView::keyPressEvent(QKeyEvent *event)
         return;
     }
 
-    QOpenGLWidget::keyPressEvent(event);
+    if (event->key() == Qt::Key_Delete
+            || event->key() == Qt::Key_Backspace) {
+        CancelEdit();
+        CancelMove();
+        m_SelectionState = SelectionState::Idle;
+        m_SelectionModifiers = Qt::NoModifier;
+        m_PressedItemId = 0;
+        if (m_Document) {
+            const QVector<ItemId> selectedIds = m_Document->GetSelectedItemIds();
+            for (const ItemId id : selectedIds) {
+                m_Document->RemoveItem(id);
+            }
+        }
+        unsetCursor();
+        update();
+        event->accept();
+        return;
+    }
+
+    QWidget::keyPressEvent(event);
 }
 
 void CanvasView::keyReleaseEvent(QKeyEvent *event)
@@ -385,19 +608,25 @@ void CanvasView::keyReleaseEvent(QKeyEvent *event)
         return;
     }
 
-    QOpenGLWidget::keyReleaseEvent(event);
+    QWidget::keyReleaseEvent(event);
 }
 
 void CanvasView::mousePressEvent(QMouseEvent *event)
 {
-    emit MouseWorldPositionChanged(MapToWorld(event->localPos()));
+    m_CurrentMousePosition = event->localPos();
+    const QPointF mouseWorldPosition = MapToWorld(m_CurrentMousePosition);
+    emit MouseWorldPositionChanged(mouseWorldPosition);
+    UpdateSnap(mouseWorldPosition);
 
     if (event->button() == Qt::MiddleButton) {
         if (isVisible()) {
             setFocus(Qt::MouseFocusReason);
         }
+        CancelEdit();
+        ResetMoveState();
         m_SelectionState = SelectionState::Idle;
         m_SelectionModifiers = Qt::NoModifier;
+        m_PressedItemId = 0;
         m_PanState = PanState::Pressed;
         m_PanStartPosition = event->localPos();
         m_LastMousePosition = event->localPos();
@@ -407,8 +636,11 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
     }
 
     if (event->button() == Qt::RightButton) {
+        CancelEdit();
+        ResetMoveState();
         m_SelectionState = SelectionState::Idle;
         m_SelectionModifiers = Qt::NoModifier;
+        m_PressedItemId = 0;
         event->accept();
         return;
     }
@@ -421,27 +653,73 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
         if (isVisible()) {
             setFocus(Qt::MouseFocusReason);
         }
+
+        if (m_Document && m_Document->GetSelectedItemCount() == 1) {
+            const QVector<ItemId> selectedIds = m_Document->GetSelectedItemIds();
+            int vertexIndex = -1;
+            const EditHandleType handleType = HitTestEditHandle(event->localPos(),
+                                                                 &vertexIndex);
+            if (selectedIds.size() == 1
+                    && handleType != EditHandleType::None
+                    && BeginEdit(selectedIds.first(), handleType, vertexIndex)) {
+                m_SelectionState = SelectionState::Editing;
+                m_SelectionStartPosition = event->localPos();
+                m_SelectionCurrentPosition = event->localPos();
+                m_SelectionModifiers = event->modifiers();
+                m_PressedItemId = selectedIds.first();
+                setCursor(Qt::CrossCursor);
+                event->accept();
+                return;
+            }
+        }
+
         m_SelectionState = SelectionState::Pressed;
         m_SelectionStartPosition = event->localPos();
         m_SelectionCurrentPosition = event->localPos();
         m_SelectionModifiers = event->modifiers();
+        m_PressedItemId = HitTestItem(event->localPos());
         event->accept();
         return;
     }
 
-    QOpenGLWidget::mousePressEvent(event);
+    QWidget::mousePressEvent(event);
 }
 
 void CanvasView::mouseMoveEvent(QMouseEvent *event)
 {
     const QPointF currentMousePosition = event->localPos();
-    emit MouseWorldPositionChanged(MapToWorld(currentMousePosition));
+    m_CurrentMousePosition = currentMousePosition;
+    const QPointF mouseWorldPosition = MapToWorld(currentMousePosition);
+    emit MouseWorldPositionChanged(mouseWorldPosition);
+    UpdateSnap(mouseWorldPosition);
 
     if (m_PanState == PanState::Idle) {
-        if (m_SelectionState != SelectionState::Idle) {
+        if (m_SelectionState == SelectionState::Editing) {
             if (!(event->buttons() & Qt::LeftButton)) {
+                CancelEdit();
                 m_SelectionState = SelectionState::Idle;
                 m_SelectionModifiers = Qt::NoModifier;
+                m_PressedItemId = 0;
+                unsetCursor();
+                update();
+                event->accept();
+                return;
+            }
+
+            m_SelectionCurrentPosition = currentMousePosition;
+            UpdateEdit(MapToWorld(currentMousePosition));
+            update();
+            event->accept();
+            return;
+        }
+
+        if (m_SelectionState != SelectionState::Idle) {
+            if (!(event->buttons() & Qt::LeftButton)) {
+                ResetMoveState();
+                m_SelectionState = SelectionState::Idle;
+                m_SelectionModifiers = Qt::NoModifier;
+                m_PressedItemId = 0;
+                unsetCursor();
                 update();
                 event->accept();
                 return;
@@ -453,7 +731,40 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
                 const qreal distanceSquared = QPointF::dotProduct(delta, delta);
                 if (distanceSquared >= SELECTION_DRAG_THRESHOLD
                         * SELECTION_DRAG_THRESHOLD) {
-                    m_SelectionState = SelectionState::Dragging;
+                    if (m_PressedItemId != 0 && m_Document) {
+                        if (!m_Document->IsItemSelected(m_PressedItemId)) {
+                            const bool append = (m_SelectionModifiers
+                                                 & Qt::ShiftModifier) != 0;
+                            ApplySingleSelection(m_PressedItemId, append);
+                        }
+
+                        if (m_Document->IsItemSelected(m_PressedItemId)) {
+                            m_MoveItemIds = m_Document->GetSelectedItemIds();
+                            m_MoveLastWorldPosition = MapToWorld(
+                                        m_SelectionStartPosition);
+                            m_MoveTotalWorldDelta = QPointF(0.0, 0.0);
+                            m_SelectionState = SelectionState::Moving;
+                            setCursor(Qt::SizeAllCursor);
+                        } else {
+                            m_SelectionState = SelectionState::Dragging;
+                        }
+                    } else {
+                        m_SelectionState = SelectionState::Dragging;
+                    }
+                }
+            }
+
+            if (m_SelectionState == SelectionState::Moving) {
+                const QPointF currentWorldPosition = MapToWorld(
+                            currentMousePosition);
+                const QPointF moveDelta = currentWorldPosition
+                        - m_MoveLastWorldPosition;
+                if (moveDelta.x() != 0.0 || moveDelta.y() != 0.0) {
+                    if (m_Document) {
+                        m_Document->TranslateItems(m_MoveItemIds, moveDelta);
+                    }
+                    m_MoveTotalWorldDelta += moveDelta;
+                    m_MoveLastWorldPosition = currentWorldPosition;
                 }
             }
 
@@ -462,14 +773,14 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
             return;
         }
 
-        QOpenGLWidget::mouseMoveEvent(event);
+        QWidget::mouseMoveEvent(event);
         return;
     }
 
     if (!(event->buttons() & Qt::MiddleButton)) {
         m_PanState = PanState::Idle;
         unsetCursor();
-        QOpenGLWidget::mouseMoveEvent(event);
+        QWidget::mouseMoveEvent(event);
         return;
     }
 
@@ -487,13 +798,17 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
 
     m_Transform.PanBy(currentMousePosition - m_LastMousePosition);
     m_LastMousePosition = currentMousePosition;
+    UpdateSnap(MapToWorld(currentMousePosition));
     update();
     event->accept();
 }
 
 void CanvasView::mouseReleaseEvent(QMouseEvent *event)
 {
-    emit MouseWorldPositionChanged(MapToWorld(event->localPos()));
+    m_CurrentMousePosition = event->localPos();
+    const QPointF mouseWorldPosition = MapToWorld(m_CurrentMousePosition);
+    emit MouseWorldPositionChanged(mouseWorldPosition);
+    UpdateSnap(mouseWorldPosition);
 
     if (event->button() == Qt::MiddleButton && m_PanState != PanState::Idle) {
         m_PanState = PanState::Idle;
@@ -509,8 +824,31 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event)
     }
 
     if (event->button() == Qt::LeftButton
+            && m_SelectionState == SelectionState::Editing) {
+        ResetEditState();
+        m_SelectionState = SelectionState::Idle;
+        m_SelectionModifiers = Qt::NoModifier;
+        m_PressedItemId = 0;
+        unsetCursor();
+        update();
+        event->accept();
+        return;
+    }
+
+    if (event->button() == Qt::LeftButton
             && m_SelectionState != SelectionState::Idle) {
         m_SelectionCurrentPosition = event->localPos();
+        if (m_SelectionState == SelectionState::Moving) {
+            ResetMoveState();
+            m_SelectionState = SelectionState::Idle;
+            m_SelectionModifiers = Qt::NoModifier;
+            m_PressedItemId = 0;
+            unsetCursor();
+            update();
+            event->accept();
+            return;
+        }
+
         const bool append = (m_SelectionModifiers & Qt::ShiftModifier) != 0;
         if (m_SelectionState == SelectionState::Dragging) {
             ApplyWindowSelection(QRectF(m_SelectionStartPosition,
@@ -522,34 +860,76 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event)
 
         m_SelectionState = SelectionState::Idle;
         m_SelectionModifiers = Qt::NoModifier;
+        m_PressedItemId = 0;
         update();
         event->accept();
         return;
     }
 
-    QOpenGLWidget::mouseReleaseEvent(event);
+    QWidget::mouseReleaseEvent(event);
 }
 
-void CanvasView::paintGL()
+void CanvasView::paintEvent(QPaintEvent *event)
 {
-    if (!m_PrivateData->m_GL) {
+    Q_UNUSED(event)
+    if (size().isEmpty()) {
         return;
     }
 
-    m_PrivateData->m_GL->glClearColor(0.0f, 0.0f, 0.0f, 1.0f);
-    m_PrivateData->m_GL->glClear(GL_COLOR_BUFFER_BIT | GL_DEPTH_BUFFER_BIT);
+    const CanvasRenderContext renderContext(m_Document.data(),
+                                            m_Transform,
+                                            size());
+    const qreal devicePixelRatio = devicePixelRatioF();
+    const QSize layerSize(qMax(1, qRound(width() * devicePixelRatio)),
+                          qMax(1, qRound(height() * devicePixelRatio)));
+    const auto createLayer = [layerSize, devicePixelRatio]() {
+        QImage layer(layerSize, QImage::Format_ARGB32_Premultiplied);
+        layer.setDevicePixelRatio(devicePixelRatio);
+        layer.fill(Qt::transparent);
+        return layer;
+    };
 
-    if (m_GridVisible) {
-        QPainter painter(this);
-        painter.setRenderHint(QPainter::Antialiasing, false);
-        DrawBackgroundLayer(painter);
+    QImage backgroundLayer = createLayer();
+    {
+        QPainter painter(&backgroundLayer);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        if (m_CustomRenderer) {
+            m_CustomRenderer->RenderBackground(painter, renderContext);
+        }
+        if (m_GridVisible) {
+            painter.save();
+            painter.setRenderHint(QPainter::Antialiasing, false);
+            DrawBackgroundLayer(painter);
+            painter.restore();
+        }
     }
 
-    DrawLines();
+    QImage geometryLayer = createLayer();
+    {
+        QPainter painter(&geometryLayer);
+        m_PrivateData->m_DefaultRenderer->Render(painter, renderContext);
+        if (m_CustomRenderer) {
+            m_CustomRenderer->Render(painter, renderContext);
+        }
+    }
+
+    QImage overlayLayer = createLayer();
+    {
+        QPainter painter(&overlayLayer);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        DrawOverlayLayer(painter);
+        if (m_CustomRenderer) {
+            painter.save();
+            m_CustomRenderer->RenderOverlay(painter, renderContext);
+            painter.restore();
+        }
+    }
 
     QPainter painter(this);
-    painter.setRenderHint(QPainter::Antialiasing, true);
-    DrawOverlayLayer(painter);
+    painter.fillRect(rect(), Qt::black);
+    painter.drawImage(QPoint(0, 0), backgroundLayer);
+    painter.drawImage(QPoint(0, 0), geometryLayer);
+    painter.drawImage(QPoint(0, 0), overlayLayer);
 }
 
 void CanvasView::wheelEvent(QWheelEvent *event)
@@ -579,8 +959,9 @@ void CanvasView::wheelEvent(QWheelEvent *event)
         const qreal factor = !pixelDelta.isNull()
                 ? (zoomSteps > 0.0 ? 1.0 + zoomSteps : 1.0 / (1.0 - zoomSteps))
                 : std::pow(1.137, zoomSteps);
-        m_Transform.ZoomAt(event->posF(), QSizeF(size()), factor);
+        m_Transform.ZoomAt(GetWheelEventPosition(event), QSizeF(size()), factor);
         emit ZoomChanged(m_Transform.GetZoom());
+        UpdateSnap(MapToWorld(m_CurrentMousePosition));
         update();
         event->accept();
         return;
@@ -597,6 +978,7 @@ void CanvasView::wheelEvent(QWheelEvent *event)
                 ? static_cast<qreal>(delta.x())
                 : static_cast<qreal>(delta.y());
         m_Transform.PanBy(QPointF(-horizontalDelta, 0.0));
+        UpdateSnap(MapToWorld(m_CurrentMousePosition));
         update();
         event->accept();
         return;
@@ -604,6 +986,7 @@ void CanvasView::wheelEvent(QWheelEvent *event)
 
     if (!pixelDelta.isNull()) {
         m_Transform.PanBy(QPointF(pixelDelta.x(), -pixelDelta.y()));
+        UpdateSnap(MapToWorld(m_CurrentMousePosition));
         update();
         event->accept();
         return;
@@ -616,56 +999,65 @@ void CanvasView::wheelEvent(QWheelEvent *event)
     }
 
     const qreal factor = std::pow(1.137, steps);
-    m_Transform.ZoomAt(event->posF(), QSizeF(size()), factor);
+    m_Transform.ZoomAt(GetWheelEventPosition(event), QSizeF(size()), factor);
     emit ZoomChanged(m_Transform.GetZoom());
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
     update();
     event->accept();
 }
 
 void CanvasView::OnDocumentChanged()
 {
-    m_PrivateData->m_LineBufferDirty = true;
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
     update();
 }
 
 void CanvasView::OnSelectionChanged()
 {
-    m_PrivateData->m_LineBufferDirty = true;
     update();
 }
 
-void CanvasView::CleanupGL()
+void CanvasView::UpdateSnap(const QPointF &worldPosition)
 {
-    QOpenGLContext *glContext = context();
-    if (!glContext || !m_PrivateData->m_GL) {
+    CanvasSnapResult result;
+    if (m_SnapEnabled && !size().isEmpty()) {
+        const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
+                                       CanvasTransform::GetMinimumZoom());
+        const qreal toleranceWorld = 10.0 / zoom;
+        const qreal gridSpacing = CalculateCadLabGridSpacing(m_GridSpacing,
+                                                              zoom);
+        result = CanvasSnapper::FindSnap(m_Document.data(),
+                                         worldPosition,
+                                         toleranceWorld,
+                                         gridSpacing,
+                                         m_GeometrySnapEnabled,
+                                         m_GridSnapEnabled);
+    }
+
+    if (result == m_CurrentSnapResult) {
         return;
     }
 
-    if (!glContext->isValid()) {
-        m_PrivateData->m_LineProgramReady = false;
-        m_PrivateData->m_GL = nullptr;
-        return;
+    m_CurrentSnapResult = result;
+    emit SnapChanged(m_CurrentSnapResult);
+    update();
+}
+
+bool CanvasView::FitWorldRect(const QRectF &worldRect, qreal marginPixels)
+{
+    const qreal oldZoom = m_Transform.GetZoom();
+    if (!m_Transform.FitRect(worldRect,
+                             QSizeF(size()),
+                             marginPixels)) {
+        return false;
     }
 
-    const bool madeCurrent = QOpenGLContext::currentContext() != glContext;
-    if (madeCurrent) {
-        makeCurrent();
+    if (!qFuzzyCompare(oldZoom + 1.0, m_Transform.GetZoom() + 1.0)) {
+        emit ZoomChanged(m_Transform.GetZoom());
     }
-    if (QOpenGLContext::currentContext() != glContext) {
-        m_PrivateData->m_LineProgramReady = false;
-        m_PrivateData->m_GL = nullptr;
-        return;
-    }
-
-    if (m_PrivateData->m_LineBuffer.isCreated()) {
-        m_PrivateData->m_LineBuffer.destroy();
-    }
-    m_PrivateData->m_LineProgram.removeAllShaders();
-    m_PrivateData->m_LineProgramReady = false;
-    m_PrivateData->m_GL = nullptr;
-    if (madeCurrent) {
-        doneCurrent();
-    }
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
+    update();
+    return true;
 }
 
 void CanvasView::DrawBackgroundLayer(QPainter &painter) const
@@ -719,6 +1111,9 @@ void CanvasView::DrawOverlayLayer(QPainter &painter) const
     if (m_RulerVisible) {
         DrawRulerLabels(painter);
     }
+
+    DrawEditHandles(painter);
+    DrawSnapMarker(painter);
 }
 
 void CanvasView::DrawSelectionBox(QPainter &painter) const
@@ -775,17 +1170,11 @@ void CanvasView::DrawAxes(QPainter &painter) const
 
     const qreal axisXDirection = 1.0;
     const qreal axisYDirection = -1.0;
-    const qreal axisXLabelPosition = origin.x() + axisXDirection * 120.0;
-    const qreal axisYLabelPosition = origin.y() + axisYDirection * 120.0;
-
-    QPointF coordinateOrigin = origin;
-    if (coordinateOrigin.x() - 8.0 < 0.0 || coordinateOrigin.x() + 8.0 > viewportWidth
-            || axisXLabelPosition < 0.0 || axisXLabelPosition > viewportWidth
-            || coordinateOrigin.y() - 8.0 < 0.0 || coordinateOrigin.y() + 8.0 > viewportHeight
-            || axisYLabelPosition < 0.0 || axisYLabelPosition > viewportHeight) {
-        coordinateOrigin.setX(axisXDirection > 0.0 ? 30.0 : viewportWidth - 30.0);
-        coordinateOrigin.setY(axisYDirection < 0.0 ? viewportHeight - 30.0 : 30.0);
-    }
+    // The coordinate indicator belongs to the world origin.  Do not move it
+    // to a viewport corner when the origin or its labels approach an edge;
+    // that would make the indicator screen anchored while geometry keeps
+    // following the world transform during panning.
+    const QPointF coordinateOrigin = origin;
 
     const QPointF axisXBase(coordinateOrigin.x() + axisXDirection * 70.0,
                             coordinateOrigin.y());
@@ -901,90 +1290,408 @@ void CanvasView::DrawRulerLabels(QPainter &painter) const
     painter.restore();
 }
 
-void CanvasView::UploadLineBuffer()
+void CanvasView::DrawEditHandles(QPainter &painter) const
 {
-    if (!m_PrivateData->m_LineProgramReady || !m_PrivateData->m_LineBuffer.isCreated()
-            || !m_Document) {
+    if (!m_Document || m_Document->GetSelectedItemCount() != 1
+            || size().isEmpty()) {
         return;
     }
 
-    const QVector<StruLinePrimitive> &lines = m_Document->GetLinePrimitives();
-    QVector<StruLineVertex> vertices;
-    vertices.reserve(lines.size() * 2);
-
-    for (const StruLinePrimitive &line : lines) {
-        const QColor color = m_Document->IsItemSelected(line.id)
-                ? CADLAB_SELECTED_ITEM_COLOR
-                : (line.color.isValid() ? line.color : QColor(Qt::white));
-        const float red = color.redF();
-        const float green = color.greenF();
-        const float blue = color.blueF();
-        const float alpha = color.alphaF();
-        vertices.append({static_cast<float>(line.geometry.startPoint.x()),
-                         static_cast<float>(line.geometry.startPoint.y()),
-                         red, green, blue, alpha});
-        vertices.append({static_cast<float>(line.geometry.endPoint.x()),
-                         static_cast<float>(line.geometry.endPoint.y()),
-                         red, green, blue, alpha});
+    const QVector<ItemId> selectedIds = m_Document->GetSelectedItemIds();
+    if (selectedIds.size() != 1) {
+        return;
     }
 
-    m_PrivateData->m_LineBuffer.bind();
-    m_PrivateData->m_LineBuffer.setUsagePattern(QOpenGLBuffer::DynamicDraw);
-    m_PrivateData->m_LineBuffer.allocate(vertices.constData(),
-                                        static_cast<int>(vertices.size()
-                                                         * sizeof(StruLineVertex)));
-    m_PrivateData->m_LineBuffer.release();
-    m_PrivateData->m_LineBufferDirty = false;
+    const ItemId itemId = selectedIds.first();
+    const QVector<EditHandlePosition> handles = GetEditHandlePositions(itemId);
+    if (handles.isEmpty()) {
+        return;
+    }
+
+    const QSizeF viewportSize(size());
+    const qreal halfSize = EDIT_HANDLE_SIZE_PIXELS * 0.5;
+    painter.save();
+    painter.setPen(QPen(Qt::white, 1.0, Qt::SolidLine));
+
+    for (const EditHandlePosition &handle : handles) {
+        const QPointF viewportPosition = m_Transform.MapFromWorld(
+                    handle.worldPosition,
+                    viewportSize);
+        const bool active = m_SelectionState == SelectionState::Editing
+                && m_EditItemId == itemId
+                && m_EditHandleType == handle.type
+                && (handle.type != EditHandleType::PolylineVertex
+                    || m_EditVertexIndex == handle.vertexIndex);
+        painter.setBrush(active
+                         ? CADLAB_ACTIVE_EDIT_HANDLE_COLOR
+                         : CADLAB_EDIT_HANDLE_COLOR);
+
+        const QRectF handleRect(viewportPosition.x() - halfSize,
+                                viewportPosition.y() - halfSize,
+                                EDIT_HANDLE_SIZE_PIXELS,
+                                EDIT_HANDLE_SIZE_PIXELS);
+        if (handle.type == EditHandleType::CircleRadius) {
+            painter.drawEllipse(handleRect);
+        } else {
+            painter.drawRect(handleRect);
+        }
+    }
+
+    painter.restore();
 }
 
-void CanvasView::DrawLines()
+void CanvasView::DrawSnapMarker(QPainter &painter) const
 {
-    if (!m_PrivateData->m_LineProgramReady || !m_PrivateData->m_LineBuffer.isCreated()
-            || !m_Document) {
+    if (!m_CurrentSnapResult.IsValid() || size().isEmpty()) {
         return;
     }
 
-    if (m_PrivateData->m_LineBufferDirty) {
-        UploadLineBuffer();
+    const QPointF viewportPosition = m_Transform.MapFromWorld(
+                m_CurrentSnapResult.position,
+                QSizeF(size()));
+    const qreal markerSize = 8.0;
+    const QRectF markerRect(viewportPosition.x() - markerSize * 0.5,
+                            viewportPosition.y() - markerSize * 0.5,
+                            markerSize,
+                            markerSize);
+
+    painter.save();
+    painter.setPen(QPen(Qt::white, 1.0, Qt::SolidLine));
+    painter.setBrush(CADLAB_SNAP_MARKER_COLOR);
+    if (m_CurrentSnapResult.type == CanvasSnapType::Grid) {
+        painter.drawRect(markerRect);
+    } else {
+        painter.drawEllipse(markerRect);
+    }
+    painter.restore();
+}
+
+QVector<CanvasView::EditHandlePosition> CanvasView::GetEditHandlePositions(
+        ItemId id) const
+{
+    QVector<EditHandlePosition> handles;
+    if (!m_Document || id == 0) {
+        return handles;
     }
 
-    const int vertexCount = m_Document->GetLinePrimitives().size() * 2;
-    if (vertexCount == 0) {
-        return;
+    StruCanvasStyle style;
+    if (!m_Document->GetItemStyle(id, &style) || !style.visible) {
+        return handles;
     }
 
-    const qreal viewportWidth = qMax(1, width());
-    const qreal viewportHeight = qMax(1, height());
-    const qreal zoom = m_Transform.GetZoom();
-    const QPointF center = m_Transform.GetCenter();
+    const CanvasEntityType type = m_Document->GetItemType(id);
+    switch (type) {
+    case CanvasEntityType::Point: {
+        for (const StruPointPrimitive &point : m_Document->GetPointPrimitives()) {
+            if (point.id == id) {
+                handles.append({EditHandleType::PointCenter,
+                                point.geometry.position});
+                break;
+            }
+        }
+        break;
+    }
+    case CanvasEntityType::Line: {
+        for (const StruLinePrimitive &line : m_Document->GetLinePrimitives()) {
+            if (line.id == id) {
+                handles.append({EditHandleType::LineStart,
+                                line.geometry.startPoint});
+                handles.append({EditHandleType::LineEnd,
+                                line.geometry.endPoint});
+                break;
+            }
+        }
+        break;
+    }
+    case CanvasEntityType::Arc: {
+        for (const StruArcPrimitive &arc : m_Document->GetArcPrimitives()) {
+            if (arc.id == id) {
+                handles.append({EditHandleType::ArcCenter,
+                                arc.geometry.center});
+                handles.append({EditHandleType::ArcStart,
+                                CalculateArcPoint(arc.geometry,
+                                                  arc.geometry.startAngle)});
+                handles.append({EditHandleType::ArcEnd,
+                                CalculateArcPoint(arc.geometry,
+                                                  arc.geometry.endAngle)});
+                break;
+            }
+        }
+        break;
+    }
+    case CanvasEntityType::Circle: {
+        for (const StruCirclePrimitive &circle : m_Document->GetCirclePrimitives()) {
+            if (circle.id == id) {
+                handles.append({EditHandleType::CircleCenter,
+                                circle.geometry.center});
+                handles.append({EditHandleType::CircleRadius,
+                                circle.geometry.center
+                                + QPointF(circle.geometry.radius, 0.0)});
+                break;
+            }
+        }
+        break;
+    }
+    case CanvasEntityType::Polyline: {
+        for (const StruPolylinePrimitive &polyline : m_Document->GetPolylinePrimitives()) {
+            if (polyline.id != id) {
+                continue;
+            }
+            for (int index = 0; index < polyline.geometry.vertices.size(); ++index) {
+                handles.append({EditHandleType::PolylineVertex,
+                                polyline.geometry.vertices.at(index),
+                                index});
+            }
+            break;
+        }
+        break;
+    }
+    case CanvasEntityType::Invalid:
+        break;
+    }
 
-    QMatrix4x4 matrix;
-    matrix.setToIdentity();
-    matrix(0, 0) = static_cast<float>(2.0 * zoom / viewportWidth);
-    matrix(0, 3) = static_cast<float>(-2.0 * zoom * center.x() / viewportWidth);
-    matrix(1, 1) = static_cast<float>(-2.0 * zoom / viewportHeight);
-    matrix(1, 3) = static_cast<float>(2.0 * zoom * center.y() / viewportHeight);
+    return handles;
+}
 
-    m_PrivateData->m_LineProgram.bind();
-    m_PrivateData->m_LineProgram.setUniformValue("u_matrix", matrix);
-    m_PrivateData->m_LineBuffer.bind();
-    m_PrivateData->m_LineProgram.enableAttributeArray("a_position");
-    m_PrivateData->m_LineProgram.setAttributeBuffer("a_position",
-                                                     GL_FLOAT,
-                                                     0,
-                                                     2,
-                                                     sizeof(StruLineVertex));
-    m_PrivateData->m_LineProgram.enableAttributeArray("a_color");
-    m_PrivateData->m_LineProgram.setAttributeBuffer("a_color",
-                                                     GL_FLOAT,
-                                                     static_cast<int>(sizeof(float) * 2),
-                                                     4,
-                                                     sizeof(StruLineVertex));
-    m_PrivateData->m_GL->glDrawArrays(GL_LINES, 0, vertexCount);
-    m_PrivateData->m_LineProgram.disableAttributeArray("a_position");
-    m_PrivateData->m_LineProgram.disableAttributeArray("a_color");
-    m_PrivateData->m_LineBuffer.release();
-    m_PrivateData->m_LineProgram.release();
+CanvasView::EditHandleType CanvasView::HitTestEditHandle(
+        const QPointF &viewportPosition,
+        int *vertexIndex) const
+{
+    if (vertexIndex) {
+        *vertexIndex = -1;
+    }
+    if (!m_Document || m_Document->GetSelectedItemCount() != 1
+            || size().isEmpty()) {
+        return EditHandleType::None;
+    }
+
+    const QVector<ItemId> selectedIds = m_Document->GetSelectedItemIds();
+    if (selectedIds.size() != 1) {
+        return EditHandleType::None;
+    }
+
+    const QVector<EditHandlePosition> handles =
+            GetEditHandlePositions(selectedIds.first());
+    const qreal toleranceSquared = EDIT_HANDLE_HIT_TOLERANCE_PIXELS
+            * EDIT_HANDLE_HIT_TOLERANCE_PIXELS;
+    qreal bestDistanceSquared = std::numeric_limits<qreal>::max();
+    EditHandleType hitType = EditHandleType::None;
+    int hitVertexIndex = -1;
+    const QSizeF viewportSize(size());
+
+    for (const EditHandlePosition &handle : handles) {
+        const QPointF handlePosition = m_Transform.MapFromWorld(
+                    handle.worldPosition,
+                    viewportSize);
+        const QPointF delta = viewportPosition - handlePosition;
+        const qreal distanceSquared = QPointF::dotProduct(delta, delta);
+        if (distanceSquared <= toleranceSquared
+                && distanceSquared < bestDistanceSquared) {
+            bestDistanceSquared = distanceSquared;
+            hitType = handle.type;
+            hitVertexIndex = handle.vertexIndex;
+        }
+    }
+
+    if (vertexIndex) {
+        *vertexIndex = hitVertexIndex;
+    }
+    return hitType;
+}
+
+bool CanvasView::BeginEdit(ItemId id,
+                           EditHandleType handleType,
+                           int vertexIndex)
+{
+    if (!m_Document || id == 0 || handleType == EditHandleType::None
+            || !m_Document->IsItemSelected(id)) {
+        return false;
+    }
+
+    m_EditItemId = id;
+    m_EditEntityType = m_Document->GetItemType(id);
+    m_EditHandleType = handleType;
+    m_EditVertexIndex = vertexIndex;
+    m_EditGeometryChanged = false;
+
+    bool loaded = false;
+    switch (m_EditEntityType) {
+    case CanvasEntityType::Point:
+        loaded = handleType == EditHandleType::PointCenter
+                && m_Document->GetPointGeometry(id,
+                                                &m_EditOriginalPointGeometry);
+        break;
+    case CanvasEntityType::Line:
+        loaded = (handleType == EditHandleType::LineStart
+                  || handleType == EditHandleType::LineEnd)
+                && m_Document->GetLineGeometry(id,
+                                               &m_EditOriginalLineGeometry);
+        break;
+    case CanvasEntityType::Arc:
+        loaded = (handleType == EditHandleType::ArcCenter
+                  || handleType == EditHandleType::ArcStart
+                  || handleType == EditHandleType::ArcEnd)
+                && m_Document->GetArcGeometry(id,
+                                              &m_EditOriginalArcGeometry);
+        break;
+    case CanvasEntityType::Circle:
+        loaded = (handleType == EditHandleType::CircleCenter
+                  || handleType == EditHandleType::CircleRadius)
+                && m_Document->GetCircleGeometry(id,
+                                                 &m_EditOriginalCircleGeometry);
+        break;
+    case CanvasEntityType::Polyline:
+        loaded = handleType == EditHandleType::PolylineVertex
+                && m_Document->GetPolylineGeometry(
+                    id,
+                    &m_EditOriginalPolylineGeometry)
+                && vertexIndex >= 0
+                && vertexIndex < m_EditOriginalPolylineGeometry.vertices.size();
+        break;
+    case CanvasEntityType::Invalid:
+        break;
+    }
+
+    if (!loaded) {
+        ResetEditState();
+        return false;
+    }
+
+    return true;
+}
+
+bool CanvasView::UpdateEdit(const QPointF &worldPosition)
+{
+    if (!m_Document || m_EditItemId == 0
+            || m_EditHandleType == EditHandleType::None) {
+        return false;
+    }
+
+    bool changed = false;
+    switch (m_EditEntityType) {
+    case CanvasEntityType::Point: {
+        if (m_EditHandleType != EditHandleType::PointCenter) {
+            return false;
+        }
+
+        StruPointGeometry geometry = m_EditOriginalPointGeometry;
+        geometry.position = worldPosition;
+        changed = m_Document->SetPointGeometry(m_EditItemId, geometry);
+        break;
+    }
+    case CanvasEntityType::Line: {
+        StruLineGeometry geometry = m_EditOriginalLineGeometry;
+        if (m_EditHandleType == EditHandleType::LineStart) {
+            geometry.startPoint = worldPosition;
+        } else if (m_EditHandleType == EditHandleType::LineEnd) {
+            geometry.endPoint = worldPosition;
+        } else {
+            return false;
+        }
+        changed = m_Document->SetLineGeometry(m_EditItemId, geometry);
+        break;
+    }
+    case CanvasEntityType::Arc: {
+        StruArcGeometry geometry = m_EditOriginalArcGeometry;
+        if (m_EditHandleType == EditHandleType::ArcCenter) {
+            geometry.center = worldPosition;
+        } else {
+            const QPointF delta = worldPosition - geometry.center;
+            const qreal radius = std::hypot(delta.x(), delta.y());
+            if (radius <= 0.0) {
+                return false;
+            }
+
+            geometry.radius = radius;
+            const qreal angle = std::atan2(delta.y(), delta.x());
+            if (m_EditHandleType == EditHandleType::ArcStart) {
+                geometry.startAngle = angle;
+            } else if (m_EditHandleType == EditHandleType::ArcEnd) {
+                geometry.endAngle = angle;
+            } else {
+                return false;
+            }
+        }
+        changed = m_Document->SetArcGeometry(m_EditItemId, geometry);
+        break;
+    }
+    case CanvasEntityType::Circle: {
+        StruCircleGeometry geometry = m_EditOriginalCircleGeometry;
+        if (m_EditHandleType == EditHandleType::CircleCenter) {
+            geometry.center = worldPosition;
+        } else if (m_EditHandleType == EditHandleType::CircleRadius) {
+            const QPointF delta = worldPosition - geometry.center;
+            const qreal radius = std::hypot(delta.x(), delta.y());
+            if (radius <= 0.0) {
+                return false;
+            }
+            geometry.radius = radius;
+        } else {
+            return false;
+        }
+        changed = m_Document->SetCircleGeometry(m_EditItemId, geometry);
+        break;
+    }
+    case CanvasEntityType::Polyline: {
+        if (m_EditHandleType != EditHandleType::PolylineVertex
+                || m_EditVertexIndex < 0
+                || m_EditVertexIndex >= m_EditOriginalPolylineGeometry.vertices.size()) {
+            return false;
+        }
+        StruPolylineGeometry geometry = m_EditOriginalPolylineGeometry;
+        geometry.vertices[m_EditVertexIndex] = worldPosition;
+        changed = m_Document->SetPolylineGeometry(m_EditItemId, geometry);
+        break;
+    }
+    case CanvasEntityType::Invalid:
+        return false;
+    }
+
+    if (changed) {
+        m_EditGeometryChanged = true;
+    }
+    return changed;
+}
+
+void CanvasView::ResetEditState()
+{
+    m_EditHandleType = EditHandleType::None;
+    m_EditVertexIndex = -1;
+    m_EditItemId = 0;
+    m_EditEntityType = CanvasEntityType::Invalid;
+    m_EditGeometryChanged = false;
+}
+
+void CanvasView::CancelEdit()
+{
+    if (m_Document && m_EditItemId != 0 && m_EditGeometryChanged) {
+        switch (m_EditEntityType) {
+        case CanvasEntityType::Point:
+            m_Document->SetPointGeometry(m_EditItemId,
+                                         m_EditOriginalPointGeometry);
+            break;
+        case CanvasEntityType::Line:
+            m_Document->SetLineGeometry(m_EditItemId,
+                                        m_EditOriginalLineGeometry);
+            break;
+        case CanvasEntityType::Arc:
+            m_Document->SetArcGeometry(m_EditItemId,
+                                       m_EditOriginalArcGeometry);
+            break;
+        case CanvasEntityType::Circle:
+            m_Document->SetCircleGeometry(m_EditItemId,
+                                          m_EditOriginalCircleGeometry);
+            break;
+        case CanvasEntityType::Polyline:
+            m_Document->SetPolylineGeometry(m_EditItemId,
+                                            m_EditOriginalPolylineGeometry);
+            break;
+        case CanvasEntityType::Invalid:
+            break;
+        }
+    }
+
+    ResetEditState();
 }
 
 ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
@@ -996,23 +1703,85 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
     const QPointF worldPosition = MapToWorld(viewportPosition);
     const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
                                    CanvasTransform::GetMinimumZoom());
-    const qreal tolerance = SELECTION_HIT_TOLERANCE_PIXELS / zoom;
-    const qreal toleranceSquared = tolerance * tolerance;
-    qreal bestDistanceSquared = toleranceSquared;
+    qreal bestDistanceSquared = std::numeric_limits<qreal>::max();
     ItemId hitId = 0;
+
+    const auto considerHit = [&bestDistanceSquared, &hitId](ItemId id,
+                                                             qreal distanceSquared,
+                                                             qreal toleranceSquared) {
+        if (distanceSquared > toleranceSquared) {
+            return;
+        }
+
+        if (hitId == 0 || distanceSquared < bestDistanceSquared
+                || (qFuzzyCompare(distanceSquared, bestDistanceSquared) && id > hitId)) {
+            bestDistanceSquared = distanceSquared;
+            hitId = id;
+        }
+    };
+
+    const QVector<StruPointPrimitive> &points = m_Document->GetPointPrimitives();
+    for (int pointIndex = points.size() - 1; pointIndex >= 0; --pointIndex) {
+        const StruPointPrimitive &point = points.at(pointIndex);
+        if (!point.style.visible) {
+            continue;
+        }
+        const QPointF delta = worldPosition - point.geometry.position;
+        considerHit(point.id,
+                    QPointF::dotProduct(delta, delta),
+                    CalculateHitToleranceSquared(zoom, point.style.pointSize));
+    }
 
     const QVector<StruLinePrimitive> &lines = m_Document->GetLinePrimitives();
     for (int lineIndex = lines.size() - 1; lineIndex >= 0; --lineIndex) {
         const StruLinePrimitive &line = lines.at(lineIndex);
+        if (!line.style.visible) {
+            continue;
+        }
         const qreal distanceSquared = DistanceSquaredToSegment(worldPosition,
                                                                 line.geometry.startPoint,
                                                                 line.geometry.endPoint);
-        if (distanceSquared <= bestDistanceSquared) {
-            if (hitId == 0 || distanceSquared < bestDistanceSquared) {
-                bestDistanceSquared = distanceSquared;
-                hitId = line.id;
-            }
+        considerHit(line.id,
+                    distanceSquared,
+                    CalculateHitToleranceSquared(zoom, line.style.strokeWidth));
+    }
+
+    const QVector<StruArcPrimitive> &arcs = m_Document->GetArcPrimitives();
+    for (int arcIndex = arcs.size() - 1; arcIndex >= 0; --arcIndex) {
+        const StruArcPrimitive &arc = arcs.at(arcIndex);
+        if (!arc.style.visible) {
+            continue;
         }
+        considerHit(arc.id,
+                    DistanceSquaredToArc(worldPosition, arc.geometry),
+                    CalculateHitToleranceSquared(zoom, arc.style.strokeWidth));
+    }
+
+    const QVector<StruCirclePrimitive> &circles = m_Document->GetCirclePrimitives();
+    for (int circleIndex = circles.size() - 1; circleIndex >= 0; --circleIndex) {
+        const StruCirclePrimitive &circle = circles.at(circleIndex);
+        if (!circle.style.visible) {
+            continue;
+        }
+        considerHit(circle.id,
+                    DistanceSquaredToCircle(worldPosition, circle.geometry),
+                    CalculateHitToleranceSquared(zoom, circle.style.strokeWidth));
+    }
+
+    const QVector<StruPolylinePrimitive> &polylines =
+            m_Document->GetPolylinePrimitives();
+    for (int polylineIndex = polylines.size() - 1;
+         polylineIndex >= 0;
+         --polylineIndex) {
+        const StruPolylinePrimitive &polyline = polylines.at(polylineIndex);
+        if (!polyline.style.visible) {
+            continue;
+        }
+        considerHit(polyline.id,
+                    DistanceSquaredToPolyline(worldPosition,
+                                              polyline.geometry),
+                    CalculateHitToleranceSquared(zoom,
+                                                 polyline.style.strokeWidth));
     }
 
     return hitId;
@@ -1027,8 +1796,82 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
     }
 
     const QRectF normalizedRect = worldRect.normalized();
+
+    const auto isPointSelected = [&normalizedRect](const QPointF &point) {
+        return normalizedRect.contains(point);
+    };
+
+    const auto isArcSelected = [this, &normalizedRect, crossing](
+            const StruArcGeometry &geometry) {
+        const QRectF geometryBounds = GetGeometryBounds(geometry);
+        if (geometryBounds.isEmpty()
+                || !geometryBounds.intersects(normalizedRect)) {
+            return false;
+        }
+
+        if (!crossing) {
+            return IsGeometryBoundsContained(geometryBounds, normalizedRect);
+        }
+
+        const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
+                                       CanvasTransform::GetMinimumZoom());
+        const qreal maximumWorldError = qMax<qreal>(1.0e-6, 0.5 / zoom);
+        return PolylineIntersectsRect(TessellateArc(geometry,
+                                                   maximumWorldError),
+                                      normalizedRect);
+    };
+
+    const auto isCircleSelected = [this, &normalizedRect, crossing](
+            const StruCircleGeometry &geometry) {
+        const QRectF geometryBounds = GetGeometryBounds(geometry);
+        if (geometryBounds.isEmpty()
+                || !geometryBounds.intersects(normalizedRect)) {
+            return false;
+        }
+
+        if (!crossing) {
+            return IsGeometryBoundsContained(geometryBounds, normalizedRect);
+        }
+
+        const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
+                                       CanvasTransform::GetMinimumZoom());
+        const qreal maximumWorldError = qMax<qreal>(1.0e-6, 0.5 / zoom);
+        return PolylineIntersectsRect(TessellateCircle(geometry,
+                                                      maximumWorldError),
+                                      normalizedRect);
+    };
+
+    const auto isPolylineSelected = [&normalizedRect, crossing](
+            const StruPolylineGeometry &geometry) {
+        if (crossing) {
+            return PolylineIntersectsRect(geometry.vertices,
+                                          normalizedRect,
+                                          geometry.closed);
+        }
+
+        for (const QPointF &vertex : geometry.vertices) {
+            if (!normalizedRect.contains(vertex)) {
+                return false;
+            }
+        }
+        return true;
+    };
+
+    const QVector<StruPointPrimitive> &points = m_Document->GetPointPrimitives();
+    for (const StruPointPrimitive &point : points) {
+        if (!point.style.visible) {
+            continue;
+        }
+        if (isPointSelected(point.geometry.position)) {
+            selectedIds.append(point.id);
+        }
+    }
+
     const QVector<StruLinePrimitive> &lines = m_Document->GetLinePrimitives();
     for (const StruLinePrimitive &line : lines) {
+        if (!line.style.visible) {
+            continue;
+        }
         const bool selected = crossing
                 ? SegmentIntersectsRect(line.geometry.startPoint,
                                         line.geometry.endPoint,
@@ -1037,6 +1880,37 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
                    && normalizedRect.contains(line.geometry.endPoint));
         if (selected) {
             selectedIds.append(line.id);
+        }
+    }
+
+    const QVector<StruArcPrimitive> &arcs = m_Document->GetArcPrimitives();
+    for (const StruArcPrimitive &arc : arcs) {
+        if (!arc.style.visible) {
+            continue;
+        }
+        if (isArcSelected(arc.geometry)) {
+            selectedIds.append(arc.id);
+        }
+    }
+
+    const QVector<StruCirclePrimitive> &circles = m_Document->GetCirclePrimitives();
+    for (const StruCirclePrimitive &circle : circles) {
+        if (!circle.style.visible) {
+            continue;
+        }
+        if (isCircleSelected(circle.geometry)) {
+            selectedIds.append(circle.id);
+        }
+    }
+
+    const QVector<StruPolylinePrimitive> &polylines =
+            m_Document->GetPolylinePrimitives();
+    for (const StruPolylinePrimitive &polyline : polylines) {
+        if (!polyline.style.visible) {
+            continue;
+        }
+        if (isPolylineSelected(polyline.geometry)) {
+            selectedIds.append(polyline.id);
         }
     }
 
@@ -1054,7 +1928,9 @@ void CanvasView::ApplySingleSelection(ItemId id, bool append)
         return;
     }
 
-    m_Document->SelectItems(QVector<ItemId>() << id, false, false);
+    // A normal click on another unselected item keeps the existing selection.
+    // Clicking an already selected item above remains the deselect operation.
+    m_Document->SelectItem(id);
 }
 
 void CanvasView::ApplyWindowSelection(const QRectF &viewportRect, bool append)
@@ -1079,6 +1955,27 @@ void CanvasView::ApplyWindowSelection(const QRectF &viewportRect, bool append)
     } else {
         m_Document->SelectItems(selectedIds, false, false);
     }
+}
+
+void CanvasView::ResetMoveState()
+{
+    m_MoveItemIds.clear();
+    m_MoveLastWorldPosition = QPointF(0.0, 0.0);
+    m_MoveTotalWorldDelta = QPointF(0.0, 0.0);
+}
+
+void CanvasView::CancelMove()
+{
+    if (m_SelectionState == SelectionState::Moving
+            && m_Document
+            && (m_MoveTotalWorldDelta.x() != 0.0
+                || m_MoveTotalWorldDelta.y() != 0.0)) {
+        m_Document->TranslateItems(m_MoveItemIds,
+                                   QPointF(-m_MoveTotalWorldDelta.x(),
+                                           -m_MoveTotalWorldDelta.y()));
+    }
+
+    ResetMoveState();
 }
 
 } // namespace mini_graph

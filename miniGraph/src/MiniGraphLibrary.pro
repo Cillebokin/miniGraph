@@ -11,12 +11,20 @@ INCLUDEPATH += $$PWD/../include
 HEADERS += \
     $$PWD/../include/MiniGraph/MiniGraph_global.h \
     $$PWD/../include/MiniGraph/CanvasTypes.h \
+    $$PWD/../include/MiniGraph/CanvasGeometry.h \
+    $$PWD/../include/MiniGraph/CanvasSnap.h \
     $$PWD/../include/MiniGraph/CanvasTransform.h \
     $$PWD/../include/MiniGraph/CanvasDocument.h \
-    $$PWD/../include/MiniGraph/CanvasView.h
+    $$PWD/../include/MiniGraph/CanvasRenderer.h \
+    $$PWD/../include/MiniGraph/CanvasView.h \
+    $$PWD/../include/MiniGraph/MiniGraph.h \
+    $$PWD/CanvasPainterRenderer.h
 
 SOURCES += \
+    $$PWD/CanvasGeometry.cpp \
+    $$PWD/CanvasSnap.cpp \
     $$PWD/CanvasTransform.cpp \
     $$PWD/CanvasDocument.cpp \
+    $$PWD/CanvasRenderer.cpp \
+    $$PWD/CanvasPainterRenderer.cpp \
     $$PWD/CanvasView.cpp
-

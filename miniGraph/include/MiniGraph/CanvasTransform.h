@@ -3,6 +3,7 @@
 #include "MiniGraph_global.h"
 
 #include <QPointF>
+#include <QRectF>
 #include <QSizeF>
 
 namespace mini_graph {
@@ -39,6 +40,12 @@ public:
 
     // 围绕指定视口位置缩放，并保持该位置下的世界坐标不变。
     void ZoomAt(const QPointF &viewportPoint, const QSizeF &viewportSize, qreal factor);
+
+    // 调整缩放比例和视图中心，使世界坐标矩形适配到视口内。
+    // marginPixels 为视口边缘预留的像素边距；视口无效时返回 false。
+    bool FitRect(const QRectF &worldRect,
+                 const QSizeF &viewportSize,
+                 qreal marginPixels = 40.0);
 
     // 将变换恢复为默认状态。
     void Reset();

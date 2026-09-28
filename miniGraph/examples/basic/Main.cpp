@@ -3,15 +3,28 @@
 #include <QMainWindow>
 #include <QToolBar>
 
-#include "MiniGraph/CanvasDocument.h"
-#include "MiniGraph/CanvasView.h"
+#include "MiniGraph/MiniGraph.h"
+#include "BasicCustomRenderer.h"
+#include "GeometryCreateDialog.h"
+#include "GeometryEditDialog.h"
 
 int main(int argumentCount, char *argumentValues[])
 {
     QApplication app(argumentCount, argumentValues);
 
     mini_graph::CanvasDocument canvasDocument;
+    canvasDocument.AddPoint(QPointF(0.0, 0.0));
+    canvasDocument.AddLine(QPointF(-140.0, -80.0),
+                           QPointF(140.0, -80.0),
+                           QColor(255, 220, 80));
 
+    canvasDocument.AddArc(QPointF(-80.0, 40.0),
+                          50.0,
+                          0.0,
+                          4.7123889803846899);
+    canvasDocument.AddCircle(QPointF(100.0, 40.0), 40.0);
+
+    BasicCustomRenderer customRenderer;
     QMainWindow wndMain;
     auto *widCanvas = new mini_graph::CanvasView;
     widCanvas->SetDocument(&canvasDocument);
@@ -42,11 +55,93 @@ int main(int argumentCount, char *argumentValues[])
                      widCanvas,
                      &mini_graph::CanvasView::SetRulerVisible);
 
+    QAction *actSnap = tlbCanvas->addAction(QObject::tr("Snap"));
+    actSnap->setCheckable(true);
+    actSnap->setChecked(widCanvas->IsSnapEnabled());
+    QObject::connect(actSnap,
+                     &QAction::toggled,
+                     widCanvas,
+                     &mini_graph::CanvasView::SetSnapEnabled);
+
+    QAction *actGridSnap = tlbCanvas->addAction(QObject::tr("Grid snap"));
+    actGridSnap->setCheckable(true);
+    actGridSnap->setChecked(widCanvas->IsGridSnapEnabled());
+    QObject::connect(actGridSnap,
+                     &QAction::toggled,
+                     widCanvas,
+                     &mini_graph::CanvasView::SetGridSnapEnabled);
+
+    QAction *actGeometrySnap = tlbCanvas->addAction(QObject::tr("Geometry snap"));
+    actGeometrySnap->setCheckable(true);
+    actGeometrySnap->setChecked(widCanvas->IsGeometrySnapEnabled());
+    QObject::connect(actGeometrySnap,
+                     &QAction::toggled,
+                     widCanvas,
+                     &mini_graph::CanvasView::SetGeometrySnapEnabled);
+
+    QAction *actCustomRenderer = tlbCanvas->addAction(QObject::tr("Custom layer"));
+    actCustomRenderer->setCheckable(true);
+    QObject::connect(actCustomRenderer,
+                     &QAction::toggled,
+                     [&customRenderer, widCanvas](bool enabled) {
+        widCanvas->SetCustomRenderer(enabled ? &customRenderer : nullptr);
+    });
+
+    QAction *actAdvanceCustom = tlbCanvas->addAction(QObject::tr("Advance custom"));
+    QObject::connect(actAdvanceCustom,
+                     &QAction::triggered,
+                     [&customRenderer]() {
+        customRenderer.Advance();
+    });
+
     QAction *actReset = tlbCanvas->addAction(QObject::tr("Reset view"));
     QObject::connect(actReset,
                      &QAction::triggered,
                      widCanvas,
                      &mini_graph::CanvasView::ResetView);
+
+    QAction *actFitAll = tlbCanvas->addAction(QObject::tr("Fit all"));
+    QObject::connect(actFitAll,
+                     &QAction::triggered,
+                     [widCanvas]() {
+        widCanvas->FitAll();
+    });
+
+    QAction *actFitSelection = tlbCanvas->addAction(QObject::tr("Fit selection"));
+    QObject::connect(actFitSelection,
+                     &QAction::triggered,
+                     [widCanvas]() {
+        widCanvas->FitSelection();
+    });
+
+    QAction *actCenterOrigin = tlbCanvas->addAction(QObject::tr("Center origin"));
+    QObject::connect(actCenterOrigin,
+                     &QAction::triggered,
+                     [widCanvas]() {
+        widCanvas->CenterOnWorld(QPointF(0.0, 0.0));
+    });
+
+    QAction *actAddGeometry = tlbCanvas->addAction(QObject::tr("Add geometry"));
+    QObject::connect(actAddGeometry,
+                     &QAction::triggered,
+                     [&canvasDocument, &wndMain]() {
+        GeometryCreateDialog dialog(&canvasDocument, &wndMain);
+        dialog.exec();
+    });
+
+    QAction *actEditGeometry = tlbCanvas->addAction(QObject::tr("Edit selected"));
+    QObject::connect(actEditGeometry,
+                     &QAction::triggered,
+                     [&canvasDocument, &wndMain]() {
+        const QVector<mini_graph::ItemId> selectedIds =
+                canvasDocument.GetSelectedItemIds();
+        if (selectedIds.size() != 1) {
+            return;
+        }
+
+        GeometryEditDialog dialog(&canvasDocument, selectedIds.first(), &wndMain);
+        dialog.exec();
+    });
 
     wndMain.resize(900, 600);
     wndMain.show();

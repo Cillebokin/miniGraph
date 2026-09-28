@@ -1,13 +1,14 @@
 ﻿#pragma once
 
 #include "CanvasTypes.h"
+#include "CanvasSnap.h"
 #include "CanvasTransform.h"
 #include "MiniGraph_global.h"
 
 #include <QPoint>
 #include <QPointer>
 #include <QRectF>
-#include <QOpenGLWidget>
+#include <QWidget>
 #include <QVector>
 
 #include <memory>
@@ -15,18 +16,21 @@
 class QPainter;
 class QKeyEvent;
 class QMouseEvent;
+class QPaintEvent;
+class QResizeEvent;
 class QWheelEvent;
 
 namespace mini_graph {
 
 class CanvasDocument;
+class CanvasRenderer;
 class CanvasViewPrivate;
 
-// 基于 QOpenGLWidget 的二维高性能画布视图。
+// 基于 QWidget 和 QPainter 的二维画布视图。
 // CanvasView 负责画布背景、网格、坐标轴和图元的显示，并处理缩放、
 // 平移以及基础鼠标键盘交互。图元数据由 CanvasDocument 提供，坐标换算
 // 由 CanvasTransform 管理。
-class MINIGRAPH_EXPORT CanvasView : public QOpenGLWidget
+class MINIGRAPH_EXPORT CanvasView : public QWidget
 {
     Q_OBJECT
 
@@ -48,11 +52,20 @@ class MINIGRAPH_EXPORT CanvasView : public QOpenGLWidget
     // 当前是否处于 Shift 正交交互状态，只读。
     Q_PROPERTY(bool orthogonalMode READ IsOrthogonalMode NOTIFY OrthogonalModeChanged)
 
+    // 是否启用当前鼠标位置的捕捉预览。
+    Q_PROPERTY(bool snapEnabled READ IsSnapEnabled WRITE SetSnapEnabled NOTIFY SnapEnabledChanged)
+
+    // 是否启用网格捕捉。
+    Q_PROPERTY(bool gridSnapEnabled READ IsGridSnapEnabled WRITE SetGridSnapEnabled NOTIFY GridSnapEnabledChanged)
+
+    // 是否启用图元端点和圆心捕捉。
+    Q_PROPERTY(bool geometrySnapEnabled READ IsGeometrySnapEnabled WRITE SetGeometrySnapEnabled NOTIFY GeometrySnapEnabledChanged)
+
 public:
     // 创建画布视图，parent 为 Qt 对象父级，默认为 nullptr。
     explicit CanvasView(QWidget *parent = nullptr);
 
-    // 释放画布视图及其 OpenGL 资源。
+    // 释放画布视图。
     ~CanvasView() override;
 
     // 返回当前关联的画布文档，未设置文档时返回 nullptr。
@@ -60,6 +73,13 @@ public:
 
     // 设置画布文档，传入 nullptr 可解除当前关联。
     void SetDocument(CanvasDocument *document);
+
+    // 返回当前附加的自定义渲染器，未设置时返回 nullptr。
+    CanvasRenderer *GetCustomRenderer() const;
+
+    // 设置附加的自定义渲染器，传入 nullptr 可恢复为仅使用默认渲染器。
+    // CanvasView 不接管 renderer 的所有权，renderer 必须在使用期间保持有效。
+    void SetCustomRenderer(CanvasRenderer *renderer);
 
     // 返回网格是否可见。
     bool IsGridVisible() const;
@@ -100,8 +120,38 @@ public:
     // 返回当前是否处于正交交互状态。
     bool IsOrthogonalMode() const;
 
+    // 返回是否启用当前鼠标位置的捕捉预览。
+    bool IsSnapEnabled() const;
+
+    // 设置当前鼠标位置的捕捉预览是否启用。
+    void SetSnapEnabled(bool enabled);
+
+    // 返回是否启用网格捕捉。
+    bool IsGridSnapEnabled() const;
+
+    // 设置网格捕捉是否启用。
+    void SetGridSnapEnabled(bool enabled);
+
+    // 返回是否启用图元端点和圆心捕捉。
+    bool IsGeometrySnapEnabled() const;
+
+    // 设置图元端点和圆心捕捉是否启用。
+    void SetGeometrySnapEnabled(bool enabled);
+
+    // 返回当前鼠标位置的捕捉结果，未捕捉时 type 为 None。
+    CanvasSnapResult GetCurrentSnapResult() const;
+
     // 将缩放比例和视图中心恢复为默认值。
     void ResetView();
+
+    // 将全部图元适配到当前视口，成功时返回 true。
+    bool FitAll(qreal marginPixels = 40.0);
+
+    // 将当前选中的图元适配到当前视口，成功时返回 true。
+    bool FitSelection(qreal marginPixels = 40.0);
+
+    // 将视图中心移动到指定世界坐标。
+    void CenterOnWorld(const QPointF &worldPosition);
 
 signals:
     // 网格可见状态发生变化时发出。
@@ -122,6 +172,18 @@ signals:
     // 正交交互状态发生变化时发出。
     void OrthogonalModeChanged(bool enabled);
 
+    // 捕捉预览开关发生变化时发出。
+    void SnapEnabledChanged(bool enabled);
+
+    // 网格捕捉开关发生变化时发出。
+    void GridSnapEnabledChanged(bool enabled);
+
+    // 几何捕捉开关发生变化时发出。
+    void GeometrySnapEnabledChanged(bool enabled);
+
+    // 当前鼠标位置的捕捉结果发生变化时发出。
+    void SnapChanged(const CanvasSnapResult &result);
+
     // 鼠标位置对应的世界坐标发生变化时发出。
     void MouseWorldPositionChanged(const QPointF &worldPosition);
 
@@ -134,16 +196,13 @@ signals:
     void InteractionCancelled();
 
 protected:
-    // 创建 OpenGL 着色器、缓冲区等绘制资源。
-    void initializeGL() override;
-
     // 响应视口尺寸变化。
-    void resizeGL(int width, int height) override;
+    void resizeEvent(QResizeEvent *event) override;
 
     // 按背景、图元和 overlay 层顺序绘制画布。
-    void paintGL() override;
+    void paintEvent(QPaintEvent *event) override;
 
-    // 处理 Shift、Esc 等键盘交互。
+    // 处理 Shift、Esc、Delete 和 Backspace 等键盘交互。
     void keyPressEvent(QKeyEvent *event) override;
 
     // 处理 Shift 释放等键盘交互。
@@ -162,14 +221,11 @@ protected:
     void wheelEvent(QWheelEvent *event) override;
 
 private slots:
-    // 文档内容变化后的 OpenGL 缓冲区更新槽函数。
+    // 文档内容变化后的刷新槽函数。
     void OnDocumentChanged();
 
-    // 文档选择状态变化后的 OpenGL 缓冲区更新槽函数。
+    // 文档选择状态变化后的刷新槽函数。
     void OnSelectionChanged();
-
-    // 释放当前 OpenGL 上下文关联的资源。
-    void CleanupGL();
 
 private:
     // 中键平移的内部状态。
@@ -181,6 +237,9 @@ private:
 
     // 设置正交状态并在状态变化时发出信号。
     void SetOrthogonalModeInternal(bool enabled);
+
+    // 将给定世界坐标矩形适配到当前视口。
+    bool FitWorldRect(const QRectF &worldRect, qreal marginPixels);
 
 protected:
     // 绘制背景层。
@@ -201,21 +260,44 @@ protected:
     // 绘制当前正在进行的 CADLab 风格框选预览。
     void DrawSelectionBox(QPainter &painter) const;
 
+    // 绘制当前单选图元的几何编辑控制柄。
+    void DrawEditHandles(QPainter &painter) const;
+
+    // 绘制当前鼠标位置的捕捉标记。
+    void DrawSnapMarker(QPainter &painter) const;
+
 private:
-    // 框选手势的内部状态。
+    // 左键选择和图元移动手势的内部状态。
     enum class SelectionState {
         Idle,
         Pressed,
-        Dragging
+        Dragging,
+        Moving,
+        Editing
     };
 
-    // 将文档线段数据上传到 OpenGL 顶点缓冲区。
-    void UploadLineBuffer();
+    // 当前正在交互的几何编辑控制柄类型。
+    enum class EditHandleType {
+        None,
+        PointCenter,
+        LineStart,
+        LineEnd,
+        ArcCenter,
+        ArcStart,
+        ArcEnd,
+        CircleCenter,
+        CircleRadius,
+        PolylineVertex
+    };
 
-    // 使用当前变换绘制文档中的线段图元。
-    void DrawLines();
+    // 一个控制柄及其世界坐标位置。
+    struct EditHandlePosition {
+        EditHandleType type = EditHandleType::None;
+        QPointF worldPosition;
+        int vertexIndex = -1;
+    };
 
-    // 在指定视口位置查找距离最近的线段图元。
+    // 在指定视口位置查找距离最近的图元。
     ItemId HitTestItem(const QPointF &viewportPosition) const;
 
     // 将拖拽框对应的图元标识收集出来。
@@ -228,6 +310,36 @@ private:
     // 应用框选结果。
     void ApplyWindowSelection(const QRectF &viewportRect, bool append);
 
+    // 查找当前单选图元上距离最近的控制柄。
+    EditHandleType HitTestEditHandle(const QPointF &viewportPosition,
+                                     int *vertexIndex = nullptr) const;
+
+    // 返回指定图元的控制柄世界坐标。
+    QVector<EditHandlePosition> GetEditHandlePositions(ItemId id) const;
+
+    // 开始一次控制柄编辑并保存原始几何数据。
+    bool BeginEdit(ItemId id,
+                   EditHandleType handleType,
+                   int vertexIndex = -1);
+
+    // 根据鼠标世界坐标更新当前控制柄编辑。
+    bool UpdateEdit(const QPointF &worldPosition);
+
+    // 清除控制柄编辑状态。
+    void ResetEditState();
+
+    // 取消当前控制柄编辑并恢复原始几何数据。
+    void CancelEdit();
+
+    // 根据当前鼠标世界坐标更新捕捉结果。
+    void UpdateSnap(const QPointF &worldPosition);
+
+    // 清除当前移动手势的临时状态。
+    void ResetMoveState();
+
+    // 回滚当前尚未结束的移动手势。
+    void CancelMove();
+
     // 当前关联的画布文档，使用 QPointer 观察对象生命周期。
     QPointer<CanvasDocument> m_Document;
 
@@ -236,6 +348,15 @@ private:
 
     // 文档 SelectionChanged 信号与当前视图之间的连接句柄。
     QMetaObject::Connection m_DocumentSelectionConnection;
+
+    // 当前附加的自定义渲染器，使用 QPointer 观察对象生命周期。
+    QPointer<CanvasRenderer> m_CustomRenderer;
+
+    // 自定义渲染器销毁信号与当前视图之间的连接句柄。
+    QMetaObject::Connection m_CustomRendererDestroyedConnection;
+
+    // 自定义渲染器刷新信号与当前视图之间的连接句柄。
+    QMetaObject::Connection m_CustomRendererUpdateConnection;
 
     // 当前画布的世界坐标变换状态。
     CanvasTransform m_Transform;
@@ -276,7 +397,56 @@ private:
     // 当前左键选择手势开始时的键盘修饰键。
     Qt::KeyboardModifiers m_SelectionModifiers;
 
-    // OpenGL 程序、缓冲区和函数指针等私有资源。
+    // 当前左键按下位置命中的图元标识。
+    ItemId m_PressedItemId;
+
+    // 当前移动手势涉及的图元标识。
+    QVector<ItemId> m_MoveItemIds;
+
+    // 当前移动手势上一次处理位置的世界坐标。
+    QPointF m_MoveLastWorldPosition;
+
+    // 当前移动手势累计产生的世界坐标增量。
+    QPointF m_MoveTotalWorldDelta;
+
+    // 是否启用当前鼠标位置的捕捉预览。
+    bool m_SnapEnabled;
+
+    // 是否启用网格捕捉。
+    bool m_GridSnapEnabled;
+
+    // 是否启用图元端点和圆心捕捉。
+    bool m_GeometrySnapEnabled;
+
+    // 当前鼠标视口位置。
+    QPointF m_CurrentMousePosition;
+
+    // 当前鼠标位置的捕捉结果。
+    CanvasSnapResult m_CurrentSnapResult;
+
+    // 当前控制柄编辑状态。
+    EditHandleType m_EditHandleType;
+
+    // 当前正在编辑的折线顶点下标。
+    int m_EditVertexIndex;
+
+    // 当前控制柄编辑图元标识。
+    ItemId m_EditItemId;
+
+    // 当前控制柄编辑图元类型。
+    CanvasEntityType m_EditEntityType;
+
+    // 当前编辑是否已经写入过新的有效几何数据。
+    bool m_EditGeometryChanged;
+
+    // 控制柄编辑开始前的原始几何数据。
+    StruPointGeometry m_EditOriginalPointGeometry;
+    StruLineGeometry m_EditOriginalLineGeometry;
+    StruArcGeometry m_EditOriginalArcGeometry;
+    StruCircleGeometry m_EditOriginalCircleGeometry;
+    StruPolylineGeometry m_EditOriginalPolylineGeometry;
+
+    // 内置 QPainter 渲染器等私有资源。
     std::unique_ptr<CanvasViewPrivate> m_PrivateData;
 };
 
