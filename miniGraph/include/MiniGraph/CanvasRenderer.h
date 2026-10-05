@@ -45,7 +45,7 @@ struct MINIGRAPH_EXPORT CanvasRenderContext
 };
 
 // 画布自定义渲染器接口。
-// CanvasView 会按背景、内置图元、自定义图元和 overlay 的顺序调用渲染回调。
+// CanvasView 会依次调用背景、内置图元、自定义图元和叠加层渲染回调。
 class MINIGRAPH_EXPORT CanvasRenderer : public QObject
 {
     Q_OBJECT
@@ -67,11 +67,11 @@ public:
                                   const CanvasRenderContext &context);
 
     // 绘制自定义几何内容。
-    // 该回调发生在内置图元之后、overlay 之前。
+    // 该回调发生在内置图元之后、叠加层之前。
     virtual void Render(QPainter &painter,
                         const CanvasRenderContext &context) = 0;
 
-    // 绘制自定义 QPainter overlay 内容。
+    // 绘制自定义 QPainter 叠加层内容。
     // 默认实现不执行任何操作。
     virtual void RenderOverlay(QPainter &painter,
                                const CanvasRenderContext &context);

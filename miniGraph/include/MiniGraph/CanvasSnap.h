@@ -9,7 +9,7 @@ namespace mini_graph {
 
 class CanvasDocument;
 
-// Types of points that can be used by canvas snapping.
+// 画布捕捉支持的点类型。
 enum class CanvasSnapType : quint8
 {
     None,
@@ -22,25 +22,25 @@ enum class CanvasSnapType : quint8
     PolylineVertex
 };
 
-// Result returned by a canvas snap query.
+// 画布捕捉查询的结果。
 struct CanvasSnapResult
 {
-    // The kind of snap result.
+    // 捕捉结果的类型。
     CanvasSnapType type = CanvasSnapType::None;
 
-    // The source item, or zero for a grid result.
+    // 捕捉来源图元的标识；网格捕捉结果为 0。
     ItemId itemId = 0;
 
-    // The snapped world coordinate.
+    // 捕捉位置的世界坐标。
     QPointF position;
 
-    // Return whether this result contains a snap point.
+    // 返回结果是否包含有效的捕捉点。
     bool IsValid() const
     {
         return type != CanvasSnapType::None;
     }
 
-    // Compare two snap results.
+    // 比较两个捕捉结果是否相同。
     bool operator==(const CanvasSnapResult &other) const
     {
         return type == other.type
@@ -48,20 +48,20 @@ struct CanvasSnapResult
                 && position == other.position;
     }
 
-    // Compare two snap results for inequality.
+    // 比较两个捕捉结果是否不同。
     bool operator!=(const CanvasSnapResult &other) const
     {
         return !(*this == other);
     }
 };
 
-// Stateless snapping algorithm used by CanvasView and future creation tools.
+// 无状态捕捉算法，供 CanvasView 和后续图元创建工具使用。
 class MINIGRAPH_EXPORT CanvasSnapper
 {
 public:
-    // Find the nearest visible geometry snap point and grid point.
-    // Geometry points within toleranceWorld take priority over the grid.
-    // Grid snapping uses gridSpacing as its world-space unit.
+    // 查找最近的可见几何捕捉点或网格捕捉点。
+    // 位于 toleranceWorld 容差范围内的几何点优先于网格点。
+    // 网格捕捉使用 gridSpacing 作为世界坐标间距。
     static CanvasSnapResult FindSnap(const CanvasDocument *document,
                                      const QPointF &worldPosition,
                                      qreal toleranceWorld,

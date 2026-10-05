@@ -62,11 +62,22 @@ class MINIGRAPH_EXPORT CanvasView : public QWidget
     Q_PROPERTY(bool geometrySnapEnabled READ IsGeometrySnapEnabled WRITE SetGeometrySnapEnabled NOTIFY GeometrySnapEnabledChanged)
 
 public:
+    enum class InteractionMode {
+        Edit,
+        PreviewNavigation
+    };
+
     // 创建画布视图，parent 为 Qt 对象父级，默认为 nullptr。
     explicit CanvasView(QWidget *parent = nullptr);
 
     // 释放画布视图。
     ~CanvasView() override;
+
+    // 设置交互模式；预览导航模式只允许平移和缩放。
+    void SetInteractionMode(InteractionMode mode);
+
+    // 返回当前交互模式，默认是编辑模式。
+    InteractionMode GetInteractionMode() const;
 
     // 返回当前关联的画布文档，未设置文档时返回 nullptr。
     CanvasDocument *GetDocument() const;
@@ -78,7 +89,7 @@ public:
     CanvasRenderer *GetCustomRenderer() const;
 
     // 设置附加的自定义渲染器，传入 nullptr 可恢复为仅使用默认渲染器。
-    // CanvasView 不接管 renderer 的所有权，renderer 必须在使用期间保持有效。
+    // CanvasView 不接管渲染器的所有权，渲染器必须在使用期间保持有效。
     void SetCustomRenderer(CanvasRenderer *renderer);
 
     // 返回网格是否可见。
@@ -110,6 +121,9 @@ public:
 
     // 设置坐标轴的可见状态。
     void SetAxisVisible(bool visible);
+
+    // 设置坐标轴指示的 X/Y 翻转方向，不影响文档图元的几何坐标。
+    void SetAxisFlips(bool flipX, bool flipY);
 
     // 返回标尺文字是否可见。
     bool IsRulerVisible() const;
@@ -199,7 +213,7 @@ protected:
     // 响应视口尺寸变化。
     void resizeEvent(QResizeEvent *event) override;
 
-    // 按背景、图元和 overlay 层顺序绘制画布。
+    // 按背景、图元和叠加层的顺序绘制画布。
     void paintEvent(QPaintEvent *event) override;
 
     // 处理 Shift、Esc、Delete 和 Backspace 等键盘交互。
@@ -216,6 +230,9 @@ protected:
 
     // 处理中键平移和右键上下文操作的结束。
     void mouseReleaseEvent(QMouseEvent *event) override;
+
+    // 预览导航模式下双击适配全部图元。
+    void mouseDoubleClickEvent(QMouseEvent *event) override;
 
     // 处理滚轮缩放、滚动和触控板平移。
     void wheelEvent(QWheelEvent *event) override;
@@ -245,10 +262,10 @@ protected:
     // 绘制背景层。
     void DrawBackgroundLayer(QPainter &painter) const;
 
-    // 绘制 CADLab 风格的自适应 meta 网格。
+    // 绘制 CADLab 风格的自适应元网格。
     void DrawGrid(QPainter &painter) const;
 
-    // 绘制坐标轴和标尺等前景 overlay。
+    // 绘制坐标轴和标尺等前景叠加层。
     void DrawOverlayLayer(QPainter &painter) const;
 
     // 绘制 X/Y 坐标轴、箭头和原点标记。
@@ -361,6 +378,9 @@ private:
     // 当前画布的世界坐标变换状态。
     CanvasTransform m_Transform;
 
+    // 当前交互模式。
+    InteractionMode m_InteractionMode;
+
     // 网格可见状态。
     bool m_GridVisible;
 
@@ -369,6 +389,10 @@ private:
 
     // 坐标轴可见状态。
     bool m_AxisVisible;
+
+    // 坐标轴指示的翻转状态。
+    bool m_AxisFlipX;
+    bool m_AxisFlipY;
 
     // 标尺可见状态。
     bool m_RulerVisible;

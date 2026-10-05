@@ -7,46 +7,46 @@
 
 namespace mini_graph {
 
-// Returns whether the arc geometry is valid.
+// 判断圆弧几何数据是否有效。
 MINIGRAPH_EXPORT bool IsValidGeometry(const StruArcGeometry &geometry);
 
-// Returns whether the circle geometry is valid.
+// 判断圆几何数据是否有效。
 MINIGRAPH_EXPORT bool IsValidGeometry(const StruCircleGeometry &geometry);
 
-// Returns whether the polyline has enough finite vertices for its open/closed state.
+// 判断多段线的有限坐标顶点数量是否满足其开放或闭合状态的要求。
 MINIGRAPH_EXPORT bool IsValidGeometry(const StruPolylineGeometry &geometry);
 
-// Returns the directed arc sweep in radians.
+// 返回按指定方向计算的圆弧扫掠角，单位为弧度。
 MINIGRAPH_EXPORT qreal GetArcSweep(const StruArcGeometry &geometry);
 
-// Returns whether an angle lies on the directed arc.
+// 判断指定角度是否位于有向圆弧上。
 MINIGRAPH_EXPORT bool IsAngleOnArc(const StruArcGeometry &geometry,
                                     qreal angle);
 
-// Returns a world-space point on the arc's supporting circle.
+// 返回圆弧支撑圆上指定角度对应的世界坐标点。
 MINIGRAPH_EXPORT QPointF CalculateArcPoint(const StruArcGeometry &geometry,
                                            qreal angle);
 
-// Returns the point geometry bounds.
+// 返回点几何数据的包围矩形。
 MINIGRAPH_EXPORT QRectF GetGeometryBounds(const StruPointGeometry &geometry);
 
-// Returns the line geometry bounds.
+// 返回线段几何数据的包围矩形。
 MINIGRAPH_EXPORT QRectF GetGeometryBounds(const StruLineGeometry &geometry);
 
-// Returns the arc geometry bounds.
+// 返回圆弧几何数据的包围矩形。
 MINIGRAPH_EXPORT QRectF GetGeometryBounds(const StruArcGeometry &geometry);
 
-// Returns the circle geometry bounds.
+// 返回圆几何数据的包围矩形。
 MINIGRAPH_EXPORT QRectF GetGeometryBounds(const StruCircleGeometry &geometry);
 
-// Returns the polyline geometry bounds.
+// 返回多段线几何数据的包围矩形。
 MINIGRAPH_EXPORT QRectF GetGeometryBounds(const StruPolylineGeometry &geometry);
 
-// Tessellates an arc into a point sequence including both endpoints.
+// 将圆弧离散为点序列，结果包含起点和终点。
 MINIGRAPH_EXPORT QVector<QPointF> TessellateArc(const StruArcGeometry &geometry,
                                                 qreal maximumError);
 
-// Tessellates a circle into a closed point sequence.
+// 将圆离散为闭合点序列。
 MINIGRAPH_EXPORT QVector<QPointF> TessellateCircle(const StruCircleGeometry &geometry,
                                                    qreal maximumError);
 

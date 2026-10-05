@@ -229,9 +229,12 @@ public:
 
 CanvasView::CanvasView(QWidget *parent)
     : QWidget(parent)
+    , m_InteractionMode(InteractionMode::Edit)
     , m_GridVisible(true)
     , m_GridSpacing(10.0)
     , m_AxisVisible(true)
+    , m_AxisFlipX(false)
+    , m_AxisFlipY(false)
     , m_RulerVisible(false)
     , m_OrthogonalMode(false)
     , m_PanState(PanState::Idle)
@@ -263,6 +266,37 @@ CanvasView::~CanvasView()
 {
 }
 
+void CanvasView::SetInteractionMode(InteractionMode mode)
+{
+    if (m_InteractionMode == mode) {
+        return;
+    }
+
+    CancelEdit();
+    CancelMove();
+    m_PanState = PanState::Idle;
+    m_SelectionState = SelectionState::Idle;
+    m_SelectionModifiers = Qt::NoModifier;
+    m_PressedItemId = 0;
+    SetOrthogonalModeInternal(false);
+    unsetCursor();
+    m_InteractionMode = mode;
+    if (mode == InteractionMode::PreviewNavigation && m_Document) {
+        m_Document->ClearSelection();
+    }
+    const CanvasSnapResult emptySnap;
+    if (m_CurrentSnapResult != emptySnap) {
+        m_CurrentSnapResult = emptySnap;
+        emit SnapChanged(m_CurrentSnapResult);
+    }
+    update();
+}
+
+CanvasView::InteractionMode CanvasView::GetInteractionMode() const
+{
+    return m_InteractionMode;
+}
+
 CanvasDocument *CanvasView::GetDocument() const
 {
     return m_Document.data();
@@ -282,6 +316,10 @@ void CanvasView::SetDocument(CanvasDocument *document)
     m_SelectionState = SelectionState::Idle;
     m_PressedItemId = 0;
     m_SelectionModifiers = Qt::NoModifier;
+
+    if (m_InteractionMode == InteractionMode::PreviewNavigation && m_Document) {
+        m_Document->ClearSelection();
+    }
 
     if (m_Document) {
         m_DocumentConnection = connect(m_Document.data(),
@@ -412,6 +450,17 @@ void CanvasView::SetAxisVisible(bool visible)
 
     m_AxisVisible = visible;
     emit AxisVisibleChanged(m_AxisVisible);
+    update();
+}
+
+void CanvasView::SetAxisFlips(bool flipX, bool flipY)
+{
+    if (m_AxisFlipX == flipX && m_AxisFlipY == flipY) {
+        return;
+    }
+
+    m_AxisFlipX = flipX;
+    m_AxisFlipY = flipY;
     update();
 }
 
@@ -550,6 +599,23 @@ void CanvasView::resizeEvent(QResizeEvent *event)
 
 void CanvasView::keyPressEvent(QKeyEvent *event)
 {
+    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
+        if (event->key() == Qt::Key_Escape) {
+            m_PanState = PanState::Idle;
+            unsetCursor();
+            event->accept();
+            return;
+        }
+        if (event->key() == Qt::Key_Delete
+                || event->key() == Qt::Key_Backspace
+                || event->key() == Qt::Key_Shift) {
+            event->accept();
+            return;
+        }
+        QWidget::keyPressEvent(event);
+        return;
+    }
+
     if (event->key() == Qt::Key_Shift) {
         if (!event->isAutoRepeat()) {
             SetOrthogonalModeInternal(true);
@@ -600,6 +666,12 @@ void CanvasView::keyPressEvent(QKeyEvent *event)
 
 void CanvasView::keyReleaseEvent(QKeyEvent *event)
 {
+    if (m_InteractionMode == InteractionMode::PreviewNavigation
+            && event->key() == Qt::Key_Shift) {
+        event->accept();
+        return;
+    }
+
     if (event->key() == Qt::Key_Shift) {
         if (!event->isAutoRepeat()) {
             SetOrthogonalModeInternal(false);
@@ -617,6 +689,31 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
     const QPointF mouseWorldPosition = MapToWorld(m_CurrentMousePosition);
     emit MouseWorldPositionChanged(mouseWorldPosition);
     UpdateSnap(mouseWorldPosition);
+
+    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
+        if (event->button() == Qt::RightButton) {
+            event->ignore();
+            return;
+        }
+        if (event->button() == Qt::LeftButton
+                || event->button() == Qt::MiddleButton) {
+            if (m_PanState != PanState::Idle) {
+                event->ignore();
+                return;
+            }
+            if (isVisible()) {
+                setFocus(Qt::MouseFocusReason);
+            }
+            m_PanState = PanState::Pressed;
+            m_PanStartPosition = event->localPos();
+            m_LastMousePosition = event->localPos();
+            setCursor(Qt::OpenHandCursor);
+            event->accept();
+            return;
+        }
+        event->ignore();
+        return;
+    }
 
     if (event->button() == Qt::MiddleButton) {
         if (isVisible()) {
@@ -692,6 +789,34 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
     const QPointF mouseWorldPosition = MapToWorld(currentMousePosition);
     emit MouseWorldPositionChanged(mouseWorldPosition);
     UpdateSnap(mouseWorldPosition);
+
+    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
+        if ((event->buttons() & Qt::RightButton)
+                || m_PanState == PanState::Idle) {
+            event->ignore();
+            return;
+        }
+        if (!(event->buttons() & (Qt::LeftButton | Qt::MiddleButton))) {
+            m_PanState = PanState::Idle;
+            unsetCursor();
+            event->ignore();
+            return;
+        }
+        if (m_PanState == PanState::Pressed) {
+            const QPointF delta = currentMousePosition - m_PanStartPosition;
+            if (QPointF::dotProduct(delta, delta) < 49.0) {
+                event->accept();
+                return;
+            }
+            m_PanState = PanState::Dragging;
+            setCursor(Qt::ClosedHandCursor);
+        }
+        m_Transform.PanBy(currentMousePosition - m_LastMousePosition);
+        m_LastMousePosition = currentMousePosition;
+        update();
+        event->accept();
+        return;
+    }
 
     if (m_PanState == PanState::Idle) {
         if (m_SelectionState == SelectionState::Editing) {
@@ -810,6 +935,18 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event)
     emit MouseWorldPositionChanged(mouseWorldPosition);
     UpdateSnap(mouseWorldPosition);
 
+    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
+        if (event->button() == Qt::LeftButton
+                || event->button() == Qt::MiddleButton) {
+            m_PanState = PanState::Idle;
+            unsetCursor();
+            event->accept();
+            return;
+        }
+        event->ignore();
+        return;
+    }
+
     if (event->button() == Qt::MiddleButton && m_PanState != PanState::Idle) {
         m_PanState = PanState::Idle;
         unsetCursor();
@@ -867,6 +1004,17 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event)
     }
 
     QWidget::mouseReleaseEvent(event);
+}
+
+void CanvasView::mouseDoubleClickEvent(QMouseEvent *event)
+{
+    if (m_InteractionMode == InteractionMode::PreviewNavigation
+            && event->button() == Qt::LeftButton) {
+        FitAll(10.0);
+        event->accept();
+        return;
+    }
+    QWidget::mouseDoubleClickEvent(event);
 }
 
 void CanvasView::paintEvent(QPaintEvent *event)
@@ -942,6 +1090,53 @@ void CanvasView::wheelEvent(QWheelEvent *event)
     const QPoint pixelDelta = event->pixelDelta();
     const QPoint angleDelta = event->angleDelta();
     const Qt::KeyboardModifiers modifiers = event->modifiers();
+
+    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
+        if (!pixelDelta.isNull()) {
+            if (modifiers == Qt::ControlModifier) {
+                const qreal steps = -static_cast<qreal>(pixelDelta.y()) / 100.0;
+                if (qFuzzyIsNull(steps)) {
+                    event->ignore();
+                    return;
+                }
+                const qreal factor = steps > 0.0
+                        ? 1.0 + steps : 1.0 / (1.0 - steps);
+                m_Transform.ZoomAt(GetWheelEventPosition(event), QSizeF(size()), factor);
+                emit ZoomChanged(m_Transform.GetZoom());
+            } else {
+                m_Transform.PanBy(QPointF(pixelDelta.x(), pixelDelta.y()));
+            }
+        } else {
+            const bool horizontal = qAbs(static_cast<qint64>(angleDelta.x()))
+                    > qAbs(static_cast<qint64>(angleDelta.y()));
+            const int delta = horizontal ? angleDelta.x() : angleDelta.y();
+            if (delta == 0) {
+                event->ignore();
+                return;
+            }
+            if (modifiers == Qt::NoModifier) {
+                const qreal factor = std::pow(1.137,
+                                               static_cast<qreal>(delta) / 120.0);
+                m_Transform.ZoomAt(GetWheelEventPosition(event), QSizeF(size()), factor);
+                emit ZoomChanged(m_Transform.GetZoom());
+            } else if (modifiers == Qt::ControlModifier) {
+                m_Transform.PanBy(horizontal
+                                  ? QPointF(-angleDelta.x() / 4.0, 0.0)
+                                  : QPointF(0.0, angleDelta.y() / 4.0));
+            } else if (modifiers == Qt::ShiftModifier) {
+                m_Transform.PanBy(horizontal
+                                  ? QPointF(0.0, angleDelta.x() / 4.0)
+                                  : QPointF(-angleDelta.y() / 4.0, 0.0));
+            } else {
+                event->ignore();
+                return;
+            }
+        }
+        UpdateSnap(MapToWorld(m_CurrentMousePosition));
+        update();
+        event->accept();
+        return;
+    }
 
     if (modifiers == Qt::ControlModifier) {
         qreal zoomSteps = 0.0;
@@ -1020,7 +1215,8 @@ void CanvasView::OnSelectionChanged()
 void CanvasView::UpdateSnap(const QPointF &worldPosition)
 {
     CanvasSnapResult result;
-    if (m_SnapEnabled && !size().isEmpty()) {
+    if (m_InteractionMode == InteractionMode::Edit
+            && m_SnapEnabled && !size().isEmpty()) {
         const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
                                        CanvasTransform::GetMinimumZoom());
         const qreal toleranceWorld = 10.0 / zoom;
@@ -1102,7 +1298,9 @@ void CanvasView::DrawGrid(QPainter &painter) const
 
 void CanvasView::DrawOverlayLayer(QPainter &painter) const
 {
-    DrawSelectionBox(painter);
+    if (m_InteractionMode == InteractionMode::Edit) {
+        DrawSelectionBox(painter);
+    }
 
     if (m_AxisVisible) {
         DrawAxes(painter);
@@ -1112,13 +1310,16 @@ void CanvasView::DrawOverlayLayer(QPainter &painter) const
         DrawRulerLabels(painter);
     }
 
-    DrawEditHandles(painter);
-    DrawSnapMarker(painter);
+    if (m_InteractionMode == InteractionMode::Edit) {
+        DrawEditHandles(painter);
+        DrawSnapMarker(painter);
+    }
 }
 
 void CanvasView::DrawSelectionBox(QPainter &painter) const
 {
-    if (m_SelectionState != SelectionState::Dragging) {
+    if (m_InteractionMode != InteractionMode::Edit
+            || m_SelectionState != SelectionState::Dragging) {
         return;
     }
 
@@ -1168,8 +1369,8 @@ void CanvasView::DrawAxes(QPainter &painter) const
         painter.drawLine(QLineF(origin.x(), 0.0, origin.x(), viewportHeight));
     }
 
-    const qreal axisXDirection = 1.0;
-    const qreal axisYDirection = -1.0;
+    const qreal axisXDirection = m_AxisFlipX ? -1.0 : 1.0;
+    const qreal axisYDirection = m_AxisFlipY ? 1.0 : -1.0;
     // The coordinate indicator belongs to the world origin.  Do not move it
     // to a viewport corner when the origin or its labels approach an edge;
     // that would make the indicator screen anchored while geometry keeps
@@ -1231,7 +1432,7 @@ void CanvasView::DrawAxes(QPainter &painter) const
     painter.drawText(QPointF(coordinateOrigin.x() - 6.0,
                              coordinateOrigin.y() + axisYDirection * 98.0),
                      QStringLiteral("Y"));
-    painter.drawText(QPointF(coordinateOrigin.x() + 98.0,
+    painter.drawText(QPointF(coordinateOrigin.x() + axisXDirection * 98.0,
                              coordinateOrigin.y() + 10.0),
                      QStringLiteral("X"));
     painter.restore();
@@ -1292,7 +1493,8 @@ void CanvasView::DrawRulerLabels(QPainter &painter) const
 
 void CanvasView::DrawEditHandles(QPainter &painter) const
 {
-    if (!m_Document || m_Document->GetSelectedItemCount() != 1
+    if (m_InteractionMode != InteractionMode::Edit
+            || !m_Document || m_Document->GetSelectedItemCount() != 1
             || size().isEmpty()) {
         return;
     }
@@ -1342,7 +1544,8 @@ void CanvasView::DrawEditHandles(QPainter &painter) const
 
 void CanvasView::DrawSnapMarker(QPainter &painter) const
 {
-    if (!m_CurrentSnapResult.IsValid() || size().isEmpty()) {
+    if (m_InteractionMode != InteractionMode::Edit
+            || !m_CurrentSnapResult.IsValid() || size().isEmpty()) {
         return;
     }
 

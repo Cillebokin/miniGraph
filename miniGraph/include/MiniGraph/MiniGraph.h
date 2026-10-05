@@ -1,6 +1,6 @@
 #pragma once
 
-// MiniGraph public API.
+// MiniGraph 对外公共 API 汇总头文件。
 #include "MiniGraph_global.h"
 #include "CanvasTypes.h"
 #include "CanvasGeometry.h"

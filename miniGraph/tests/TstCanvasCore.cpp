@@ -36,6 +36,7 @@ public:
     using CanvasView::mouseMoveEvent;
     using CanvasView::mousePressEvent;
     using CanvasView::mouseReleaseEvent;
+    using CanvasView::mouseDoubleClickEvent;
     using CanvasView::DrawAxes;
     using CanvasView::DrawEditHandles;
     using CanvasView::DrawGrid;
@@ -89,6 +90,10 @@ private slots:
     void CanvasRendererDrawsOpenAndClosedPolylines();
     void CanvasViewWheelUsesCadLabScale();
     void CanvasViewMiddlePanUsesDeadband();
+    void CanvasViewPreviewNavigationPansWithLeftAndMiddleButtons();
+    void CanvasViewPreviewNavigationIgnoresSelectionAndDelete();
+    void CanvasViewPreviewNavigationMatchesCadLabWheelGestures();
+    void CanvasViewPreviewNavigationDoubleClickFitsAll();
     void CanvasViewKeyboardAndContextSignals();
     void CanvasViewDisplayPropertiesAndMapping();
     void CanvasViewFitAllUsesDocumentBounds();
@@ -98,6 +103,7 @@ private slots:
     void CanvasViewZoomInShowsFinerGridUnits();
     void CanvasViewRendersCadLabOverlays();
     void CanvasViewAxesStayAttachedToWorldAfterPan();
+    void CanvasViewAxisDirectionsFollowFlipState();
     void DocumentSelectionTogglesAndSignals();
     void CanvasViewSingleClickSelectionFollowsCadLabRules();
     void CanvasViewSingleClickSelectsAllGeometryTypes();
@@ -1025,6 +1031,17 @@ void CanvasCoreTest::CanvasViewReportsCurrentSnap()
     QCOMPARE(result.itemId, lineId);
     QCOMPARE(result.position, QPointF(3.0, 3.0));
 
+    view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
+    QVERIFY(view.IsSnapEnabled());
+    QCOMPARE(view.GetCurrentSnapResult().type, mini_graph::CanvasSnapType::None);
+    view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::Edit);
+    QVERIFY(view.IsSnapEnabled());
+    QCOMPARE(view.GetCurrentSnapResult().type, mini_graph::CanvasSnapType::None);
+
+    view.mouseMoveEvent(&move);
+    QCOMPARE(view.GetCurrentSnapResult().type,
+             mini_graph::CanvasSnapType::LineEndpoint);
+
     view.SetSnapEnabled(false);
     QCOMPARE(static_cast<int>(view.GetCurrentSnapResult().type),
              static_cast<int>(mini_graph::CanvasSnapType::None));
@@ -1224,6 +1241,252 @@ void CanvasCoreTest::CanvasViewMiddlePanUsesDeadband()
                         Qt::NoModifier);
     view.mouseReleaseEvent(&release);
     QCOMPARE(view.cursor().shape(), Qt::ArrowCursor);
+}
+
+void CanvasCoreTest::CanvasViewPreviewNavigationPansWithLeftAndMiddleButtons()
+{
+    CanvasViewHarness view;
+    mini_graph::CanvasDocument document;
+    document.AddLine(QPointF(0.0, 0.0), QPointF(20.0, 0.0));
+    view.resize(640, 480);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+    QCOMPARE(view.GetInteractionMode(),
+             mini_graph::CanvasView::InteractionMode::Edit);
+    view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
+
+    const Qt::MouseButton panButtons[] = { Qt::LeftButton, Qt::MiddleButton };
+    for (Qt::MouseButton button : panButtons) {
+        const QPointF before = view.MapFromWorld(QPointF(0.0, 0.0));
+        QMouseEvent press(QEvent::MouseButtonPress, QPointF(100.0, 100.0),
+                          QPointF(100.0, 100.0), QPointF(100.0, 100.0),
+                          button, button, Qt::NoModifier);
+        view.mousePressEvent(&press);
+        QCOMPARE(view.cursor().shape(), Qt::OpenHandCursor);
+
+        QMouseEvent inside(QEvent::MouseMove, QPointF(103.0, 100.0),
+                           QPointF(103.0, 100.0), QPointF(103.0, 100.0),
+                           Qt::NoButton, button, Qt::NoModifier);
+        view.mouseMoveEvent(&inside);
+        QCOMPARE(view.MapFromWorld(QPointF(0.0, 0.0)), before);
+
+        QMouseEvent move(QEvent::MouseMove, QPointF(140.0, 120.0),
+                         QPointF(140.0, 120.0), QPointF(140.0, 120.0),
+                         Qt::NoButton, button, Qt::NoModifier);
+        view.mouseMoveEvent(&move);
+        QCOMPARE(view.MapFromWorld(QPointF(0.0, 0.0)),
+                 before + QPointF(40.0, 20.0));
+        QCOMPARE(view.cursor().shape(), Qt::ClosedHandCursor);
+
+        QMouseEvent release(QEvent::MouseButtonRelease, QPointF(140.0, 120.0),
+                            QPointF(140.0, 120.0), QPointF(140.0, 120.0),
+                            button, Qt::NoButton, Qt::NoModifier);
+        view.mouseReleaseEvent(&release);
+        QCOMPARE(view.cursor().shape(), Qt::ArrowCursor);
+        QCOMPARE(document.GetSelectedItemCount(), 0);
+    }
+
+    QSignalSpy contextSpy(&view, &mini_graph::CanvasView::ContextMenuRequested);
+    const QPointF beforeRight = view.MapFromWorld(QPointF(0.0, 0.0));
+    QMouseEvent rightPress(QEvent::MouseButtonPress, QPointF(100.0, 100.0),
+                           QPointF(100.0, 100.0), QPointF(100.0, 100.0),
+                           Qt::RightButton, Qt::RightButton, Qt::NoModifier);
+    view.mousePressEvent(&rightPress);
+    QMouseEvent rightMove(QEvent::MouseMove, QPointF(140.0, 120.0),
+                          QPointF(140.0, 120.0), QPointF(140.0, 120.0),
+                          Qt::NoButton, Qt::RightButton, Qt::NoModifier);
+    view.mouseMoveEvent(&rightMove);
+    QMouseEvent rightRelease(QEvent::MouseButtonRelease, QPointF(140.0, 120.0),
+                             QPointF(140.0, 120.0), QPointF(140.0, 120.0),
+                             Qt::RightButton, Qt::NoButton, Qt::NoModifier);
+    view.mouseReleaseEvent(&rightRelease);
+    QCOMPARE(view.MapFromWorld(QPointF(0.0, 0.0)), beforeRight);
+    QCOMPARE(contextSpy.count(), 0);
+}
+
+void CanvasCoreTest::CanvasViewPreviewNavigationIgnoresSelectionAndDelete()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId lineId = document.AddLine(QPointF(-20.0, 0.0),
+                                                       QPointF(20.0, 0.0));
+    document.SelectItem(lineId);
+    CanvasViewHarness view;
+    view.resize(640, 480);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+    view.SetSnapEnabled(true);
+    view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
+    QCOMPARE(document.GetSelectedItemCount(), 0);
+    QVERIFY(view.IsSnapEnabled());
+
+    const QPointF start = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF end = start + QPointF(30.0, 20.0);
+    QMouseEvent clickPress(QEvent::MouseButtonPress, start, start, start,
+                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    view.mousePressEvent(&clickPress);
+    QMouseEvent clickRelease(QEvent::MouseButtonRelease, start, start, start,
+                             Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    view.mouseReleaseEvent(&clickRelease);
+    QCOMPARE(document.GetSelectedItemCount(), 0);
+
+    QMouseEvent press(QEvent::MouseButtonPress, start, start, start,
+                      Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    view.mousePressEvent(&press);
+    QMouseEvent move(QEvent::MouseMove, end, end, end,
+                     Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    view.mouseMoveEvent(&move);
+    QMouseEvent release(QEvent::MouseButtonRelease, end, end, end,
+                        Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+    view.mouseReleaseEvent(&release);
+    QCOMPARE(document.GetSelectedItemCount(), 0);
+    QCOMPARE(document.GetLinePrimitives().first().geometry.startPoint,
+             QPointF(-20.0, 0.0));
+    QCOMPARE(document.GetLinePrimitives().first().geometry.endPoint,
+             QPointF(20.0, 0.0));
+
+    QKeyEvent deleteEvent(QEvent::KeyPress, Qt::Key_Delete, Qt::NoModifier);
+    view.keyPressEvent(&deleteEvent);
+    QKeyEvent backspaceEvent(QEvent::KeyPress, Qt::Key_Backspace, Qt::NoModifier);
+    view.keyPressEvent(&backspaceEvent);
+    QCOMPARE(document.GetItemCount(), 1);
+
+    document.SelectItem(lineId);
+    QMouseEvent panPress(QEvent::MouseButtonPress, QPointF(100.0, 100.0),
+                         QPointF(100.0, 100.0), QPointF(100.0, 100.0),
+                         Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    view.mousePressEvent(&panPress);
+    QMouseEvent panMove(QEvent::MouseMove, QPointF(120.0, 100.0),
+                        QPointF(120.0, 100.0), QPointF(120.0, 100.0),
+                        Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    view.mouseMoveEvent(&panMove);
+    const QPointF originAfterPan = view.MapFromWorld(QPointF(0.0, 0.0));
+    QKeyEvent escapeEvent(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    view.keyPressEvent(&escapeEvent);
+    QCOMPARE(view.cursor().shape(), Qt::ArrowCursor);
+    QMouseEvent moveAfterEscape(QEvent::MouseMove, QPointF(150.0, 100.0),
+                                QPointF(150.0, 100.0), QPointF(150.0, 100.0),
+                                Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    view.mouseMoveEvent(&moveAfterEscape);
+    QCOMPARE(view.MapFromWorld(QPointF(0.0, 0.0)), originAfterPan);
+    QCOMPARE(document.GetSelectedItemCount(), 1);
+    QCOMPARE(document.GetItemCount(), 1);
+    QCOMPARE(document.GetLinePrimitives().first().geometry.startPoint,
+             QPointF(-20.0, 0.0));
+    view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::Edit);
+    QVERIFY(view.IsSnapEnabled());
+    QCOMPARE(view.GetInteractionMode(), mini_graph::CanvasView::InteractionMode::Edit);
+
+    const QPointF editStart = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF editEnd = editStart + QPointF(25.0, 0.0);
+    QMouseEvent editPress(QEvent::MouseButtonPress, editStart, editStart, editStart,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    view.mousePressEvent(&editPress);
+    QMouseEvent editMove(QEvent::MouseMove, editEnd, editEnd, editEnd,
+                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    view.mouseMoveEvent(&editMove);
+    QVERIFY(document.GetLinePrimitives().first().geometry.startPoint
+            != QPointF(-20.0, 0.0));
+    view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
+    QCOMPARE(document.GetLinePrimitives().first().geometry.startPoint,
+             QPointF(-20.0, 0.0));
+    QCOMPARE(document.GetSelectedItemCount(), 0);
+
+    document.SelectItem(lineId);
+    view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::Edit);
+    const QPointF handleStart = view.MapFromWorld(QPointF(-20.0, 0.0));
+    const QPointF handleEnd = handleStart + QPointF(-15.0, -10.0);
+    QMouseEvent handlePress(QEvent::MouseButtonPress,
+                            handleStart, handleStart, handleStart,
+                            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    view.mousePressEvent(&handlePress);
+    QMouseEvent handleMove(QEvent::MouseMove, handleEnd, handleEnd, handleEnd,
+                           Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+    view.mouseMoveEvent(&handleMove);
+    QVERIFY(document.GetLinePrimitives().first().geometry.startPoint
+            != QPointF(-20.0, 0.0));
+    view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
+    QCOMPARE(document.GetLinePrimitives().first().geometry.startPoint,
+             QPointF(-20.0, 0.0));
+    QCOMPARE(document.GetSelectedItemCount(), 0);
+}
+
+void CanvasCoreTest::CanvasViewPreviewNavigationMatchesCadLabWheelGestures()
+{
+    struct WheelCase {
+        QPoint pixel;
+        QPoint angle;
+        Qt::KeyboardModifiers modifiers;
+        qreal expectedZoom;
+        QPointF expectedPan;
+    };
+    const WheelCase cases[] = {
+        { QPoint(30, -20), QPoint(), Qt::NoModifier, 1.0, QPointF(30.0, -20.0) },
+        { QPoint(30, -20), QPoint(), Qt::ShiftModifier, 1.0, QPointF(30.0, -20.0) },
+        { QPoint(0, 20), QPoint(), Qt::ControlModifier, 1.0 / 1.2, QPointF() },
+        { QPoint(0, -20), QPoint(), Qt::ControlModifier, 1.2, QPointF() },
+        { QPoint(30, -20), QPoint(), Qt::ControlModifier | Qt::ShiftModifier,
+          1.0, QPointF(30.0, -20.0) },
+        { QPoint(0, 120), QPoint(), Qt::ShiftModifier, 1.0, QPointF(0.0, 120.0) },
+        { QPoint(), QPoint(0, 120), Qt::NoModifier, 1.137, QPointF() },
+        { QPoint(), QPoint(120, 0), Qt::NoModifier, 1.137, QPointF() },
+        { QPoint(), QPoint(240, 120), Qt::NoModifier, 1.292769, QPointF() },
+        { QPoint(), QPoint(0, 120), Qt::ControlModifier, 1.0, QPointF(0.0, 30.0) },
+        { QPoint(), QPoint(120, 0), Qt::ControlModifier, 1.0, QPointF(-30.0, 0.0) },
+        { QPoint(), QPoint(0, 120), Qt::ShiftModifier, 1.0, QPointF(-30.0, 0.0) },
+        { QPoint(), QPoint(120, 0), Qt::ShiftModifier, 1.0, QPointF(0.0, 30.0) },
+        { QPoint(), QPoint(0, 120), Qt::ControlModifier | Qt::ShiftModifier,
+          1.0, QPointF() },
+        { QPoint(), QPoint(120, 120), Qt::ControlModifier,
+          1.0, QPointF(0.0, 30.0) }
+    };
+
+    for (const WheelCase &testCase : cases) {
+        CanvasViewHarness view;
+        view.resize(640, 480);
+        view.setUpdatesEnabled(false);
+        view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
+        const QPointF originBefore = view.MapFromWorld(QPointF(0.0, 0.0));
+        const QPointF anchor(200.0, 150.0);
+        const QPointF worldAtAnchor = view.MapToWorld(anchor);
+        QWheelEvent wheel(anchor, anchor, testCase.pixel, testCase.angle,
+                          Qt::NoButton, testCase.modifiers,
+                          Qt::ScrollUpdate, false);
+        view.wheelEvent(&wheel);
+        QVERIFY(qAbs(view.GetZoom() - testCase.expectedZoom) < 0.000001);
+        if (testCase.expectedZoom != 1.0) {
+            const QPointF anchored = view.MapToWorld(anchor);
+            QVERIFY(QLineF(anchored, worldAtAnchor).length() < 0.000001);
+        } else {
+            QCOMPARE(view.MapFromWorld(QPointF(0.0, 0.0)),
+                     originBefore + testCase.expectedPan);
+        }
+    }
+}
+
+void CanvasCoreTest::CanvasViewPreviewNavigationDoubleClickFitsAll()
+{
+    mini_graph::CanvasDocument document;
+    document.AddLine(QPointF(-100.0, -50.0), QPointF(100.0, 50.0));
+    CanvasViewHarness view;
+    view.resize(640, 480);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+    view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
+    view.CenterOnWorld(QPointF(1000.0, 1000.0));
+
+    QMouseEvent doubleClick(QEvent::MouseButtonDblClick,
+                            QPointF(220.0, 180.0), QPointF(220.0, 180.0),
+                            QPointF(220.0, 180.0),
+                            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+    view.mouseDoubleClickEvent(&doubleClick);
+
+    const QPointF first = view.MapFromWorld(QPointF(-100.0, -50.0));
+    const QPointF second = view.MapFromWorld(QPointF(100.0, 50.0));
+    QVERIFY(first.x() >= 9.9 && first.y() <= 470.1);
+    QVERIFY(second.x() <= 630.1 && second.y() >= 9.9);
+    QVERIFY(QLineF(view.MapFromWorld(QPointF(0.0, 0.0)),
+                   QPointF(320.0, 240.0)).length() < 0.000001);
+    QVERIFY(view.GetZoom() > 1.0);
 }
 
 void CanvasCoreTest::CanvasViewKeyboardAndContextSignals()
@@ -1469,6 +1732,43 @@ void CanvasCoreTest::CanvasViewAxesStayAttachedToWorldAfterPan()
 
     QVERIFY2(screenAnchoredMarkerPixels == 0,
              "The coordinate origin marker must follow the world origin instead of staying at the viewport corner.");
+}
+
+void CanvasCoreTest::CanvasViewAxisDirectionsFollowFlipState()
+{
+    CanvasViewHarness view;
+    view.resize(400, 300);
+
+    const auto renderAxes = [&view](bool flipX, bool flipY) {
+        view.SetAxisFlips(flipX, flipY);
+        QImage image(view.size(), QImage::Format_ARGB32);
+        image.fill(Qt::black);
+        QPainter painter(&image);
+        view.DrawAxes(painter);
+        painter.end();
+        return image;
+    };
+    const auto isAxisArrowPixel = [](const QColor& color) {
+        return color.red() > 50 && color.red() == color.green()
+            && color.green() == color.blue();
+    };
+
+    const QImage normal = renderAxes(false, false);
+    const QImage flipX = renderAxes(true, false);
+    const QImage flipY = renderAxes(false, true);
+    const QImage flipBoth = renderAxes(true, true);
+
+    const QColor normalXAxisTip = normal.pixelColor(290, 150);
+    QVERIFY2(isAxisArrowPixel(normalXAxisTip),
+             qPrintable(QStringLiteral("Expected +X arrow near (290, 150), got %1.")
+                            .arg(normalXAxisTip.name())));
+    QVERIFY(isAxisArrowPixel(normal.pixelColor(200, 60)));
+    QVERIFY(isAxisArrowPixel(flipX.pixelColor(110, 150)));
+    QVERIFY(isAxisArrowPixel(flipX.pixelColor(200, 60)));
+    QVERIFY(isAxisArrowPixel(flipY.pixelColor(290, 150)));
+    QVERIFY(isAxisArrowPixel(flipY.pixelColor(200, 240)));
+    QVERIFY(isAxisArrowPixel(flipBoth.pixelColor(110, 150)));
+    QVERIFY(isAxisArrowPixel(flipBoth.pixelColor(200, 240)));
 }
 
 void CanvasCoreTest::DocumentSelectionTogglesAndSignals()
