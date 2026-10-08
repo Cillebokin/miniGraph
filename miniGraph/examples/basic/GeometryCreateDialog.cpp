@@ -192,17 +192,21 @@ bool GeometryCreateDialog::CreateGeometry()
     mini_graph::ItemId itemId = 0;
     switch (type) {
     case mini_graph::CanvasEntityType::Point:
-        itemId = m_Document->AddPoint(QPointF(m_PointXSpinBox->value(),
-                                              m_PointYSpinBox->value()));
+        itemId = m_Document->AddPoint(mini_graph::CanvasVector(
+                                          m_PointXSpinBox->value(),
+                                          m_PointYSpinBox->value()));
         break;
     case mini_graph::CanvasEntityType::Line:
         itemId = m_Document->AddLine(
-                    QPointF(m_LineStartXSpinBox->value(), m_LineStartYSpinBox->value()),
-                    QPointF(m_LineEndXSpinBox->value(), m_LineEndYSpinBox->value()));
+                    mini_graph::CanvasVector(m_LineStartXSpinBox->value(),
+                                             m_LineStartYSpinBox->value()),
+                    mini_graph::CanvasVector(m_LineEndXSpinBox->value(),
+                                             m_LineEndYSpinBox->value()));
         break;
     case mini_graph::CanvasEntityType::Arc:
         itemId = m_Document->AddArc(
-                    QPointF(m_ArcCenterXSpinBox->value(), m_ArcCenterYSpinBox->value()),
+                    mini_graph::CanvasVector(m_ArcCenterXSpinBox->value(),
+                                             m_ArcCenterYSpinBox->value()),
                     m_ArcRadiusSpinBox->value(),
                     m_ArcStartAngleSpinBox->value(),
                     m_ArcEndAngleSpinBox->value(),
@@ -210,12 +214,12 @@ bool GeometryCreateDialog::CreateGeometry()
         break;
     case mini_graph::CanvasEntityType::Circle:
         itemId = m_Document->AddCircle(
-                    QPointF(m_CircleCenterXSpinBox->value(),
-                            m_CircleCenterYSpinBox->value()),
+                    mini_graph::CanvasVector(m_CircleCenterXSpinBox->value(),
+                                             m_CircleCenterYSpinBox->value()),
                     m_CircleRadiusSpinBox->value());
         break;
     case mini_graph::CanvasEntityType::Polyline: {
-        QVector<QPointF> vertices;
+        QVector<mini_graph::CanvasVector> vertices;
         if (basic_example::ParsePolylineText(
                     m_PolylineVerticesTextEdit->toPlainText(),
                     &vertices)) {

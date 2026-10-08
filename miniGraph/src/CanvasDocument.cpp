@@ -51,7 +51,7 @@ CanvasDocument::CanvasDocument(QObject *parent)
 {
 }
 
-ItemId CanvasDocument::AddPoint(const QPointF &position)
+ItemId CanvasDocument::AddPoint(const CanvasVector &position)
 {
     StruPointGeometry geometry;
     geometry.position = position;
@@ -70,8 +70,8 @@ ItemId CanvasDocument::AddPoint(const StruPointGeometry &geometry)
     return point.id;
 }
 
-ItemId CanvasDocument::AddLine(const QPointF &start,
-                               const QPointF &end,
+ItemId CanvasDocument::AddLine(const CanvasVector &start,
+                               const CanvasVector &end,
                                const QColor &color,
                                qreal width)
 {
@@ -99,7 +99,7 @@ ItemId CanvasDocument::AddLine(const StruLineGeometry &geometry,
     return line.id;
 }
 
-ItemId CanvasDocument::AddArc(const QPointF &center,
+ItemId CanvasDocument::AddArc(const CanvasVector &center,
                               qreal radius,
                               qreal startAngle,
                               qreal endAngle,
@@ -130,7 +130,7 @@ ItemId CanvasDocument::AddArc(const StruArcGeometry &geometry)
     return arc.id;
 }
 
-ItemId CanvasDocument::AddCircle(const QPointF &center,
+ItemId CanvasDocument::AddCircle(const CanvasVector &center,
                                  qreal radius)
 {
     StruCircleGeometry geometry;
@@ -155,7 +155,7 @@ ItemId CanvasDocument::AddCircle(const StruCircleGeometry &geometry)
     return circle.id;
 }
 
-ItemId CanvasDocument::AddPolyline(const QVector<QPointF> &vertices,
+ItemId CanvasDocument::AddPolyline(const QVector<CanvasVector> &vertices,
                                    bool closed)
 {
     StruPolylineGeometry geometry;
@@ -254,12 +254,11 @@ bool CanvasDocument::RemoveItem(ItemId id)
 }
 
 bool CanvasDocument::TranslateItems(const QVector<ItemId> &ids,
-                                    const QPointF &delta)
+                                    const CanvasVector &delta)
 {
     if (ids.isEmpty()
-            || !std::isfinite(static_cast<double>(delta.x()))
-            || !std::isfinite(static_cast<double>(delta.y()))
-            || (delta.x() == 0.0 && delta.y() == 0.0)) {
+            || !delta.IsValid()
+            || (delta.GetX() == 0.0 && delta.GetY() == 0.0)) {
         return false;
     }
 
@@ -304,7 +303,7 @@ bool CanvasDocument::TranslateItems(const QVector<ItemId> &ids,
         if (!itemIds.contains(polyline.id)) {
             continue;
         }
-        for (QPointF &vertex : polyline.geometry.vertices) {
+        for (CanvasVector &vertex : polyline.geometry.vertices) {
             vertex += delta;
         }
     }

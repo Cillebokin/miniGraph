@@ -72,36 +72,36 @@ qreal CalculateCadLabGridSpacing(qreal baseSpacing, qreal zoom)
     return spacing;
 }
 
-qreal DistanceSquaredToSegment(const QPointF &point,
-                               const QPointF &start,
-                               const QPointF &end)
+qreal DistanceSquaredToSegment(const CanvasVector &point,
+                               const CanvasVector &start,
+                               const CanvasVector &end)
 {
-    const QPointF direction = end - start;
-    const qreal lengthSquared = QPointF::dotProduct(direction, direction);
+    const CanvasVector direction = end - start;
+    const qreal lengthSquared = direction.SquaredLength();
     if (lengthSquared <= 0.0) {
-        const QPointF delta = point - start;
-        return QPointF::dotProduct(delta, delta);
+        return point.SquaredDistanceTo(start);
     }
 
-    const QPointF pointDelta = point - start;
+    const CanvasVector pointDelta = point - start;
     const qreal parameter = qBound<qreal>(0.0,
-                                          QPointF::dotProduct(pointDelta, direction)
+                                          pointDelta.Dot(direction)
                                                   / lengthSquared,
                                           1.0);
-    const QPointF closestPoint = start + direction * parameter;
-    const QPointF delta = point - closestPoint;
-    return QPointF::dotProduct(delta, delta);
+    const CanvasVector closestPoint = start + direction * parameter;
+    return point.SquaredDistanceTo(closestPoint);
 }
 
-bool SegmentIntersectsRect(const QPointF &start,
-                           const QPointF &end,
+bool SegmentIntersectsRect(const CanvasVector &start,
+                           const CanvasVector &end,
                            const QRectF &rect)
 {
-    if (rect.contains(start) || rect.contains(end)) {
+    const QPointF startPoint(start.GetX(), start.GetY());
+    const QPointF endPoint(end.GetX(), end.GetY());
+    if (rect.contains(startPoint) || rect.contains(endPoint)) {
         return true;
     }
 
-    const QLineF segment(start, end);
+    const QLineF segment(startPoint, endPoint);
     const QLineF edges[] = {
         QLineF(rect.topLeft(), rect.topRight()),
         QLineF(rect.topRight(), rect.bottomRight()),
@@ -118,7 +118,7 @@ bool SegmentIntersectsRect(const QPointF &start,
     return false;
 }
 
-bool PolylineIntersectsRect(const QVector<QPointF> &points,
+bool PolylineIntersectsRect(const QVector<CanvasVector> &points,
                             const QRectF &rect,
                             bool closed = false)
 {
@@ -126,8 +126,8 @@ bool PolylineIntersectsRect(const QVector<QPointF> &points,
         return false;
     }
 
-    for (const QPointF &point : points) {
-        if (rect.contains(point)) {
+    for (const CanvasVector &point : points) {
+        if (rect.contains(QPointF(point.GetX(), point.GetY()))) {
             return true;
         }
     }
@@ -155,34 +155,34 @@ bool IsGeometryBoundsContained(const QRectF &geometryBounds,
             && selectionRect.contains(geometryBounds.bottomRight());
 }
 
-qreal DistanceSquaredToArc(const QPointF &point,
+qreal DistanceSquaredToArc(const CanvasVector &point,
                            const StruArcGeometry &geometry)
 {
-    const QPointF delta = point - geometry.center;
-    const qreal distance = std::hypot(delta.x(), delta.y());
-    if (distance > 0.0 && IsAngleOnArc(geometry, std::atan2(delta.y(), delta.x()))) {
+    const CanvasVector delta = point - geometry.center;
+    const qreal distance = delta.Length();
+    if (distance > 0.0
+            && IsAngleOnArc(geometry,
+                            std::atan2(delta.GetY(), delta.GetX()))) {
         const qreal radialDelta = distance - geometry.radius;
         return radialDelta * radialDelta;
     }
 
-    const QPointF startPoint = CalculateArcPoint(geometry, geometry.startAngle);
-    const QPointF endPoint = CalculateArcPoint(geometry, geometry.endAngle);
-    const QPointF startDelta = point - startPoint;
-    const QPointF endDelta = point - endPoint;
-    return qMin(QPointF::dotProduct(startDelta, startDelta),
-                QPointF::dotProduct(endDelta, endDelta));
+    const CanvasVector startPoint = CalculateArcPoint(geometry, geometry.startAngle);
+    const CanvasVector endPoint = CalculateArcPoint(geometry, geometry.endAngle);
+    return qMin(point.SquaredDistanceTo(startPoint),
+                point.SquaredDistanceTo(endPoint));
 }
 
-qreal DistanceSquaredToCircle(const QPointF &point,
+qreal DistanceSquaredToCircle(const CanvasVector &point,
                               const StruCircleGeometry &geometry)
 {
-    const QPointF delta = point - geometry.center;
-    const qreal distance = std::hypot(delta.x(), delta.y());
+    const CanvasVector delta = point - geometry.center;
+    const qreal distance = delta.Length();
     const qreal radialDelta = distance - geometry.radius;
     return radialDelta * radialDelta;
 }
 
-qreal DistanceSquaredToPolyline(const QPointF &point,
+qreal DistanceSquaredToPolyline(const CanvasVector &point,
                                 const StruPolylineGeometry &geometry)
 {
     qreal bestDistanceSquared = std::numeric_limits<qreal>::max();
@@ -258,6 +258,7 @@ CanvasView::CanvasView(QWidget *parent)
     , m_EditGeometryChanged(false)
     , m_PrivateData(new CanvasViewPrivate)
 {
+    qRegisterMetaType<CanvasVector>("mini_graph::CanvasVector");
     setFocusPolicy(Qt::StrongFocus);
     setMouseTracking(true);
 }
@@ -419,16 +420,16 @@ CanvasTransform CanvasView::GetTransform() const
     return m_Transform;
 }
 
-QPointF CanvasView::MapToWorld(const QPointF &viewportPosition) const
+CanvasVector CanvasView::MapToWorld(const QPointF &viewportPosition) const
 {
     if (size().isEmpty()) {
-        return QPointF();
+        return CanvasVector();
     }
 
     return m_Transform.MapToWorld(viewportPosition, QSizeF(size()));
 }
 
-QPointF CanvasView::MapFromWorld(const QPointF &worldPosition) const
+QPointF CanvasView::MapFromWorld(const CanvasVector &worldPosition) const
 {
     if (size().isEmpty()) {
         return QPointF();
@@ -569,7 +570,7 @@ bool CanvasView::FitSelection(qreal marginPixels)
     return FitWorldRect(m_Document->GetBounds(selectedIds), marginPixels);
 }
 
-void CanvasView::CenterOnWorld(const QPointF &worldPosition)
+void CanvasView::CenterOnWorld(const CanvasVector &worldPosition)
 {
     if (m_Transform.GetCenter() == worldPosition) {
         return;
@@ -686,7 +687,7 @@ void CanvasView::keyReleaseEvent(QKeyEvent *event)
 void CanvasView::mousePressEvent(QMouseEvent *event)
 {
     m_CurrentMousePosition = event->localPos();
-    const QPointF mouseWorldPosition = MapToWorld(m_CurrentMousePosition);
+    const CanvasVector mouseWorldPosition = MapToWorld(m_CurrentMousePosition);
     emit MouseWorldPositionChanged(mouseWorldPosition);
     UpdateSnap(mouseWorldPosition);
 
@@ -786,7 +787,7 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
 {
     const QPointF currentMousePosition = event->localPos();
     m_CurrentMousePosition = currentMousePosition;
-    const QPointF mouseWorldPosition = MapToWorld(currentMousePosition);
+    const CanvasVector mouseWorldPosition = MapToWorld(currentMousePosition);
     emit MouseWorldPositionChanged(mouseWorldPosition);
     UpdateSnap(mouseWorldPosition);
 
@@ -867,7 +868,7 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
                             m_MoveItemIds = m_Document->GetSelectedItemIds();
                             m_MoveLastWorldPosition = MapToWorld(
                                         m_SelectionStartPosition);
-                            m_MoveTotalWorldDelta = QPointF(0.0, 0.0);
+                            m_MoveTotalWorldDelta = CanvasVector(0.0, 0.0);
                             m_SelectionState = SelectionState::Moving;
                             setCursor(Qt::SizeAllCursor);
                         } else {
@@ -880,11 +881,11 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
             }
 
             if (m_SelectionState == SelectionState::Moving) {
-                const QPointF currentWorldPosition = MapToWorld(
+                const CanvasVector currentWorldPosition = MapToWorld(
                             currentMousePosition);
-                const QPointF moveDelta = currentWorldPosition
+                const CanvasVector moveDelta = currentWorldPosition
                         - m_MoveLastWorldPosition;
-                if (moveDelta.x() != 0.0 || moveDelta.y() != 0.0) {
+                if (moveDelta.GetX() != 0.0 || moveDelta.GetY() != 0.0) {
                     if (m_Document) {
                         m_Document->TranslateItems(m_MoveItemIds, moveDelta);
                     }
@@ -931,7 +932,7 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
 void CanvasView::mouseReleaseEvent(QMouseEvent *event)
 {
     m_CurrentMousePosition = event->localPos();
-    const QPointF mouseWorldPosition = MapToWorld(m_CurrentMousePosition);
+    const CanvasVector mouseWorldPosition = MapToWorld(m_CurrentMousePosition);
     emit MouseWorldPositionChanged(mouseWorldPosition);
     UpdateSnap(mouseWorldPosition);
 
@@ -1212,7 +1213,7 @@ void CanvasView::OnSelectionChanged()
     update();
 }
 
-void CanvasView::UpdateSnap(const QPointF &worldPosition)
+void CanvasView::UpdateSnap(const CanvasVector &worldPosition)
 {
     CanvasSnapResult result;
     if (m_InteractionMode == InteractionMode::Edit
@@ -1268,12 +1269,12 @@ void CanvasView::DrawGrid(QPainter &painter) const
     }
 
     const QSizeF viewportSize(size());
-    const QPointF first = m_Transform.MapToWorld(QPointF(0.0, 0.0), viewportSize);
-    const QPointF last = m_Transform.MapToWorld(QPointF(width(), height()), viewportSize);
-    const qreal left = qMin(first.x(), last.x());
-    const qreal right = qMax(first.x(), last.x());
-    const qreal bottom = qMin(first.y(), last.y());
-    const qreal top = qMax(first.y(), last.y());
+    const CanvasVector first = m_Transform.MapToWorld(QPointF(0.0, 0.0), viewportSize);
+    const CanvasVector last = m_Transform.MapToWorld(QPointF(width(), height()), viewportSize);
+    const qreal left = qMin(first.GetX(), last.GetX());
+    const qreal right = qMax(first.GetX(), last.GetX());
+    const qreal bottom = qMin(first.GetY(), last.GetY());
+    const qreal top = qMax(first.GetY(), last.GetY());
 
     const qreal spacing = CalculateCadLabGridSpacing(m_GridSpacing,
                                                       m_Transform.GetZoom());
@@ -1286,13 +1287,13 @@ void CanvasView::DrawGrid(QPainter &painter) const
     painter.setPen(QPen(QColor(64, 64, 64), 1.0, Qt::DashLine));
     for (int x = firstX; x <= lastX; ++x) {
         const qreal worldX = x * metaSpacing;
-        painter.drawLine(QLineF(m_Transform.MapFromWorld(QPointF(worldX, bottom), viewportSize),
-                                m_Transform.MapFromWorld(QPointF(worldX, top), viewportSize)));
+        painter.drawLine(QLineF(m_Transform.MapFromWorld(CanvasVector(worldX, bottom), viewportSize),
+                                m_Transform.MapFromWorld(CanvasVector(worldX, top), viewportSize)));
     }
     for (int y = firstY; y <= lastY; ++y) {
         const qreal worldY = y * metaSpacing;
-        painter.drawLine(QLineF(m_Transform.MapFromWorld(QPointF(left, worldY), viewportSize),
-                                m_Transform.MapFromWorld(QPointF(right, worldY), viewportSize)));
+        painter.drawLine(QLineF(m_Transform.MapFromWorld(CanvasVector(left, worldY), viewportSize),
+                                m_Transform.MapFromWorld(CanvasVector(right, worldY), viewportSize)));
     }
 }
 
@@ -1351,7 +1352,7 @@ void CanvasView::DrawAxes(QPainter &painter) const
     }
 
     const QSizeF viewportSize(size());
-    const QPointF origin = m_Transform.MapFromWorld(QPointF(0.0, 0.0), viewportSize);
+    const QPointF origin = m_Transform.MapFromWorld(CanvasVector(0.0, 0.0), viewportSize);
     const qreal viewportWidth = static_cast<qreal>(width());
     const qreal viewportHeight = static_cast<qreal>(height());
 
@@ -1445,12 +1446,12 @@ void CanvasView::DrawRulerLabels(QPainter &painter) const
     }
 
     const QSizeF viewportSize(size());
-    const QPointF first = m_Transform.MapToWorld(QPointF(0.0, 0.0), viewportSize);
-    const QPointF last = m_Transform.MapToWorld(QPointF(width(), height()), viewportSize);
-    const qreal left = qMin(first.x(), last.x());
-    const qreal right = qMax(first.x(), last.x());
-    const qreal bottom = qMin(first.y(), last.y());
-    const qreal top = qMax(first.y(), last.y());
+    const CanvasVector first = m_Transform.MapToWorld(QPointF(0.0, 0.0), viewportSize);
+    const CanvasVector last = m_Transform.MapToWorld(QPointF(width(), height()), viewportSize);
+    const qreal left = qMin(first.GetX(), last.GetX());
+    const qreal right = qMax(first.GetX(), last.GetX());
+    const qreal bottom = qMin(first.GetY(), last.GetY());
+    const qreal top = qMax(first.GetY(), last.GetY());
 
     const qreal spacing = CalculateCadLabGridSpacing(m_GridSpacing,
                                                       m_Transform.GetZoom());
@@ -1466,7 +1467,7 @@ void CanvasView::DrawRulerLabels(QPainter &painter) const
 
     for (int x = firstX; x <= lastX; ++x) {
         const qreal worldX = x * rulerSpacing;
-        const qreal viewportX = m_Transform.MapFromWorld(QPointF(worldX, 0.0),
+        const qreal viewportX = m_Transform.MapFromWorld(CanvasVector(worldX, 0.0),
                                                           viewportSize).x();
         painter.drawText(QRectF(viewportX - 50.0,
                                 static_cast<qreal>(height() - 20),
@@ -1478,7 +1479,7 @@ void CanvasView::DrawRulerLabels(QPainter &painter) const
 
     for (int y = firstY; y <= lastY; ++y) {
         const qreal worldY = y * rulerSpacing;
-        const qreal viewportY = m_Transform.MapFromWorld(QPointF(0.0, worldY),
+        const qreal viewportY = m_Transform.MapFromWorld(CanvasVector(0.0, worldY),
                                                           viewportSize).y();
         painter.drawText(QRectF(0.0,
                                 viewportY - 10.0,
@@ -1629,7 +1630,7 @@ QVector<CanvasView::EditHandlePosition> CanvasView::GetEditHandlePositions(
                                 circle.geometry.center});
                 handles.append({EditHandleType::CircleRadius,
                                 circle.geometry.center
-                                + QPointF(circle.geometry.radius, 0.0)});
+                                + CanvasVector(circle.geometry.radius, 0.0)});
                 break;
             }
         }
@@ -1763,7 +1764,7 @@ bool CanvasView::BeginEdit(ItemId id,
     return true;
 }
 
-bool CanvasView::UpdateEdit(const QPointF &worldPosition)
+bool CanvasView::UpdateEdit(const CanvasVector &worldPosition)
 {
     if (!m_Document || m_EditItemId == 0
             || m_EditHandleType == EditHandleType::None) {
@@ -1799,14 +1800,14 @@ bool CanvasView::UpdateEdit(const QPointF &worldPosition)
         if (m_EditHandleType == EditHandleType::ArcCenter) {
             geometry.center = worldPosition;
         } else {
-            const QPointF delta = worldPosition - geometry.center;
-            const qreal radius = std::hypot(delta.x(), delta.y());
+            const CanvasVector delta = worldPosition - geometry.center;
+            const qreal radius = delta.Length();
             if (radius <= 0.0) {
                 return false;
             }
 
             geometry.radius = radius;
-            const qreal angle = std::atan2(delta.y(), delta.x());
+            const qreal angle = std::atan2(delta.GetY(), delta.GetX());
             if (m_EditHandleType == EditHandleType::ArcStart) {
                 geometry.startAngle = angle;
             } else if (m_EditHandleType == EditHandleType::ArcEnd) {
@@ -1823,8 +1824,8 @@ bool CanvasView::UpdateEdit(const QPointF &worldPosition)
         if (m_EditHandleType == EditHandleType::CircleCenter) {
             geometry.center = worldPosition;
         } else if (m_EditHandleType == EditHandleType::CircleRadius) {
-            const QPointF delta = worldPosition - geometry.center;
-            const qreal radius = std::hypot(delta.x(), delta.y());
+            const CanvasVector delta = worldPosition - geometry.center;
+            const qreal radius = delta.Length();
             if (radius <= 0.0) {
                 return false;
             }
@@ -1903,7 +1904,7 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
         return 0;
     }
 
-    const QPointF worldPosition = MapToWorld(viewportPosition);
+    const CanvasVector worldPosition = MapToWorld(viewportPosition);
     const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
                                    CanvasTransform::GetMinimumZoom());
     qreal bestDistanceSquared = std::numeric_limits<qreal>::max();
@@ -1929,9 +1930,8 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
         if (!point.style.visible) {
             continue;
         }
-        const QPointF delta = worldPosition - point.geometry.position;
         considerHit(point.id,
-                    QPointF::dotProduct(delta, delta),
+                    worldPosition.SquaredDistanceTo(point.geometry.position),
                     CalculateHitToleranceSquared(zoom, point.style.pointSize));
     }
 
@@ -2000,8 +2000,8 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
 
     const QRectF normalizedRect = worldRect.normalized();
 
-    const auto isPointSelected = [&normalizedRect](const QPointF &point) {
-        return normalizedRect.contains(point);
+    const auto isPointSelected = [&normalizedRect](const CanvasVector &point) {
+        return normalizedRect.contains(QPointF(point.GetX(), point.GetY()));
     };
 
     const auto isArcSelected = [this, &normalizedRect, crossing](
@@ -2052,8 +2052,8 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
                                           geometry.closed);
         }
 
-        for (const QPointF &vertex : geometry.vertices) {
-            if (!normalizedRect.contains(vertex)) {
+        for (const CanvasVector &vertex : geometry.vertices) {
+            if (!normalizedRect.contains(QPointF(vertex.GetX(), vertex.GetY()))) {
                 return false;
             }
         }
@@ -2079,8 +2079,10 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
                 ? SegmentIntersectsRect(line.geometry.startPoint,
                                         line.geometry.endPoint,
                                         normalizedRect)
-                : (normalizedRect.contains(line.geometry.startPoint)
-                   && normalizedRect.contains(line.geometry.endPoint));
+                : (normalizedRect.contains(QPointF(line.geometry.startPoint.GetX(),
+                                                   line.geometry.startPoint.GetY()))
+                   && normalizedRect.contains(QPointF(line.geometry.endPoint.GetX(),
+                                                      line.geometry.endPoint.GetY())));
         if (selected) {
             selectedIds.append(line.id);
         }
@@ -2142,12 +2144,13 @@ void CanvasView::ApplyWindowSelection(const QRectF &viewportRect, bool append)
         return;
     }
 
-    const QPointF worldStart = MapToWorld(viewportRect.topLeft());
-    const QPointF worldEnd = MapToWorld(viewportRect.bottomRight());
+    const CanvasVector worldStart = MapToWorld(viewportRect.topLeft());
+    const CanvasVector worldEnd = MapToWorld(viewportRect.bottomRight());
     const bool crossing = m_SelectionCurrentPosition.x()
             < m_SelectionStartPosition.x();
-    const QVector<ItemId> selectedIds = CollectWindowSelection(QRectF(worldStart,
-                                                                       worldEnd),
+    const QVector<ItemId> selectedIds = CollectWindowSelection(
+                QRectF(QPointF(worldStart.GetX(), worldStart.GetY()),
+                       QPointF(worldEnd.GetX(), worldEnd.GetY())),
                                                                crossing);
     if (selectedIds.isEmpty()) {
         return;
@@ -2163,19 +2166,18 @@ void CanvasView::ApplyWindowSelection(const QRectF &viewportRect, bool append)
 void CanvasView::ResetMoveState()
 {
     m_MoveItemIds.clear();
-    m_MoveLastWorldPosition = QPointF(0.0, 0.0);
-    m_MoveTotalWorldDelta = QPointF(0.0, 0.0);
+    m_MoveLastWorldPosition = CanvasVector(0.0, 0.0);
+    m_MoveTotalWorldDelta = CanvasVector(0.0, 0.0);
 }
 
 void CanvasView::CancelMove()
 {
     if (m_SelectionState == SelectionState::Moving
             && m_Document
-            && (m_MoveTotalWorldDelta.x() != 0.0
-                || m_MoveTotalWorldDelta.y() != 0.0)) {
+            && (m_MoveTotalWorldDelta.GetX() != 0.0
+                || m_MoveTotalWorldDelta.GetY() != 0.0)) {
         m_Document->TranslateItems(m_MoveItemIds,
-                                   QPointF(-m_MoveTotalWorldDelta.x(),
-                                           -m_MoveTotalWorldDelta.y()));
+                                   -m_MoveTotalWorldDelta);
     }
 
     ResetMoveState();

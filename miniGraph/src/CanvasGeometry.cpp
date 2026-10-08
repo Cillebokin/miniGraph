@@ -65,12 +65,12 @@ void IncludePoint(qreal *left,
                   qreal *right,
                   qreal *top,
                   qreal *bottom,
-                  const QPointF &point)
+                  const CanvasVector &point)
 {
-    *left = qMin(*left, point.x());
-    *right = qMax(*right, point.x());
-    *top = qMin(*top, point.y());
-    *bottom = qMax(*bottom, point.y());
+    *left = qMin(*left, point.GetX());
+    *right = qMax(*right, point.GetX());
+    *top = qMin(*top, point.GetY());
+    *bottom = qMax(*bottom, point.GetY());
 }
 
 int CalculateSegmentCount(qreal sweep,
@@ -105,7 +105,8 @@ int CalculateSegmentCount(qreal sweep,
 
 bool IsValidGeometry(const StruArcGeometry &geometry)
 {
-    return IsFinite(geometry.radius)
+    return geometry.center.IsValid()
+            && IsFinite(geometry.radius)
             && geometry.radius > 0.0
             && IsFinite(geometry.startAngle)
             && IsFinite(geometry.endAngle)
@@ -115,7 +116,9 @@ bool IsValidGeometry(const StruArcGeometry &geometry)
 
 bool IsValidGeometry(const StruCircleGeometry &geometry)
 {
-    return IsFinite(geometry.radius) && geometry.radius > 0.0;
+    return geometry.center.IsValid()
+            && IsFinite(geometry.radius)
+            && geometry.radius > 0.0;
 }
 
 bool IsValidGeometry(const StruPolylineGeometry &geometry)
@@ -125,8 +128,8 @@ bool IsValidGeometry(const StruPolylineGeometry &geometry)
         return false;
     }
 
-    for (const QPointF &vertex : geometry.vertices) {
-        if (!IsFinite(vertex.x()) || !IsFinite(vertex.y())) {
+    for (const CanvasVector &vertex : geometry.vertices) {
+        if (!vertex.IsValid()) {
             return false;
         }
     }
@@ -152,24 +155,29 @@ bool IsAngleOnArc(const StruArcGeometry &geometry, qreal angle)
     return IsAngleOnArcInternal(geometry, angle);
 }
 
-QPointF CalculateArcPoint(const StruArcGeometry &geometry, qreal angle)
+CanvasVector CalculateArcPoint(const StruArcGeometry &geometry, qreal angle)
 {
     return geometry.center
-            + QPointF(geometry.radius * std::cos(angle),
-                      geometry.radius * std::sin(angle));
+            + CanvasVector(geometry.radius * std::cos(angle),
+                           geometry.radius * std::sin(angle));
 }
 
 QRectF GetGeometryBounds(const StruPointGeometry &geometry)
 {
-    return QRectF(geometry.position.x(), geometry.position.y(), 0.0, 0.0);
+    return QRectF(geometry.position.GetX(), geometry.position.GetY(), 0.0, 0.0);
 }
 
 QRectF GetGeometryBounds(const StruLineGeometry &geometry)
 {
-    return QRectF(QPointF(qMin(geometry.startPoint.x(), geometry.endPoint.x()),
-                          qMin(geometry.startPoint.y(), geometry.endPoint.y())),
-                  QPointF(qMax(geometry.startPoint.x(), geometry.endPoint.x()),
-                          qMax(geometry.startPoint.y(), geometry.endPoint.y())));
+    const qreal left = qMin(geometry.startPoint.GetX(),
+                            geometry.endPoint.GetX());
+    const qreal top = qMin(geometry.startPoint.GetY(),
+                           geometry.endPoint.GetY());
+    const qreal right = qMax(geometry.startPoint.GetX(),
+                             geometry.endPoint.GetX());
+    const qreal bottom = qMax(geometry.startPoint.GetY(),
+                              geometry.endPoint.GetY());
+    return QRectF(left, top, right - left, bottom - top);
 }
 
 QRectF GetGeometryBounds(const StruArcGeometry &geometry)
@@ -178,12 +186,12 @@ QRectF GetGeometryBounds(const StruArcGeometry &geometry)
         return QRectF();
     }
 
-    const QPointF startPoint = CalculateArcPoint(geometry, geometry.startAngle);
-    const QPointF endPoint = CalculateArcPoint(geometry, geometry.endAngle);
-    qreal left = qMin(startPoint.x(), endPoint.x());
-    qreal right = qMax(startPoint.x(), endPoint.x());
-    qreal top = qMin(startPoint.y(), endPoint.y());
-    qreal bottom = qMax(startPoint.y(), endPoint.y());
+    const CanvasVector startPoint = CalculateArcPoint(geometry, geometry.startAngle);
+    const CanvasVector endPoint = CalculateArcPoint(geometry, geometry.endAngle);
+    qreal left = qMin(startPoint.GetX(), endPoint.GetX());
+    qreal right = qMax(startPoint.GetX(), endPoint.GetX());
+    qreal top = qMin(startPoint.GetY(), endPoint.GetY());
+    qreal bottom = qMax(startPoint.GetY(), endPoint.GetY());
 
     const qreal cardinalAngles[] = {
         0.0,
@@ -210,8 +218,8 @@ QRectF GetGeometryBounds(const StruCircleGeometry &geometry)
         return QRectF();
     }
 
-    return QRectF(geometry.center.x() - geometry.radius,
-                  geometry.center.y() - geometry.radius,
+    return QRectF(geometry.center.GetX() - geometry.radius,
+                  geometry.center.GetY() - geometry.radius,
                   geometry.radius * 2.0,
                   geometry.radius * 2.0);
 }
@@ -222,9 +230,9 @@ QRectF GetGeometryBounds(const StruPolylineGeometry &geometry)
         return QRectF();
     }
 
-    qreal left = geometry.vertices.first().x();
+    qreal left = geometry.vertices.first().GetX();
     qreal right = left;
-    qreal top = geometry.vertices.first().y();
+    qreal top = geometry.vertices.first().GetY();
     qreal bottom = top;
     for (int index = 1; index < geometry.vertices.size(); ++index) {
         IncludePoint(&left, &right, &top, &bottom, geometry.vertices.at(index));
@@ -233,10 +241,10 @@ QRectF GetGeometryBounds(const StruPolylineGeometry &geometry)
     return QRectF(left, top, right - left, bottom - top);
 }
 
-QVector<QPointF> TessellateArc(const StruArcGeometry &geometry,
-                               qreal maximumError)
+QVector<CanvasVector> TessellateArc(const StruArcGeometry &geometry,
+                                    qreal maximumError)
 {
-    QVector<QPointF> points;
+    QVector<CanvasVector> points;
     if (!IsValidGeometry(geometry) || !IsFinite(maximumError)
             || maximumError <= 0.0) {
         return points;
@@ -270,10 +278,10 @@ QVector<QPointF> TessellateArc(const StruArcGeometry &geometry,
     return points;
 }
 
-QVector<QPointF> TessellateCircle(const StruCircleGeometry &geometry,
-                                  qreal maximumError)
+QVector<CanvasVector> TessellateCircle(const StruCircleGeometry &geometry,
+                                       qreal maximumError)
 {
-    QVector<QPointF> points;
+    QVector<CanvasVector> points;
     if (!IsValidGeometry(geometry) || !IsFinite(maximumError)
             || maximumError <= 0.0) {
         return points;
@@ -292,8 +300,8 @@ QVector<QPointF> TessellateCircle(const StruCircleGeometry &geometry,
         const qreal angle = TWO_PI * static_cast<qreal>(index)
                 / static_cast<qreal>(segmentCount);
         points.append(geometry.center
-                      + QPointF(geometry.radius * std::cos(angle),
-                                geometry.radius * std::sin(angle)));
+                      + CanvasVector(geometry.radius * std::cos(angle),
+                                     geometry.radius * std::sin(angle)));
     }
     points.append(points.first());
     return points;

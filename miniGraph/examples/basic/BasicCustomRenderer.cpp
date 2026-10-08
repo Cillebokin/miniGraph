@@ -13,7 +13,7 @@ BasicCustomRenderer::BasicCustomRenderer(QObject *parent)
 
 void BasicCustomRenderer::Advance()
 {
-    m_Offset += QPointF(10.0, 0.0);
+    m_Offset += mini_graph::CanvasVector(10.0, 0.0);
     RequestUpdate();
 }
 
@@ -21,9 +21,10 @@ void BasicCustomRenderer::RenderBackground(
         QPainter &painter,
         const mini_graph::CanvasRenderContext &context)
 {
-    const QPointF anchor = context.MapFromWorld(QPointF(m_Offset.x(), 25.0));
+    const QPointF anchor = context.MapFromWorld(
+                m_Offset + mini_graph::CanvasVector(0.0, 25.0));
     const QPointF radiusPoint = context.MapFromWorld(
-                QPointF(m_Offset.x() + 30.0, 25.0));
+                m_Offset + mini_graph::CanvasVector(30.0, 25.0));
     const qreal radius = qMax<qreal>(12.0,
                                      qAbs(radiusPoint.x() - anchor.x()));
 
@@ -38,16 +39,16 @@ void BasicCustomRenderer::Render(
         QPainter &painter,
         const mini_graph::CanvasRenderContext &context)
 {
-    const QPointF worldPoints[] = {
-        QPointF(-30.0, 25.0),
-        QPointF(-15.0, 40.0),
-        QPointF(0.0, 25.0),
-        QPointF(15.0, 40.0),
-        QPointF(30.0, 25.0)
+    const mini_graph::CanvasVector worldPoints[] = {
+        mini_graph::CanvasVector(-30.0, 25.0),
+        mini_graph::CanvasVector(-15.0, 40.0),
+        mini_graph::CanvasVector(0.0, 25.0),
+        mini_graph::CanvasVector(15.0, 40.0),
+        mini_graph::CanvasVector(30.0, 25.0)
     };
 
     QPolygonF viewportPoints;
-    for (const QPointF &worldPoint : worldPoints) {
+    for (const mini_graph::CanvasVector &worldPoint : worldPoints) {
         viewportPoints.append(context.MapFromWorld(worldPoint + m_Offset));
     }
 

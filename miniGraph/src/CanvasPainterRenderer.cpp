@@ -20,12 +20,12 @@ QColor GetDisplayColor(const StruCanvasStyle &style, bool selected)
     return selected ? style.selectedStrokeColor : style.strokeColor;
 }
 
-QPolygonF MapPolyline(const QVector<QPointF> &worldPoints,
+QPolygonF MapPolyline(const QVector<CanvasVector> &worldPoints,
                       const CanvasRenderContext &context)
 {
     QPolygonF viewportPoints;
     viewportPoints.reserve(worldPoints.size());
-    for (const QPointF &worldPoint : worldPoints) {
+    for (const CanvasVector &worldPoint : worldPoints) {
         viewportPoints.append(context.MapFromWorld(worldPoint));
     }
     return viewportPoints;

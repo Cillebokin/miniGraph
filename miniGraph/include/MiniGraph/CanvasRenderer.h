@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "CanvasTransform.h"
+#include "CanvasVector.h"
 #include "MiniGraph_global.h"
 
 #include <QObject>
@@ -35,10 +36,10 @@ struct MINIGRAPH_EXPORT CanvasRenderContext
     QSize viewportSize;
 
     // 将视口坐标转换为世界坐标。
-    QPointF MapToWorld(const QPointF &viewportPosition) const;
+    CanvasVector MapToWorld(const QPointF &viewportPosition) const;
 
     // 将世界坐标转换为视口坐标。
-    QPointF MapFromWorld(const QPointF &worldPosition) const;
+    QPointF MapFromWorld(const CanvasVector &worldPosition) const;
 
     // 返回当前视口覆盖的世界坐标矩形。
     QRectF GetVisibleWorldRect() const;

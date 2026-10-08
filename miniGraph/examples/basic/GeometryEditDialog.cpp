@@ -237,8 +237,8 @@ bool GeometryEditDialog::LoadItem()
         if (!m_Document->GetPointGeometry(m_ItemId, &geometry)) {
             return false;
         }
-        m_PointXSpinBox->setValue(geometry.position.x());
-        m_PointYSpinBox->setValue(geometry.position.y());
+        m_PointXSpinBox->setValue(geometry.position.GetX());
+        m_PointYSpinBox->setValue(geometry.position.GetY());
         break;
     }
     case mini_graph::CanvasEntityType::Line: {
@@ -246,10 +246,10 @@ bool GeometryEditDialog::LoadItem()
         if (!m_Document->GetLineGeometry(m_ItemId, &geometry)) {
             return false;
         }
-        m_LineStartXSpinBox->setValue(geometry.startPoint.x());
-        m_LineStartYSpinBox->setValue(geometry.startPoint.y());
-        m_LineEndXSpinBox->setValue(geometry.endPoint.x());
-        m_LineEndYSpinBox->setValue(geometry.endPoint.y());
+        m_LineStartXSpinBox->setValue(geometry.startPoint.GetX());
+        m_LineStartYSpinBox->setValue(geometry.startPoint.GetY());
+        m_LineEndXSpinBox->setValue(geometry.endPoint.GetX());
+        m_LineEndYSpinBox->setValue(geometry.endPoint.GetY());
         break;
     }
     case mini_graph::CanvasEntityType::Arc: {
@@ -257,8 +257,8 @@ bool GeometryEditDialog::LoadItem()
         if (!m_Document->GetArcGeometry(m_ItemId, &geometry)) {
             return false;
         }
-        m_ArcCenterXSpinBox->setValue(geometry.center.x());
-        m_ArcCenterYSpinBox->setValue(geometry.center.y());
+        m_ArcCenterXSpinBox->setValue(geometry.center.GetX());
+        m_ArcCenterYSpinBox->setValue(geometry.center.GetY());
         m_ArcRadiusSpinBox->setValue(geometry.radius);
         m_ArcStartAngleSpinBox->setValue(geometry.startAngle);
         m_ArcEndAngleSpinBox->setValue(geometry.endAngle);
@@ -270,8 +270,8 @@ bool GeometryEditDialog::LoadItem()
         if (!m_Document->GetCircleGeometry(m_ItemId, &geometry)) {
             return false;
         }
-        m_CircleCenterXSpinBox->setValue(geometry.center.x());
-        m_CircleCenterYSpinBox->setValue(geometry.center.y());
+        m_CircleCenterXSpinBox->setValue(geometry.center.GetX());
+        m_CircleCenterYSpinBox->setValue(geometry.center.GetY());
         m_CircleRadiusSpinBox->setValue(geometry.radius);
         break;
     }
@@ -342,24 +342,24 @@ bool GeometryEditDialog::ApplyGeometry()
     switch (m_Type) {
     case mini_graph::CanvasEntityType::Point: {
         mini_graph::StruPointGeometry geometry;
-        geometry.position = QPointF(m_PointXSpinBox->value(),
-                                    m_PointYSpinBox->value());
+        geometry.position = mini_graph::CanvasVector(m_PointXSpinBox->value(),
+                                                      m_PointYSpinBox->value());
         m_Document->SetPointGeometry(m_ItemId, geometry);
         return m_Document->GetItemType(m_ItemId) == m_Type;
     }
     case mini_graph::CanvasEntityType::Line: {
         mini_graph::StruLineGeometry geometry;
-        geometry.startPoint = QPointF(m_LineStartXSpinBox->value(),
-                                      m_LineStartYSpinBox->value());
-        geometry.endPoint = QPointF(m_LineEndXSpinBox->value(),
-                                    m_LineEndYSpinBox->value());
+        geometry.startPoint = mini_graph::CanvasVector(m_LineStartXSpinBox->value(),
+                                                        m_LineStartYSpinBox->value());
+        geometry.endPoint = mini_graph::CanvasVector(m_LineEndXSpinBox->value(),
+                                                      m_LineEndYSpinBox->value());
         m_Document->SetLineGeometry(m_ItemId, geometry);
         return m_Document->GetItemType(m_ItemId) == m_Type;
     }
     case mini_graph::CanvasEntityType::Arc: {
         mini_graph::StruArcGeometry geometry;
-        geometry.center = QPointF(m_ArcCenterXSpinBox->value(),
-                                  m_ArcCenterYSpinBox->value());
+        geometry.center = mini_graph::CanvasVector(m_ArcCenterXSpinBox->value(),
+                                                    m_ArcCenterYSpinBox->value());
         geometry.radius = m_ArcRadiusSpinBox->value();
         geometry.startAngle = m_ArcStartAngleSpinBox->value();
         geometry.endAngle = m_ArcEndAngleSpinBox->value();
@@ -373,8 +373,8 @@ bool GeometryEditDialog::ApplyGeometry()
     }
     case mini_graph::CanvasEntityType::Circle: {
         mini_graph::StruCircleGeometry geometry;
-        geometry.center = QPointF(m_CircleCenterXSpinBox->value(),
-                                  m_CircleCenterYSpinBox->value());
+        geometry.center = mini_graph::CanvasVector(m_CircleCenterXSpinBox->value(),
+                                                    m_CircleCenterYSpinBox->value());
         geometry.radius = m_CircleRadiusSpinBox->value();
         if (!mini_graph::IsValidGeometry(geometry)) {
             ShowInvalidInput(tr("The circle parameters are invalid."));

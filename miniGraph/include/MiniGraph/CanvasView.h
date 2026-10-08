@@ -111,10 +111,10 @@ public:
     CanvasTransform GetTransform() const;
 
     // 将视口像素坐标转换为画布世界坐标。
-    QPointF MapToWorld(const QPointF &viewportPosition) const;
+    CanvasVector MapToWorld(const QPointF &viewportPosition) const;
 
     // 将画布世界坐标转换为视口像素坐标。
-    QPointF MapFromWorld(const QPointF &worldPosition) const;
+    QPointF MapFromWorld(const CanvasVector &worldPosition) const;
 
     // 返回坐标轴是否可见。
     bool IsAxisVisible() const;
@@ -165,7 +165,7 @@ public:
     bool FitSelection(qreal marginPixels = 40.0);
 
     // 将视图中心移动到指定世界坐标。
-    void CenterOnWorld(const QPointF &worldPosition);
+    void CenterOnWorld(const CanvasVector &worldPosition);
 
 signals:
     // 网格可见状态发生变化时发出。
@@ -199,11 +199,11 @@ signals:
     void SnapChanged(const CanvasSnapResult &result);
 
     // 鼠标位置对应的世界坐标发生变化时发出。
-    void MouseWorldPositionChanged(const QPointF &worldPosition);
+    void MouseWorldPositionChanged(const CanvasVector &worldPosition);
 
     // 用户释放右键请求上下文操作时发出。
     // worldPosition 和 viewportPosition 分别为右键位置的世界坐标和视口坐标。
-    void ContextMenuRequested(const QPointF &worldPosition,
+    void ContextMenuRequested(const CanvasVector &worldPosition,
                               const QPoint &viewportPosition);
 
     // 用户按下 Esc 或其他取消操作时发出。
@@ -310,7 +310,7 @@ private:
     // 一个控制柄及其世界坐标位置。
     struct EditHandlePosition {
         EditHandleType type = EditHandleType::None;
-        QPointF worldPosition;
+        CanvasVector worldPosition;
         int vertexIndex = -1;
     };
 
@@ -340,7 +340,7 @@ private:
                    int vertexIndex = -1);
 
     // 根据鼠标世界坐标更新当前控制柄编辑。
-    bool UpdateEdit(const QPointF &worldPosition);
+    bool UpdateEdit(const CanvasVector &worldPosition);
 
     // 清除控制柄编辑状态。
     void ResetEditState();
@@ -349,7 +349,7 @@ private:
     void CancelEdit();
 
     // 根据当前鼠标世界坐标更新捕捉结果。
-    void UpdateSnap(const QPointF &worldPosition);
+    void UpdateSnap(const CanvasVector &worldPosition);
 
     // 清除当前移动手势的临时状态。
     void ResetMoveState();
@@ -428,10 +428,10 @@ private:
     QVector<ItemId> m_MoveItemIds;
 
     // 当前移动手势上一次处理位置的世界坐标。
-    QPointF m_MoveLastWorldPosition;
+    CanvasVector m_MoveLastWorldPosition;
 
     // 当前移动手势累计产生的世界坐标增量。
-    QPointF m_MoveTotalWorldDelta;
+    CanvasVector m_MoveTotalWorldDelta;
 
     // 是否启用当前鼠标位置的捕捉预览。
     bool m_SnapEnabled;

@@ -26,8 +26,8 @@ public:
     // start 和 end 为线段端点的世界坐标。
     // color 为线段颜色，width 为线段宽度，小于 0 的宽度会被限制为 0。
     // 返回新建图元的唯一标识。
-    ItemId AddLine(const QPointF &start,
-                   const QPointF &end,
+    ItemId AddLine(const CanvasVector &start,
+                   const CanvasVector &end,
                    const QColor &color = QColor(Qt::white),
                    qreal width = 1.0);
 
@@ -39,7 +39,7 @@ public:
 
     // 向文档中添加一个点。
     // 返回新建图元的唯一标识。
-    ItemId AddPoint(const QPointF &position);
+    ItemId AddPoint(const CanvasVector &position);
 
     // 按几何数据向文档中添加一个点。
     // 返回新建图元的唯一标识。
@@ -47,7 +47,7 @@ public:
 
     // 向文档中添加一段圆弧。
     // 半径必须大于 0，起止角不能相同；非法几何返回 0。
-    ItemId AddArc(const QPointF &center,
+    ItemId AddArc(const CanvasVector &center,
                   qreal radius,
                   qreal startAngle,
                   qreal endAngle,
@@ -59,7 +59,7 @@ public:
 
     // 向文档中添加一个圆。
     // 半径必须大于 0；非法几何返回 0。
-    ItemId AddCircle(const QPointF &center,
+    ItemId AddCircle(const CanvasVector &center,
                      qreal radius);
 
     // 按几何数据向文档中添加一个圆。
@@ -68,7 +68,7 @@ public:
 
     // 按顶点列表向文档中添加一条多段线。
     // 开放多段线至少需要 2 个有限顶点，闭合多段线至少需要 3 个有限顶点。
-    ItemId AddPolyline(const QVector<QPointF> &vertices,
+    ItemId AddPolyline(const QVector<CanvasVector> &vertices,
                        bool closed = false);
 
     // 按几何数据向文档中添加一条多段线；非法几何返回 0。
@@ -80,7 +80,7 @@ public:
     // 按世界坐标增量平移指定图元。
     // ids 中不存在的图元会被忽略；发生实际变化时发出 Changed()。
     bool TranslateItems(const QVector<ItemId> &ids,
-                        const QPointF &delta);
+                        const CanvasVector &delta);
 
     // 清空文档中的全部图元。
     void Clear();

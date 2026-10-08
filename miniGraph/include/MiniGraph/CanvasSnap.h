@@ -3,8 +3,6 @@
 #include "CanvasTypes.h"
 #include "MiniGraph_global.h"
 
-#include <QPointF>
-
 namespace mini_graph {
 
 class CanvasDocument;
@@ -32,7 +30,7 @@ struct CanvasSnapResult
     ItemId itemId = 0;
 
     // 捕捉位置的世界坐标。
-    QPointF position;
+    CanvasVector position;
 
     // 返回结果是否包含有效的捕捉点。
     bool IsValid() const
@@ -63,7 +61,7 @@ public:
     // 位于 toleranceWorld 容差范围内的几何点优先于网格点。
     // 网格捕捉使用 gridSpacing 作为世界坐标间距。
     static CanvasSnapResult FindSnap(const CanvasDocument *document,
-                                     const QPointF &worldPosition,
+                                     const CanvasVector &worldPosition,
                                      qreal toleranceWorld,
                                      qreal gridSpacing,
                                      bool geometrySnapEnabled,

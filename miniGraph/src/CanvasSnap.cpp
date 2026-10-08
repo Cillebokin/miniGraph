@@ -20,10 +20,9 @@ struct SnapCandidate
     bool valid = false;
 };
 
-qreal DistanceSquared(const QPointF &left, const QPointF &right)
+qreal DistanceSquared(const CanvasVector &left, const CanvasVector &right)
 {
-    const QPointF delta = left - right;
-    return QPointF::dotProduct(delta, delta);
+    return left.SquaredDistanceTo(right);
 }
 
 int GetSnapPriority(CanvasSnapType type)
@@ -48,15 +47,14 @@ int GetSnapPriority(CanvasSnapType type)
 } // namespace
 
 CanvasSnapResult CanvasSnapper::FindSnap(const CanvasDocument *document,
-                                         const QPointF &worldPosition,
+                                         const CanvasVector &worldPosition,
                                          qreal toleranceWorld,
                                          qreal gridSpacing,
                                          bool geometrySnapEnabled,
                                          bool gridSnapEnabled)
 {
     CanvasSnapResult result;
-    if (!std::isfinite(static_cast<double>(worldPosition.x()))
-            || !std::isfinite(static_cast<double>(worldPosition.y()))) {
+    if (!worldPosition.IsValid()) {
         return result;
     }
 
@@ -70,7 +68,7 @@ CanvasSnapResult CanvasSnapper::FindSnap(const CanvasDocument *document,
                            &worldPosition,
                            toleranceSquared](ItemId itemId,
                                              CanvasSnapType type,
-                                             const QPointF &position) {
+                                             const CanvasVector &position) {
         const qreal distanceSquared = DistanceSquared(worldPosition, position);
         if (distanceSquared > toleranceSquared) {
             return;
@@ -145,7 +143,7 @@ CanvasSnapResult CanvasSnapper::FindSnap(const CanvasDocument *document,
             if (!polyline.style.visible) {
                 continue;
             }
-            for (const QPointF &vertex : polyline.geometry.vertices) {
+            for (const CanvasVector &vertex : polyline.geometry.vertices) {
                 consider(polyline.id,
                          CanvasSnapType::PolylineVertex,
                          vertex);
@@ -160,14 +158,14 @@ CanvasSnapResult CanvasSnapper::FindSnap(const CanvasDocument *document,
     if (gridSnapEnabled
             && std::isfinite(static_cast<double>(gridSpacing))
             && gridSpacing > 0.0) {
-        const qreal gridX = std::round(worldPosition.x() / gridSpacing)
+        const qreal gridX = std::round(worldPosition.GetX() / gridSpacing)
                 * gridSpacing;
-        const qreal gridY = std::round(worldPosition.y() / gridSpacing)
+        const qreal gridY = std::round(worldPosition.GetY() / gridSpacing)
                 * gridSpacing;
         if (std::isfinite(static_cast<double>(gridX))
                 && std::isfinite(static_cast<double>(gridY))) {
             result.type = CanvasSnapType::Grid;
-            result.position = QPointF(gridX, gridY);
+            result.position = CanvasVector(gridX, gridY);
         }
     }
 

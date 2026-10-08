@@ -31,38 +31,45 @@ void CanvasTransform::SetZoom(qreal zoom)
     m_Zoom = qBound(MINIMUM_ZOOM, zoom, MAXIMUM_ZOOM);
 }
 
-QPointF CanvasTransform::GetCenter() const
+CanvasVector CanvasTransform::GetCenter() const
 {
     return m_Center;
 }
 
-void CanvasTransform::SetCenter(const QPointF &center)
+void CanvasTransform::SetCenter(const CanvasVector &center)
 {
-    m_Center = center;
+    if (center.IsValid()) {
+        m_Center = center;
+    }
 }
 
-QPointF CanvasTransform::MapToWorld(const QPointF &viewportPoint,
-                                    const QSizeF &viewportSize) const
+CanvasVector CanvasTransform::MapToWorld(const QPointF &viewportPoint,
+                                         const QSizeF &viewportSize) const
 {
     const QPointF viewportCenter(viewportSize.width() * 0.5,
                                  viewportSize.height() * 0.5);
     const QPointF delta = viewportPoint - viewportCenter;
-    return m_Center + QPointF(delta.x() / m_Zoom, -delta.y() / m_Zoom);
+    return m_Center + CanvasVector(delta.x() / m_Zoom, -delta.y() / m_Zoom);
 }
 
-QPointF CanvasTransform::MapFromWorld(const QPointF &worldPoint,
+QPointF CanvasTransform::MapFromWorld(const CanvasVector &worldPoint,
                                       const QSizeF &viewportSize) const
 {
+    if (!worldPoint.IsValid() || !m_Center.IsValid()) {
+        return QPointF();
+    }
+
     const QPointF viewportCenter(viewportSize.width() * 0.5,
                                  viewportSize.height() * 0.5);
-    const QPointF delta = worldPoint - m_Center;
-    return viewportCenter + QPointF(delta.x() * m_Zoom, -delta.y() * m_Zoom);
+    const CanvasVector delta = worldPoint - m_Center;
+    return viewportCenter + QPointF(delta.GetX() * m_Zoom,
+                                    -delta.GetY() * m_Zoom);
 }
 
 void CanvasTransform::PanBy(const QPointF &viewportDelta)
 {
-    m_Center += QPointF(-viewportDelta.x() / m_Zoom,
-                        viewportDelta.y() / m_Zoom);
+    m_Center += CanvasVector(-viewportDelta.x() / m_Zoom,
+                             viewportDelta.y() / m_Zoom);
 }
 
 void CanvasTransform::ZoomAt(const QPointF &viewportPoint,
@@ -73,7 +80,7 @@ void CanvasTransform::ZoomAt(const QPointF &viewportPoint,
         return;
     }
 
-    const QPointF worldPoint = MapToWorld(viewportPoint, viewportSize);
+    const CanvasVector worldPoint = MapToWorld(viewportPoint, viewportSize);
     SetZoom(m_Zoom * factor);
     m_Center += worldPoint - MapToWorld(viewportPoint, viewportSize);
 }
@@ -117,7 +124,8 @@ bool CanvasTransform::FitRect(const QRectF &worldRect,
     const qreal worldWidth = qMax<qreal>(1.0, normalizedRect.width());
     const qreal worldHeight = qMax<qreal>(1.0, normalizedRect.height());
 
-    m_Center = normalizedRect.center();
+    const QPointF rectCenter = normalizedRect.center();
+    m_Center = CanvasVector(rectCenter.x(), rectCenter.y());
     SetZoom(qMin(availableWidth / worldWidth,
                  availableHeight / worldHeight));
     return true;
@@ -126,7 +134,7 @@ bool CanvasTransform::FitRect(const QRectF &worldRect,
 void CanvasTransform::Reset()
 {
     m_Zoom = 1.0;
-    m_Center = QPointF(0.0, 0.0);
+    m_Center = CanvasVector(0.0, 0.0);
 }
 
 qreal CanvasTransform::GetMinimumZoom()

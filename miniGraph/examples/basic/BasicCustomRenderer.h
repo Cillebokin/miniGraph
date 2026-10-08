@@ -2,7 +2,7 @@
 
 #include "MiniGraph/CanvasRenderer.h"
 
-#include <QPointF>
+#include "MiniGraph/CanvasVector.h"
 
 // Custom canvas renderer used by the basic example.
 // It demonstrates background, QPainter geometry, and overlay layers.
@@ -29,5 +29,5 @@ public:
 
 private:
     // World-space offset of the example shape.
-    QPointF m_Offset;
+    mini_graph::CanvasVector m_Offset;
 };

@@ -1,23 +1,26 @@
 #pragma once
 
-#include <QPointF>
 #include <QLocale>
 #include <QString>
 #include <QStringList>
 #include <QVector>
+
+#include "MiniGraph/CanvasVector.h"
 
 #include <cmath>
 
 namespace basic_example {
 
 // Parse one x,y world-coordinate pair per non-empty line.
-inline bool ParsePolylineText(const QString &text, QVector<QPointF> *vertices)
+inline bool ParsePolylineText(
+        const QString &text,
+        QVector<mini_graph::CanvasVector> *vertices)
 {
     if (!vertices) {
         return false;
     }
 
-    QVector<QPointF> parsedVertices;
+    QVector<mini_graph::CanvasVector> parsedVertices;
     const QStringList lines = text.split(QLatin1Char('\n'));
     for (const QString &rawLine : lines) {
         const QString line = rawLine.trimmed();
@@ -39,7 +42,7 @@ inline bool ParsePolylineText(const QString &text, QVector<QPointF> *vertices)
             return false;
         }
 
-        parsedVertices.append(QPointF(x, y));
+        parsedVertices.append(mini_graph::CanvasVector(x, y));
     }
 
     if (parsedVertices.size() < 2) {
@@ -51,14 +54,15 @@ inline bool ParsePolylineText(const QString &text, QVector<QPointF> *vertices)
 }
 
 // Format vertices as locale-independent x,y lines with round-trip precision.
-inline QString FormatPolylineText(const QVector<QPointF> &vertices)
+inline QString FormatPolylineText(
+        const QVector<mini_graph::CanvasVector> &vertices)
 {
     QStringList lines;
     lines.reserve(vertices.size());
-    for (const QPointF &vertex : vertices) {
-        lines.append(QString::number(vertex.x(), 'g', 17)
+    for (const mini_graph::CanvasVector &vertex : vertices) {
+        lines.append(QString::number(vertex.GetX(), 'g', 17)
                      + QLatin1Char(',')
-                     + QString::number(vertex.y(), 'g', 17));
+                     + QString::number(vertex.GetY(), 'g', 17));
     }
     return lines.join(QLatin1Char('\n'));
 }

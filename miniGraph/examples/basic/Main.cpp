@@ -13,16 +13,16 @@ int main(int argumentCount, char *argumentValues[])
     QApplication app(argumentCount, argumentValues);
 
     mini_graph::CanvasDocument canvasDocument;
-    canvasDocument.AddPoint(QPointF(0.0, 0.0));
-    canvasDocument.AddLine(QPointF(-140.0, -80.0),
-                           QPointF(140.0, -80.0),
+    canvasDocument.AddPoint(mini_graph::CanvasVector(0.0, 0.0));
+    canvasDocument.AddLine(mini_graph::CanvasVector(-140.0, -80.0),
+                           mini_graph::CanvasVector(140.0, -80.0),
                            QColor(255, 220, 80));
 
-    canvasDocument.AddArc(QPointF(-80.0, 40.0),
+    canvasDocument.AddArc(mini_graph::CanvasVector(-80.0, 40.0),
                           50.0,
                           0.0,
                           4.7123889803846899);
-    canvasDocument.AddCircle(QPointF(100.0, 40.0), 40.0);
+    canvasDocument.AddCircle(mini_graph::CanvasVector(100.0, 40.0), 40.0);
 
     BasicCustomRenderer customRenderer;
     QMainWindow wndMain;
@@ -118,7 +118,7 @@ int main(int argumentCount, char *argumentValues[])
     QObject::connect(actCenterOrigin,
                      &QAction::triggered,
                      [widCanvas]() {
-        widCanvas->CenterOnWorld(QPointF(0.0, 0.0));
+        widCanvas->CenterOnWorld(mini_graph::CanvasVector(0.0, 0.0));
     });
 
     QAction *actAddGeometry = tlbCanvas->addAction(QObject::tr("Add geometry"));

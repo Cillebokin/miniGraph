@@ -20,12 +20,12 @@ CanvasRenderContext::CanvasRenderContext(const CanvasDocument *documentValue,
 {
 }
 
-QPointF CanvasRenderContext::MapToWorld(const QPointF &viewportPosition) const
+CanvasVector CanvasRenderContext::MapToWorld(const QPointF &viewportPosition) const
 {
     return transform.MapToWorld(viewportPosition, QSizeF(viewportSize));
 }
 
-QPointF CanvasRenderContext::MapFromWorld(const QPointF &worldPosition) const
+QPointF CanvasRenderContext::MapFromWorld(const CanvasVector &worldPosition) const
 {
     return transform.MapFromWorld(worldPosition, QSizeF(viewportSize));
 }
@@ -36,10 +36,11 @@ QRectF CanvasRenderContext::GetVisibleWorldRect() const
         return QRectF();
     }
 
-    const QPointF topLeft = MapToWorld(QPointF(0.0, 0.0));
-    const QPointF bottomRight = MapToWorld(QPointF(viewportSize.width(),
-                                                   viewportSize.height()));
-    return QRectF(topLeft, bottomRight).normalized();
+    const CanvasVector topLeft = MapToWorld(QPointF(0.0, 0.0));
+    const CanvasVector bottomRight = MapToWorld(QPointF(viewportSize.width(),
+                                                        viewportSize.height()));
+    return QRectF(QPointF(topLeft.GetX(), topLeft.GetY()),
+                  QPointF(bottomRight.GetX(), bottomRight.GetY())).normalized();
 }
 
 CanvasRenderer::CanvasRenderer(QObject *parent)

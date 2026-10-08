@@ -1,10 +1,10 @@
 ﻿#pragma once
 
 #include "MiniGraph_global.h"
+#include "CanvasVector.h"
 
 #include <QColor>
 #include <QMetaType>
-#include <QPointF>
 #include <QVector>
 #include <QtGlobal>
 
@@ -21,7 +21,10 @@ enum class CanvasEntityType : quint8
     Line,
     Arc,
     Circle,
-    Polyline
+    Polyline,
+    Ellipse,
+    Spline,
+    GroupContainer
 };
 
 // 画布中的点几何数据。
@@ -34,7 +37,7 @@ struct StruPointGeometry
     }
 
     // 点的世界坐标。
-    QPointF position;
+    CanvasVector position;
 };
 
 // 画布中的线段几何数据。
@@ -48,10 +51,10 @@ struct StruLineGeometry
     }
 
     // 线段起点的世界坐标。
-    QPointF startPoint;
+    CanvasVector startPoint;
 
     // 线段终点的世界坐标。
-    QPointF endPoint;
+    CanvasVector endPoint;
 };
 
 // 画布中的圆弧几何数据。
@@ -68,7 +71,7 @@ struct StruArcGeometry
     }
 
     // 圆弧圆心的世界坐标。
-    QPointF center;
+    CanvasVector center;
 
     // 圆弧半径，必须大于 0 才能加入文档。
     qreal radius;
@@ -94,7 +97,7 @@ struct StruCircleGeometry
     }
 
     // 圆心的世界坐标。
-    QPointF center;
+    CanvasVector center;
 
     // 圆半径，必须大于 0 才能加入文档。
     qreal radius;
@@ -110,7 +113,7 @@ struct StruPolylineGeometry
     }
 
     // 按绘制顺序排列的世界坐标顶点。
-    QVector<QPointF> vertices;
+    QVector<CanvasVector> vertices;
 
     // 是否闭合；闭合时自动连接末点与首点。
     bool closed;

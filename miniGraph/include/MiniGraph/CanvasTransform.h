@@ -1,6 +1,7 @@
 ﻿#pragma once
 
 #include "MiniGraph_global.h"
+#include "CanvasVector.h"
 
 #include <QPointF>
 #include <QRectF>
@@ -24,16 +25,18 @@ public:
     void SetZoom(qreal zoom);
 
     // 返回当前视图中心对应的世界坐标。
-    QPointF GetCenter() const;
+    CanvasVector GetCenter() const;
 
     // 设置视图中心对应的世界坐标。
-    void SetCenter(const QPointF &center);
+    void SetCenter(const CanvasVector &center);
 
     // 将视口坐标转换为世界坐标，viewportPoint 的原点位于视口左上角。
-    QPointF MapToWorld(const QPointF &viewportPoint, const QSizeF &viewportSize) const;
+    CanvasVector MapToWorld(const QPointF &viewportPoint,
+                            const QSizeF &viewportSize) const;
 
     // 将世界坐标转换为视口坐标。
-    QPointF MapFromWorld(const QPointF &worldPoint, const QSizeF &viewportSize) const;
+    QPointF MapFromWorld(const CanvasVector &worldPoint,
+                         const QSizeF &viewportSize) const;
 
     // 按视口像素增量平移画布。
     void PanBy(const QPointF &viewportDelta);
@@ -61,7 +64,7 @@ private:
     qreal m_Zoom;
 
     // 当前视口中心对应的世界坐标。
-    QPointF m_Center;
+    CanvasVector m_Center;
 };
 
 } // namespace mini_graph

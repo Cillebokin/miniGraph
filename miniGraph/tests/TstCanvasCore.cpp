@@ -16,8 +16,11 @@
 #include <QTest>
 
 #include <limits>
+#include <cmath>
+#include <type_traits>
 
 #include "MiniGraph/MiniGraph.h"
+#include "MiniGraph/CanvasVector.h"
 #include "MiniGraph/CanvasGeometry.h"
 #include "MiniGraph/CanvasDocument.h"
 #include "MiniGraph/CanvasSnap.h"
@@ -51,6 +54,26 @@ class CanvasCoreTest : public QObject
     Q_OBJECT
 
 private slots:
+    void CanvasVectorDefaultAndFiniteConstruction();
+    void CanvasVectorRejectsNonFiniteCoordinatesWithoutMutation();
+    void CanvasVectorArithmeticUsesValidityRules();
+    void CanvasVectorRejectsUndefinedArithmetic();
+    void CanvasVectorCalculatesMetricProducts();
+    void CanvasVectorCalculatesNormalizedAngles();
+    void CanvasVectorRotatesAndNormalizes();
+    void CanvasVectorBuildsPolarAndMidpointValues();
+    void CanvasVectorSeparatesExactAndToleranceEquality();
+    void CanvasEntityCommonPropertiesAndStableTypes();
+    void CanvasEntitiesRequireCloneInsteadOfCopy();
+    void CanvasPointAndLineValidateAndClone();
+    void CanvasArcAndCircleValidateAndClone();
+    void CanvasSweepsSupportLargeFiniteAngles();
+    void CanvasEllipseValidatesGeometryAndClone();
+    void CanvasPolylineValidatesConnectionsAndDeepCopies();
+    void CanvasSplineValidatesNurbsDataAndClone();
+    void CanvasGroupDeepCopiesChildrenAndNestedGroups();
+    void WorldCoordinateApisUseCanvasVector();
+    void CanvasViewQueuesCanvasVectorWorldSignal();
     void DefaultTransformIsIdentityLike();
     void MinimumZoomSupportsMicroScale();
     void ZoomAtKeepsTheWorldPointUnderTheCursor();
@@ -175,15 +198,709 @@ public:
     int backgroundCount = 0;
 };
 
+void CanvasCoreTest::CanvasVectorDefaultAndFiniteConstruction()
+{
+    const mini_graph::CanvasVector invalid;
+    QVERIFY(!invalid.IsValid());
+    QCOMPARE(invalid.GetX(), 0.0);
+    QCOMPARE(invalid.GetY(), 0.0);
+
+    const mini_graph::CanvasVector origin(0.0, 0.0);
+    QVERIFY(origin.IsValid());
+    QCOMPARE(origin.GetX(), 0.0);
+    QCOMPARE(origin.GetY(), 0.0);
+
+    const mini_graph::CanvasVector point(-12.5, 30.25);
+    QVERIFY(point.IsValid());
+    QCOMPARE(point.GetX(), -12.5);
+    QCOMPARE(point.GetY(), 30.25);
+}
+
+void CanvasCoreTest::CanvasVectorRejectsNonFiniteCoordinatesWithoutMutation()
+{
+    const qreal nan = std::numeric_limits<qreal>::quiet_NaN();
+    const qreal infinity = std::numeric_limits<qreal>::infinity();
+    QVERIFY(!mini_graph::CanvasVector(nan, 1.0).IsValid());
+    QVERIFY(!mini_graph::CanvasVector(1.0, infinity).IsValid());
+
+    mini_graph::CanvasVector value(2.0, 3.0);
+    QVERIFY(!value.Set(nan, 8.0));
+    QVERIFY(value.IsValid());
+    QVERIFY(value == mini_graph::CanvasVector(2.0, 3.0));
+
+    value.Invalidate();
+    QVERIFY(!value.IsValid());
+    QCOMPARE(value.GetX(), 0.0);
+    QCOMPARE(value.GetY(), 0.0);
+}
+
+void CanvasCoreTest::CanvasVectorArithmeticUsesValidityRules()
+{
+    const mini_graph::CanvasVector first(2.0, -3.0);
+    const mini_graph::CanvasVector second(4.0, 5.0);
+    QVERIFY(first + second == mini_graph::CanvasVector(6.0, 2.0));
+    QVERIFY(first - second == mini_graph::CanvasVector(-2.0, -8.0));
+    QVERIFY(-first == mini_graph::CanvasVector(-2.0, 3.0));
+    QVERIFY(first * 2.0 == mini_graph::CanvasVector(4.0, -6.0));
+    QVERIFY(first / 2.0 == mini_graph::CanvasVector(1.0, -1.5));
+
+    mini_graph::CanvasVector accumulated = first;
+    accumulated += second;
+    QVERIFY(accumulated == mini_graph::CanvasVector(6.0, 2.0));
+    accumulated -= second;
+    QVERIFY(accumulated == first);
+    accumulated *= 2.0;
+    QVERIFY(accumulated == mini_graph::CanvasVector(4.0, -6.0));
+    accumulated /= 2.0;
+    QVERIFY(accumulated == first);
+
+    const mini_graph::CanvasVector invalid;
+    QVERIFY(!(invalid + first).IsValid());
+    QVERIFY(!(first - invalid).IsValid());
+    QVERIFY(!(invalid * 2.0).IsValid());
+}
+
+void CanvasCoreTest::CanvasVectorRejectsUndefinedArithmetic()
+{
+    const qreal maximum = std::numeric_limits<qreal>::max();
+    const mini_graph::CanvasVector large(maximum, 1.0);
+    QVERIFY(!(large * 2.0).IsValid());
+    QVERIFY(qIsNaN(large.Dot(mini_graph::CanvasVector(2.0, 0.0))));
+
+    QVERIFY(!(mini_graph::CanvasVector(1.0, 2.0) / 0.0).IsValid());
+    QVERIFY(!(mini_graph::CanvasVector(1.0, 2.0) / qQNaN()).IsValid());
+
+    mini_graph::CanvasVector accumulated(1.0, 2.0);
+    accumulated /= 0.0;
+    QVERIFY(!accumulated.IsValid());
+    accumulated = mini_graph::CanvasVector(1.0, 2.0);
+    accumulated += mini_graph::CanvasVector();
+    QVERIFY(!accumulated.IsValid());
+}
+
+void CanvasCoreTest::CanvasVectorCalculatesMetricProducts()
+{
+    const mini_graph::CanvasVector first(3.0, 4.0);
+    const mini_graph::CanvasVector second(-1.0, 2.0);
+    QCOMPARE(first.Length(), 5.0);
+    QCOMPARE(first.SquaredLength(), 25.0);
+    QVERIFY(qAbs(first.DistanceTo(second) - qSqrt(20.0)) < 1e-12);
+    QCOMPARE(first.SquaredDistanceTo(second), 20.0);
+    QCOMPARE(first.Dot(second), 5.0);
+    QCOMPARE(first.Cross(second), 10.0);
+
+    const mini_graph::CanvasVector invalid;
+    QVERIFY(qIsNaN(invalid.Length()));
+    QVERIFY(qIsNaN(first.DistanceTo(invalid)));
+    QVERIFY(qIsNaN(first.Dot(invalid)));
+}
+
+void CanvasCoreTest::CanvasVectorCalculatesNormalizedAngles()
+{
+    const qreal pi = 3.14159265358979323846;
+    const mini_graph::CanvasVector east(1.0, 0.0);
+    const mini_graph::CanvasVector north(1.0, 2.0);
+    const mini_graph::CanvasVector west(0.0, 1.0);
+    QVERIFY(qAbs(east.Angle() - 0.0) < 1e-12);
+    QVERIFY(qAbs(mini_graph::CanvasVector(0.0, -1.0).Angle()
+                 - (1.5 * pi)) < 1e-12);
+    QVERIFY(qAbs(north.AngleTo(west) - (5.0 * pi / 4.0)) < 1e-12);
+    QVERIFY(qAbs(mini_graph::CanvasVector(0.0, 1.0).AngleTo(
+                     mini_graph::CanvasVector(1.0, 0.0))
+                 - (7.0 * pi / 4.0)) < 1e-12);
+    QVERIFY(qIsNaN(east.AngleTo(east)));
+    QVERIFY(qIsNaN(mini_graph::CanvasVector().Angle()));
+}
+
+void CanvasCoreTest::CanvasVectorRotatesAndNormalizes()
+{
+    const qreal halfPi = 1.57079632679489661923;
+    const mini_graph::CanvasVector rotated =
+            mini_graph::CanvasVector(1.0, 0.0).Rotated(halfPi);
+    QVERIFY(rotated.IsNearTo(mini_graph::CanvasVector(0.0, 1.0), 1e-12));
+
+    const mini_graph::CanvasVector normalized =
+            mini_graph::CanvasVector(3.0, 4.0).Normalized();
+    QVERIFY(normalized.IsNearTo(mini_graph::CanvasVector(0.6, 0.8), 1e-12));
+    QVERIFY(!mini_graph::CanvasVector(0.0, 0.0).Normalized().IsValid());
+}
+
+void CanvasCoreTest::CanvasVectorBuildsPolarAndMidpointValues()
+{
+    const qreal halfPi = 1.57079632679489661923;
+    const mini_graph::CanvasVector polar =
+            mini_graph::CanvasVector::FromPolar(2.0, halfPi);
+    QVERIFY(polar.IsNearTo(mini_graph::CanvasVector(0.0, 2.0), 1e-12));
+
+    const mini_graph::CanvasVector midpoint = mini_graph::CanvasVector::Midpoint(
+                mini_graph::CanvasVector(-2.0, 4.0),
+                mini_graph::CanvasVector(6.0, -2.0));
+    QVERIFY(midpoint == mini_graph::CanvasVector(2.0, 1.0));
+    QVERIFY(!mini_graph::CanvasVector::Midpoint(
+                mini_graph::CanvasVector(), mini_graph::CanvasVector(1.0, 1.0)).IsValid());
+}
+
+void CanvasCoreTest::CanvasVectorSeparatesExactAndToleranceEquality()
+{
+    const mini_graph::CanvasVector first(1.0, 2.0);
+    const mini_graph::CanvasVector exact(1.0, 2.0);
+    const mini_graph::CanvasVector nearby(1.0 + 1e-6, 2.0);
+    QVERIFY(first == exact);
+    QVERIFY(first != nearby);
+    QVERIFY(first.IsNearTo(nearby, 1.1e-6));
+    QVERIFY(!first.IsNearTo(nearby, 0.9e-6));
+    QVERIFY(!first.IsNearTo(exact, -1.0));
+}
+
+void CanvasCoreTest::CanvasEntityCommonPropertiesAndStableTypes()
+{
+    QCOMPARE(static_cast<int>(mini_graph::CanvasEntityType::Invalid), 0);
+    QCOMPARE(static_cast<int>(mini_graph::CanvasEntityType::Point), 1);
+    QCOMPARE(static_cast<int>(mini_graph::CanvasEntityType::Line), 2);
+    QCOMPARE(static_cast<int>(mini_graph::CanvasEntityType::Arc), 3);
+    QCOMPARE(static_cast<int>(mini_graph::CanvasEntityType::Circle), 4);
+    QCOMPARE(static_cast<int>(mini_graph::CanvasEntityType::Polyline), 5);
+    QCOMPARE(static_cast<int>(mini_graph::CanvasEntityType::Ellipse), 6);
+    QCOMPARE(static_cast<int>(mini_graph::CanvasEntityType::Spline), 7);
+    QCOMPARE(static_cast<int>(mini_graph::CanvasEntityType::GroupContainer), 8);
+
+    mini_graph::CanvasPoint point;
+    QCOMPARE(point.GetId(), mini_graph::ItemId(0));
+    QVERIFY(point.GetLayerName().isEmpty());
+    QVERIFY(point.GetTag().isEmpty());
+    QCOMPARE(point.GetBusinessId(), qint64(0));
+    QVERIFY(!point.IsReversed());
+
+    const mini_graph::StruCanvasStyle defaultStyle;
+    QVERIFY(point.GetStyle() == defaultStyle);
+    mini_graph::StruCanvasStyle invalidStyle = defaultStyle;
+    invalidStyle.strokeWidth = std::numeric_limits<qreal>::infinity();
+    QVERIFY(!point.SetStyle(invalidStyle));
+    QVERIFY(point.GetStyle() == defaultStyle);
+    invalidStyle = defaultStyle;
+    invalidStyle.pointSize = -1.0;
+    QVERIFY(!point.SetStyle(invalidStyle));
+    QVERIFY(point.GetStyle() == defaultStyle);
+
+    mini_graph::StruCanvasStyle style = defaultStyle;
+    style.strokeWidth = 2.5;
+    style.pointSize = 9.0;
+    style.visible = false;
+    QVERIFY(point.SetStyle(style));
+    point.SetLayerName(QStringLiteral("construction"));
+    point.SetTag(QStringLiteral("origin-marker"));
+    point.SetBusinessId(42);
+    point.SetReversed(true);
+
+    const QSharedPointer<mini_graph::CanvasEntity> clone = point.Clone();
+    QVERIFY(clone);
+    QCOMPARE(clone->GetId(), mini_graph::ItemId(0));
+    QVERIFY(clone->GetStyle() == style);
+    QCOMPARE(clone->GetLayerName(), QStringLiteral("construction"));
+    QCOMPARE(clone->GetTag(), QStringLiteral("origin-marker"));
+    QCOMPARE(clone->GetBusinessId(), qint64(42));
+    QVERIFY(clone->IsReversed());
+}
+
+void CanvasCoreTest::CanvasEntitiesRequireCloneInsteadOfCopy()
+{
+    QVERIFY(!std::is_copy_constructible<mini_graph::CanvasPoint>::value);
+    QVERIFY(!std::is_copy_constructible<mini_graph::CanvasLine>::value);
+    QVERIFY(!std::is_copy_constructible<mini_graph::CanvasArc>::value);
+    QVERIFY(!std::is_copy_constructible<mini_graph::CanvasCircle>::value);
+    QVERIFY(!std::is_copy_constructible<mini_graph::CanvasEllipse>::value);
+    QVERIFY(!std::is_copy_constructible<mini_graph::CanvasPolyline>::value);
+    QVERIFY(!std::is_copy_constructible<mini_graph::CanvasSpline>::value);
+    QVERIFY(!std::is_copy_constructible<mini_graph::CanvasGroupContainer>::value);
+
+    QVERIFY(!std::is_copy_assignable<mini_graph::CanvasPoint>::value);
+    QVERIFY(!std::is_copy_assignable<mini_graph::CanvasPolyline>::value);
+    QVERIFY(!std::is_copy_assignable<mini_graph::CanvasGroupContainer>::value);
+}
+
+void CanvasCoreTest::CanvasPointAndLineValidateAndClone()
+{
+    mini_graph::CanvasPoint point;
+    QCOMPARE(point.GetType(), mini_graph::CanvasEntityType::Point);
+    QVERIFY(!point.IsValid());
+    QVERIFY(point.SetPosition(mini_graph::CanvasVector(3.0, -4.0)));
+    QVERIFY(point.IsValid());
+    QVERIFY(point.GetPosition() == mini_graph::CanvasVector(3.0, -4.0));
+    QVERIFY(!point.SetPosition(mini_graph::CanvasVector()));
+    QVERIFY(point.GetPosition() == mini_graph::CanvasVector(3.0, -4.0));
+
+    const QSharedPointer<mini_graph::CanvasEntity> pointClone = point.Clone();
+    const mini_graph::CanvasPoint *clonedPoint =
+            dynamic_cast<const mini_graph::CanvasPoint *>(pointClone.data());
+    QVERIFY(clonedPoint);
+    QVERIFY(clonedPoint->GetPosition() == mini_graph::CanvasVector(3.0, -4.0));
+    QVERIFY(point.SetPosition(mini_graph::CanvasVector(10.0, 11.0)));
+    QVERIFY(clonedPoint->GetPosition() == mini_graph::CanvasVector(3.0, -4.0));
+
+    mini_graph::CanvasLine line;
+    QCOMPARE(line.GetType(), mini_graph::CanvasEntityType::Line);
+    QVERIFY(!line.IsValid());
+    QVERIFY(line.SetGeometry(mini_graph::CanvasVector(1.0, 2.0),
+                             mini_graph::CanvasVector(1.0, 2.0)));
+    QVERIFY(line.IsValid());
+    QVERIFY(line.GetStartPoint() == mini_graph::CanvasVector(1.0, 2.0));
+    QVERIFY(line.GetEndPoint() == mini_graph::CanvasVector(1.0, 2.0));
+    QVERIFY(!line.SetGeometry(mini_graph::CanvasVector(5.0, 6.0),
+                              mini_graph::CanvasVector()));
+    QVERIFY(line.GetStartPoint() == mini_graph::CanvasVector(1.0, 2.0));
+    QVERIFY(line.GetEndPoint() == mini_graph::CanvasVector(1.0, 2.0));
+
+    const QSharedPointer<mini_graph::CanvasEntity> lineClone = line.Clone();
+    const mini_graph::CanvasLine *clonedLine =
+            dynamic_cast<const mini_graph::CanvasLine *>(lineClone.data());
+    QVERIFY(clonedLine);
+    QVERIFY(clonedLine->IsValid());
+    QVERIFY(clonedLine->GetStartPoint() == line.GetStartPoint());
+    QVERIFY(clonedLine->GetEndPoint() == line.GetEndPoint());
+}
+
+void CanvasCoreTest::CanvasArcAndCircleValidateAndClone()
+{
+    const qreal pi = std::acos(-1.0);
+    mini_graph::CanvasArc arc;
+    QCOMPARE(arc.GetType(), mini_graph::CanvasEntityType::Arc);
+    QVERIFY(!arc.IsValid());
+    QVERIFY(arc.SetGeometry(mini_graph::CanvasVector(1.0, 2.0),
+                            5.0, 0.25, pi));
+    arc.SetReversed(true);
+    QVERIFY(arc.IsValid());
+    QVERIFY(arc.GetCenter() == mini_graph::CanvasVector(1.0, 2.0));
+    QCOMPARE(arc.GetRadius(), 5.0);
+    QCOMPARE(arc.GetStartAngle(), 0.25);
+    QCOMPARE(arc.GetEndAngle(), pi);
+    QVERIFY(arc.IsReversed());
+
+    QVERIFY(!arc.SetGeometry(mini_graph::CanvasVector(9.0, 9.0),
+                             2.0, 0.5, 0.5));
+    QVERIFY(!arc.SetGeometry(mini_graph::CanvasVector(9.0, 9.0),
+                             2.0, 0.1, 0.1 + 2.0 * pi));
+    QVERIFY(arc.GetCenter() == mini_graph::CanvasVector(1.0, 2.0));
+    QCOMPARE(arc.GetRadius(), 5.0);
+    QCOMPARE(arc.GetStartAngle(), 0.25);
+    QCOMPARE(arc.GetEndAngle(), pi);
+
+    const QSharedPointer<mini_graph::CanvasEntity> arcClone = arc.Clone();
+    const mini_graph::CanvasArc *clonedArc =
+            dynamic_cast<const mini_graph::CanvasArc *>(arcClone.data());
+    QVERIFY(clonedArc);
+    QVERIFY(clonedArc->IsValid());
+    QVERIFY(clonedArc->IsReversed());
+    QVERIFY(clonedArc->GetCenter() == arc.GetCenter());
+    QCOMPARE(clonedArc->GetRadius(), arc.GetRadius());
+    QCOMPARE(clonedArc->GetStartAngle(), arc.GetStartAngle());
+    QCOMPARE(clonedArc->GetEndAngle(), arc.GetEndAngle());
+
+    mini_graph::CanvasCircle circle;
+    QCOMPARE(circle.GetType(), mini_graph::CanvasEntityType::Circle);
+    QVERIFY(!circle.IsValid());
+    QVERIFY(!circle.SetGeometry(mini_graph::CanvasVector(0.0, 0.0), 0.0));
+    QVERIFY(circle.SetGeometry(mini_graph::CanvasVector(-3.0, 7.0), 2.5));
+    QVERIFY(circle.IsValid());
+    QVERIFY(circle.GetCenter() == mini_graph::CanvasVector(-3.0, 7.0));
+    QCOMPARE(circle.GetRadius(), 2.5);
+    QVERIFY(!circle.SetGeometry(mini_graph::CanvasVector(), 4.0));
+    QVERIFY(circle.GetCenter() == mini_graph::CanvasVector(-3.0, 7.0));
+    QCOMPARE(circle.GetRadius(), 2.5);
+
+    const QSharedPointer<mini_graph::CanvasEntity> circleClone = circle.Clone();
+    const mini_graph::CanvasCircle *clonedCircle =
+            dynamic_cast<const mini_graph::CanvasCircle *>(circleClone.data());
+    QVERIFY(clonedCircle);
+    QVERIFY(clonedCircle->IsValid());
+    QVERIFY(clonedCircle->GetCenter() == circle.GetCenter());
+    QCOMPARE(clonedCircle->GetRadius(), circle.GetRadius());
+}
+
+void CanvasCoreTest::CanvasSweepsSupportLargeFiniteAngles()
+{
+    const qreal startAngle = 1.0e16;
+    const qreal endAngle = startAngle + 4.0;
+
+    mini_graph::CanvasArc arc;
+    QVERIFY(arc.SetGeometry(mini_graph::CanvasVector(0.0, 0.0), 2.0,
+                            startAngle, endAngle));
+    QVERIFY(arc.IsValid());
+
+    mini_graph::CanvasEllipse ellipse;
+    QVERIFY(ellipse.SetGeometry(mini_graph::CanvasVector(0.0, 0.0),
+                                mini_graph::CanvasVector(3.0, 0.0),
+                                0.5, true, startAngle, endAngle));
+    QVERIFY(ellipse.IsValid());
+}
+
+void CanvasCoreTest::CanvasEllipseValidatesGeometryAndClone()
+{
+    const qreal pi = std::acos(-1.0);
+    mini_graph::CanvasEllipse ellipse;
+    QCOMPARE(ellipse.GetType(), mini_graph::CanvasEntityType::Ellipse);
+    QVERIFY(!ellipse.IsValid());
+    QVERIFY(ellipse.SetGeometry(mini_graph::CanvasVector(2.0, -1.0),
+                                mini_graph::CanvasVector(4.0, 0.0),
+                                0.5, false, 0.25, 1.0));
+    QVERIFY(ellipse.IsValid());
+    QVERIFY(!ellipse.IsArc());
+    QVERIFY(ellipse.GetCenter() == mini_graph::CanvasVector(2.0, -1.0));
+    QVERIFY(ellipse.GetMajorAxis() == mini_graph::CanvasVector(4.0, 0.0));
+    QCOMPARE(ellipse.GetMinorMajorRatio(), 0.5);
+    QCOMPARE(ellipse.GetStartParameter(), 0.0);
+    QCOMPARE(ellipse.GetEndParameter(), 0.0);
+
+    QVERIFY(!ellipse.SetGeometry(mini_graph::CanvasVector(9.0, 9.0),
+                                 mini_graph::CanvasVector(3.0, 0.0),
+                                 0.0, false));
+    QVERIFY(!ellipse.SetGeometry(mini_graph::CanvasVector(9.0, 9.0),
+                                 mini_graph::CanvasVector(0.0, 0.0),
+                                 0.5, false));
+    QVERIFY(ellipse.GetCenter() == mini_graph::CanvasVector(2.0, -1.0));
+
+    QVERIFY(ellipse.SetGeometry(mini_graph::CanvasVector(-2.0, 5.0),
+                                mini_graph::CanvasVector(0.0, 6.0),
+                                0.75, true, -pi / 2.0, pi / 2.0));
+    QVERIFY(ellipse.IsArc());
+    QCOMPARE(ellipse.GetStartParameter(), -pi / 2.0);
+    QCOMPARE(ellipse.GetEndParameter(), pi / 2.0);
+    QVERIFY(!ellipse.SetGeometry(mini_graph::CanvasVector(9.0, 9.0),
+                                 mini_graph::CanvasVector(3.0, 0.0),
+                                 0.5, true, 0.1, 0.1 + 2.0 * pi));
+    QVERIFY(ellipse.GetCenter() == mini_graph::CanvasVector(-2.0, 5.0));
+    QCOMPARE(ellipse.GetStartParameter(), -pi / 2.0);
+    QCOMPARE(ellipse.GetEndParameter(), pi / 2.0);
+
+    ellipse.SetReversed(true);
+    const QSharedPointer<mini_graph::CanvasEntity> clone = ellipse.Clone();
+    const mini_graph::CanvasEllipse *clonedEllipse =
+            dynamic_cast<const mini_graph::CanvasEllipse *>(clone.data());
+    QVERIFY(clonedEllipse);
+    QVERIFY(clonedEllipse->IsValid());
+    QVERIFY(clonedEllipse->IsReversed());
+    QVERIFY(clonedEllipse->IsArc());
+    QVERIFY(clonedEllipse->GetCenter() == ellipse.GetCenter());
+    QVERIFY(clonedEllipse->GetMajorAxis() == ellipse.GetMajorAxis());
+    QCOMPARE(clonedEllipse->GetMinorMajorRatio(), ellipse.GetMinorMajorRatio());
+    QCOMPARE(clonedEllipse->GetStartParameter(), ellipse.GetStartParameter());
+    QCOMPARE(clonedEllipse->GetEndParameter(), ellipse.GetEndParameter());
+}
+
+void CanvasCoreTest::CanvasPolylineValidatesConnectionsAndDeepCopies()
+{
+    const qreal pi = qAcos(-1.0);
+    mini_graph::CanvasPolyline polyline;
+    QCOMPARE(polyline.GetType(), mini_graph::CanvasEntityType::Polyline);
+    QVERIFY(!polyline.IsValid());
+    QCOMPARE(polyline.GetSegmentCount(), 0);
+    QVERIFY(!polyline.GetSegment(0));
+    QVERIFY(!polyline.SetClosed(true));
+
+    mini_graph::CanvasLine first(mini_graph::CanvasVector(0.0, 0.0),
+                                 mini_graph::CanvasVector(1.0, 0.0));
+    first.SetTag(QStringLiteral("first-input"));
+    QVERIFY(polyline.AddSegment(first));
+    QVERIFY(polyline.IsValid());
+    QVERIFY(!polyline.AddSegment(mini_graph::CanvasLine(
+                                     mini_graph::CanvasVector(10.0, 10.0),
+                                     mini_graph::CanvasVector(11.0, 11.0))));
+    QCOMPARE(polyline.GetSegmentCount(), 1);
+    const mini_graph::CanvasLine *storedFirst =
+            dynamic_cast<const mini_graph::CanvasLine *>(polyline.GetSegment(0));
+    QVERIFY(storedFirst);
+    QVERIFY(storedFirst->GetStartPoint() == mini_graph::CanvasVector(0.0, 0.0));
+
+    QVERIFY(first.SetGeometry(mini_graph::CanvasVector(50.0, 50.0),
+                              mini_graph::CanvasVector(60.0, 60.0)));
+    QVERIFY(storedFirst->GetStartPoint() == mini_graph::CanvasVector(0.0, 0.0));
+    QCOMPARE(storedFirst->GetTag(), QStringLiteral("first-input"));
+
+    mini_graph::CanvasArc second(mini_graph::CanvasVector(1.0, 1.0),
+                                 1.0, -pi / 2.0, 0.0);
+    QVERIFY(polyline.AddSegment(second));
+    QCOMPARE(polyline.GetSegmentCount(), 2);
+    QVERIFY(dynamic_cast<const mini_graph::CanvasArc *>(polyline.GetSegment(1)));
+    QVERIFY(!polyline.GetSegment(-1));
+    QVERIFY(!polyline.GetSegment(2));
+    QVERIFY(!polyline.SetSegment(2, first));
+    QVERIFY(!polyline.RemoveSegment(-1));
+
+    const QSharedPointer<mini_graph::CanvasEntity> clone = polyline.Clone();
+    const mini_graph::CanvasPolyline *clonedPolyline =
+            dynamic_cast<const mini_graph::CanvasPolyline *>(clone.data());
+    QVERIFY(clonedPolyline);
+    QVERIFY(clonedPolyline->IsValid());
+    QCOMPARE(clonedPolyline->GetSegmentCount(), 2);
+    QVERIFY(clonedPolyline->GetSegment(0) != polyline.GetSegment(0));
+    QVERIFY(clonedPolyline->GetSegment(0)->GetId() == mini_graph::ItemId(0));
+
+    QVERIFY(!polyline.SetSegment(0, mini_graph::CanvasLine(
+                                     mini_graph::CanvasVector(8.0, 8.0),
+                                     mini_graph::CanvasVector(9.0, 9.0))));
+    QCOMPARE(polyline.GetSegmentCount(), 2);
+    const mini_graph::CanvasLine *stillFirst =
+            dynamic_cast<const mini_graph::CanvasLine *>(polyline.GetSegment(0));
+    QVERIFY(stillFirst);
+    QVERIFY(stillFirst->GetStartPoint() == mini_graph::CanvasVector(0.0, 0.0));
+
+    QVERIFY(polyline.RemoveSegment(0));
+    QCOMPARE(polyline.GetSegmentCount(), 1);
+    QVERIFY(polyline.IsValid());
+    QVERIFY(!polyline.RemoveSegment(0));
+    QCOMPARE(polyline.GetSegmentCount(), 1);
+
+    mini_graph::CanvasPolyline closed;
+    const mini_graph::CanvasLine edge1(mini_graph::CanvasVector(0.0, 0.0),
+                                       mini_graph::CanvasVector(1.0, 0.0));
+    const mini_graph::CanvasLine edge2(mini_graph::CanvasVector(1.0, 0.0),
+                                       mini_graph::CanvasVector(0.0, 1.0));
+    const mini_graph::CanvasLine edge3(mini_graph::CanvasVector(0.0, 1.0),
+                                       mini_graph::CanvasVector(0.0, 0.0));
+    QVERIFY(closed.AddSegment(edge1));
+    QVERIFY(closed.AddSegment(edge2));
+    QVERIFY(closed.AddSegment(edge3));
+    QVERIFY(closed.SetClosed(true));
+    QVERIFY(closed.IsValid());
+    QVERIFY(closed.IsClosed());
+    QVERIFY(!closed.SetSegment(2, mini_graph::CanvasLine(
+                                   mini_graph::CanvasVector(0.0, 1.0),
+                                   mini_graph::CanvasVector(0.0, 2.0))));
+    QVERIFY(!closed.RemoveSegment(1));
+    QCOMPARE(closed.GetSegmentCount(), 3);
+    QVERIFY(closed.SetClosed(false));
+    QVERIFY(closed.IsValid());
+}
+
+void CanvasCoreTest::CanvasSplineValidatesNurbsDataAndClone()
+{
+    mini_graph::CanvasSpline spline;
+    QCOMPARE(spline.GetType(), mini_graph::CanvasEntityType::Spline);
+    QVERIFY(!spline.IsValid());
+    QCOMPARE(spline.GetDegree(), 0);
+    QVERIFY(spline.GetControlPoints().isEmpty());
+
+    const QVector<mini_graph::CanvasVector> points =
+            QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(0.0, 0.0)
+            << mini_graph::CanvasVector(1.0, 2.0)
+            << mini_graph::CanvasVector(3.0, 0.0);
+    const QVector<qreal> knots = QVector<qreal>()
+            << 0.0 << 0.0 << 0.0 << 1.0 << 1.0 << 1.0;
+    QVERIFY(spline.SetData(2, points, knots, QVector<qreal>(), true, false));
+    QVERIFY(spline.IsValid());
+    QCOMPARE(spline.GetDegree(), 2);
+    QVERIFY(spline.IsClosed());
+    QVERIFY(!spline.IsPeriodic());
+    QVERIFY(spline.GetControlPoints() == points);
+    QVERIFY(spline.GetKnots() == knots);
+    QVERIFY(spline.GetWeights().isEmpty());
+
+    QVERIFY(!spline.SetData(0, points, knots, QVector<qreal>(), false, false));
+    QVERIFY(!spline.SetData(2, points, QVector<qreal>() << 0.0 << 0.0,
+                            QVector<qreal>(), false, false));
+    QVERIFY(!spline.SetData(2, points,
+                            QVector<qreal>() << 0.0 << 0.0 << 0.0
+                                            << 1.0 << 0.5 << 1.0,
+                            QVector<qreal>(), false, false));
+    QVERIFY(!spline.SetData(2, points,
+                            QVector<qreal>() << 0.0 << 0.0 << 0.0
+                                            << 0.0 << 0.0 << 0.0,
+                            QVector<qreal>(), false, false));
+    QVERIFY(!spline.SetData(2, points, knots,
+                            QVector<qreal>() << 1.0 << 0.0 << 1.0,
+                            false, false));
+    QVERIFY(!spline.SetData(2, points, knots,
+                            QVector<qreal>() << 1.0 << 1.0,
+                            false, false));
+    QVERIFY(!spline.SetData(2,
+                            QVector<mini_graph::CanvasVector>()
+                            << mini_graph::CanvasVector(0.0, 0.0)
+                            << mini_graph::CanvasVector()
+                            << mini_graph::CanvasVector(3.0, 0.0),
+                            knots, QVector<qreal>(), false, false));
+    QVERIFY(spline.IsValid());
+    QVERIFY(spline.IsClosed());
+
+    const QVector<qreal> weights = QVector<qreal>() << 1.0 << 2.0 << 1.0;
+    QVERIFY(spline.SetData(2, points, knots, weights, false, true));
+    QVERIFY(!spline.IsClosed());
+    QVERIFY(spline.IsPeriodic());
+    QCOMPARE(spline.GetWeights(), weights);
+
+    const QSharedPointer<mini_graph::CanvasEntity> clone = spline.Clone();
+    const mini_graph::CanvasSpline *clonedSpline =
+            dynamic_cast<const mini_graph::CanvasSpline *>(clone.data());
+    QVERIFY(clonedSpline);
+    QVERIFY(clonedSpline->IsValid());
+    QCOMPARE(clonedSpline->GetDegree(), spline.GetDegree());
+    QVERIFY(clonedSpline->GetControlPoints() == spline.GetControlPoints());
+    QVERIFY(clonedSpline->GetKnots() == spline.GetKnots());
+    QCOMPARE(clonedSpline->GetWeights(), spline.GetWeights());
+    QVERIFY(clonedSpline->IsPeriodic());
+    QVERIFY(!clonedSpline->IsClosed());
+}
+
+void CanvasCoreTest::CanvasGroupDeepCopiesChildrenAndNestedGroups()
+{
+    mini_graph::CanvasGroupContainer group;
+    QCOMPARE(group.GetType(), mini_graph::CanvasEntityType::GroupContainer);
+    QVERIFY(!group.IsValid());
+    QVERIFY(group.CanExplode());
+    QCOMPARE(group.GetChildCount(), 0);
+    QVERIFY(!group.GetChild(0));
+    QVERIFY(!group.AddChild(mini_graph::CanvasPoint()));
+    QVERIFY(!group.ReplaceChild(0, mini_graph::CanvasPoint(
+                                    mini_graph::CanvasVector(1.0, 2.0))));
+    QVERIFY(!group.RemoveChild(0));
+
+    mini_graph::CanvasPoint sourcePoint(mini_graph::CanvasVector(1.0, 2.0));
+    sourcePoint.SetTag(QStringLiteral("source"));
+    QVERIFY(group.AddChild(sourcePoint));
+    QVERIFY(group.IsValid());
+    QCOMPARE(group.GetChildCount(), 1);
+    QVERIFY(group.GetChild(0) != &sourcePoint);
+    const mini_graph::CanvasPoint *storedPoint =
+            dynamic_cast<const mini_graph::CanvasPoint *>(group.GetChild(0));
+    QVERIFY(storedPoint);
+    QVERIFY(storedPoint->GetPosition() == mini_graph::CanvasVector(1.0, 2.0));
+    QVERIFY(sourcePoint.SetPosition(mini_graph::CanvasVector(9.0, 9.0)));
+    QVERIFY(storedPoint->GetPosition() == mini_graph::CanvasVector(1.0, 2.0));
+
+    mini_graph::CanvasGroupContainer nested;
+    mini_graph::CanvasCircle sourceCircle(mini_graph::CanvasVector(3.0, 4.0), 2.0);
+    QVERIFY(nested.AddChild(sourceCircle));
+    QVERIFY(group.AddChild(nested));
+    QVERIFY(group.IsValid());
+    const mini_graph::CanvasGroupContainer *storedNested =
+            dynamic_cast<const mini_graph::CanvasGroupContainer *>(group.GetChild(1));
+    QVERIFY(storedNested);
+    QVERIFY(storedNested != &nested);
+    QVERIFY(storedNested->IsValid());
+    QVERIFY(storedNested->GetChild(0) != &sourceCircle);
+    QVERIFY(!group.AddChild(group));
+    QCOMPARE(group.GetChildCount(), 2);
+    QVERIFY(!group.ReplaceChild(-1, sourcePoint));
+    QVERIFY(!group.ReplaceChild(2, sourcePoint));
+    QVERIFY(!group.RemoveChild(2));
+
+    group.SetAllowExplode(false);
+    QVERIFY(!group.CanExplode());
+    group.SetLayerName(QStringLiteral("parts"));
+    group.SetBusinessId(99);
+    const QSharedPointer<mini_graph::CanvasEntity> clone = group.Clone();
+    const mini_graph::CanvasGroupContainer *clonedGroup =
+            dynamic_cast<const mini_graph::CanvasGroupContainer *>(clone.data());
+    QVERIFY(clonedGroup);
+    QVERIFY(clonedGroup->IsValid());
+    QVERIFY(!clonedGroup->CanExplode());
+    QCOMPARE(clonedGroup->GetLayerName(), QStringLiteral("parts"));
+    QCOMPARE(clonedGroup->GetBusinessId(), qint64(99));
+    QCOMPARE(clonedGroup->GetChildCount(), 2);
+    QVERIFY(clonedGroup->GetChild(0) != group.GetChild(0));
+    QVERIFY(clonedGroup->GetChild(0)->GetId() == mini_graph::ItemId(0));
+
+    const mini_graph::CanvasGroupContainer *clonedNested =
+            dynamic_cast<const mini_graph::CanvasGroupContainer *>(
+                clonedGroup->GetChild(1));
+    QVERIFY(clonedNested);
+    QVERIFY(clonedNested != storedNested);
+    QVERIFY(clonedNested->IsValid());
+    QVERIFY(clonedNested->GetChild(0) != storedNested->GetChild(0));
+    QVERIFY(clonedNested->GetChild(0)->GetId() == mini_graph::ItemId(0));
+
+    mini_graph::CanvasPoint replacement(mini_graph::CanvasVector(-5.0, 7.0));
+    QVERIFY(group.ReplaceChild(0, replacement));
+    const mini_graph::CanvasPoint *replacedPoint =
+            dynamic_cast<const mini_graph::CanvasPoint *>(group.GetChild(0));
+    QVERIFY(replacedPoint);
+    QVERIFY(replacedPoint->GetPosition() == mini_graph::CanvasVector(-5.0, 7.0));
+    QVERIFY(clonedGroup->GetChild(0)->GetType()
+            == mini_graph::CanvasEntityType::Point);
+    const mini_graph::CanvasPoint *clonedOriginalPoint =
+            dynamic_cast<const mini_graph::CanvasPoint *>(clonedGroup->GetChild(0));
+    QVERIFY(clonedOriginalPoint);
+    QVERIFY(clonedOriginalPoint->GetPosition()
+            == mini_graph::CanvasVector(1.0, 2.0));
+
+    QVERIFY(group.RemoveChild(0));
+    QCOMPARE(group.GetChildCount(), 1);
+    QVERIFY(group.IsValid());
+    QVERIFY(group.RemoveChild(0));
+    QVERIFY(!group.IsValid());
+}
+
+void CanvasCoreTest::WorldCoordinateApisUseCanvasVector()
+{
+    const mini_graph::CanvasVector origin(0.0, 0.0);
+    mini_graph::StruPointGeometry pointGeometry;
+    QVERIFY(pointGeometry.position.IsValid());
+    QVERIFY(pointGeometry.position == origin);
+
+    mini_graph::CanvasTransform transform;
+    transform.SetCenter(origin);
+    QVERIFY(transform.GetCenter() == origin);
+    const QSizeF viewportSize(400.0, 300.0);
+    const mini_graph::CanvasVector worldCenter = transform.MapToWorld(
+                QPointF(200.0, 150.0), viewportSize);
+    QVERIFY(worldCenter == origin);
+    QCOMPARE(transform.MapFromWorld(origin, viewportSize), QPointF(200.0, 150.0));
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId pointId = document.AddPoint(origin);
+    QVERIFY(pointId != 0);
+    QVERIFY(document.TranslateItems(QVector<mini_graph::ItemId>() << pointId,
+                                    mini_graph::CanvasVector(3.0, -2.0)));
+    QVERIFY(document.GetPointGeometry(pointId, &pointGeometry));
+    const mini_graph::CanvasVector translated(3.0, -2.0);
+    QVERIFY(pointGeometry.position == translated);
+
+    const mini_graph::CanvasSnapResult snap = mini_graph::CanvasSnapper::FindSnap(
+                &document, translated, 0.5, 1.0, true, false);
+    QVERIFY(snap.IsValid());
+    QVERIFY(snap.position == translated);
+
+    mini_graph::CanvasRenderContext context(&document, transform, QSize(400, 300));
+    QVERIFY(context.MapToWorld(QPointF(200.0, 150.0)) == origin);
+    QCOMPARE(context.MapFromWorld(origin), QPointF(200.0, 150.0));
+
+    mini_graph::CanvasView view;
+    view.resize(200, 100);
+    view.CenterOnWorld(origin);
+    QVERIFY(view.MapToWorld(QPointF(100.0, 50.0)) == origin);
+    QCOMPARE(view.MapFromWorld(origin), QPointF(100.0, 50.0));
+}
+
+void CanvasCoreTest::CanvasViewQueuesCanvasVectorWorldSignal()
+{
+    mini_graph::CanvasView view;
+    const mini_graph::CanvasVector expected(12.5, -4.0);
+    mini_graph::CanvasVector received;
+    bool delivered = false;
+    const QMetaObject::Connection connection = QObject::connect(
+                &view, &mini_graph::CanvasView::MouseWorldPositionChanged,
+                &view,
+                [&received, &delivered](const mini_graph::CanvasVector &position) {
+        received = position;
+        delivered = true;
+    }, Qt::QueuedConnection);
+    QVERIFY(connection);
+
+    emit view.MouseWorldPositionChanged(expected);
+    QTRY_VERIFY(delivered);
+    QVERIFY(received == expected);
+}
+
 void CanvasCoreTest::DefaultTransformIsIdentityLike()
 {
     mini_graph::CanvasTransform transform;
     const QSizeF viewport(800.0, 600.0);
 
     QCOMPARE(transform.GetZoom(), 1.0);
-    QCOMPARE(transform.GetCenter(), QPointF(0.0, 0.0));
-    QCOMPARE(transform.MapToWorld(QPointF(400.0, 300.0), viewport), QPointF(0.0, 0.0));
-    QCOMPARE(transform.MapFromWorld(QPointF(0.0, 0.0), viewport), QPointF(400.0, 300.0));
+    QVERIFY(transform.GetCenter() == mini_graph::CanvasVector(0.0, 0.0));
+    QVERIFY(transform.MapToWorld(QPointF(400.0, 300.0), viewport)
+            == mini_graph::CanvasVector(0.0, 0.0));
+    QCOMPARE(transform.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0), viewport),
+             QPointF(400.0, 300.0));
 }
 
 void CanvasCoreTest::MinimumZoomSupportsMicroScale()
@@ -202,12 +919,12 @@ void CanvasCoreTest::ZoomAtKeepsTheWorldPointUnderTheCursor()
     const QSizeF viewport(800.0, 600.0);
     const QPointF cursor(625.0, 225.0);
 
-    const QPointF worldBefore = transform.MapToWorld(cursor, viewport);
+    const mini_graph::CanvasVector worldBefore = transform.MapToWorld(cursor, viewport);
     transform.ZoomAt(cursor, viewport, 2.0);
-    const QPointF worldAfter = transform.MapToWorld(cursor, viewport);
+    const mini_graph::CanvasVector worldAfter = transform.MapToWorld(cursor, viewport);
 
-    QVERIFY(qAbs(worldBefore.x() - worldAfter.x()) < 0.000001);
-    QVERIFY(qAbs(worldBefore.y() - worldAfter.y()) < 0.000001);
+    QVERIFY(qAbs(worldBefore.GetX() - worldAfter.GetX()) < 0.000001);
+    QVERIFY(qAbs(worldBefore.GetY() - worldAfter.GetY()) < 0.000001);
     QCOMPARE(transform.GetZoom(), 2.0);
 }
 
@@ -215,7 +932,7 @@ void CanvasCoreTest::PanByMovesWorldPointWithViewportDelta()
 {
     mini_graph::CanvasTransform transform;
     const QSizeF viewport(800.0, 600.0);
-    const QPointF worldPoint(35.0, -20.0);
+    const mini_graph::CanvasVector worldPoint(35.0, -20.0);
     const QPointF viewportDelta(45.0, -18.0);
 
     const QPointF viewportBefore = transform.MapFromWorld(worldPoint, viewport);
@@ -234,11 +951,13 @@ void CanvasCoreTest::FitRectCentersAndFitsViewport()
     QVERIFY(transform.FitRect(QRectF(-100.0, -50.0, 200.0, 100.0),
                               viewport,
                               40.0));
-    QCOMPARE(transform.GetCenter(), QPointF(0.0, 0.0));
+    QVERIFY(transform.GetCenter() == mini_graph::CanvasVector(0.0, 0.0));
     QVERIFY(qAbs(transform.GetZoom() - 3.6) < 0.000001);
 
-    const QPointF topLeft = transform.MapFromWorld(QPointF(-100.0, 50.0), viewport);
-    const QPointF bottomRight = transform.MapFromWorld(QPointF(100.0, -50.0), viewport);
+    const QPointF topLeft = transform.MapFromWorld(
+                mini_graph::CanvasVector(-100.0, 50.0), viewport);
+    const QPointF bottomRight = transform.MapFromWorld(
+                mini_graph::CanvasVector(100.0, -50.0), viewport);
     QVERIFY(qAbs(topLeft.x() - 40.0) < 0.000001);
     QVERIFY(qAbs(topLeft.y() - 120.0) < 0.000001);
     QVERIFY(qAbs(bottomRight.x() - 760.0) < 0.000001);
@@ -248,13 +967,13 @@ void CanvasCoreTest::FitRectCentersAndFitsViewport()
 void CanvasCoreTest::FitRectRejectsInvalidViewport()
 {
     mini_graph::CanvasTransform transform;
-    transform.SetCenter(QPointF(12.0, -8.0));
+    transform.SetCenter(mini_graph::CanvasVector(12.0, -8.0));
     transform.SetZoom(2.0);
 
     QVERIFY(!transform.FitRect(QRectF(0.0, 0.0, 10.0, 10.0),
                                QSizeF(0.0, 600.0),
                                40.0));
-    QCOMPARE(transform.GetCenter(), QPointF(12.0, -8.0));
+    QVERIFY(transform.GetCenter() == mini_graph::CanvasVector(12.0, -8.0));
     QCOMPARE(transform.GetZoom(), 2.0);
 }
 
@@ -262,8 +981,12 @@ void CanvasCoreTest::DocumentTracksLinesAndBounds()
 {
     mini_graph::CanvasDocument document;
 
-    const mini_graph::ItemId firstId = document.AddLine(QPointF(-5.0, 2.0), QPointF(10.0, 8.0));
-    const mini_graph::ItemId secondId = document.AddLine(QPointF(-2.0, -4.0), QPointF(3.0, 1.0));
+    const mini_graph::ItemId firstId = document.AddLine(
+                mini_graph::CanvasVector(-5.0, 2.0),
+                mini_graph::CanvasVector(10.0, 8.0));
+    const mini_graph::ItemId secondId = document.AddLine(
+                mini_graph::CanvasVector(-2.0, -4.0),
+                mini_graph::CanvasVector(3.0, 1.0));
 
     QVERIFY(firstId != secondId);
     QCOMPARE(document.GetItemCount(), 2);
@@ -274,27 +997,28 @@ void CanvasCoreTest::DocumentTracksLinesAndBounds()
 void CanvasCoreTest::DocumentUpdatesGeometryByType()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId pointId = document.AddPoint(QPointF(1.0, 2.0));
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(0.0, 0.0),
-                                                       QPointF(1.0, 1.0));
-    const mini_graph::ItemId arcId = document.AddArc(QPointF(0.0, 0.0),
+    const mini_graph::ItemId pointId = document.AddPoint(mini_graph::CanvasVector(1.0, 2.0));
+    const mini_graph::ItemId lineId = document.AddLine(mini_graph::CanvasVector(0.0, 0.0),
+                                                       mini_graph::CanvasVector(1.0, 1.0));
+    const mini_graph::ItemId arcId = document.AddArc(mini_graph::CanvasVector(0.0, 0.0),
                                                      5.0,
                                                      0.0,
                                                      1.0);
-    const mini_graph::ItemId circleId = document.AddCircle(QPointF(0.0, 0.0), 3.0);
+    const mini_graph::ItemId circleId = document.AddCircle(
+                mini_graph::CanvasVector(0.0, 0.0), 3.0);
     QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
 
     mini_graph::StruPointGeometry pointGeometry;
-    pointGeometry.position = QPointF(10.0, 20.0);
+    pointGeometry.position = mini_graph::CanvasVector(10.0, 20.0);
     QVERIFY(document.SetPointGeometry(pointId, pointGeometry));
 
     mini_graph::StruLineGeometry lineGeometry;
-    lineGeometry.startPoint = QPointF(-4.0, -5.0);
-    lineGeometry.endPoint = QPointF(6.0, 7.0);
+    lineGeometry.startPoint = mini_graph::CanvasVector(-4.0, -5.0);
+    lineGeometry.endPoint = mini_graph::CanvasVector(6.0, 7.0);
     QVERIFY(document.SetLineGeometry(lineId, lineGeometry));
 
     mini_graph::StruArcGeometry arcGeometry;
-    arcGeometry.center = QPointF(8.0, 9.0);
+    arcGeometry.center = mini_graph::CanvasVector(8.0, 9.0);
     arcGeometry.radius = 12.0;
     arcGeometry.startAngle = 0.5;
     arcGeometry.endAngle = 2.0;
@@ -302,7 +1026,7 @@ void CanvasCoreTest::DocumentUpdatesGeometryByType()
     QVERIFY(document.SetArcGeometry(arcId, arcGeometry));
 
     mini_graph::StruCircleGeometry circleGeometry;
-    circleGeometry.center = QPointF(-8.0, -9.0);
+    circleGeometry.center = mini_graph::CanvasVector(-8.0, -9.0);
     circleGeometry.radius = 14.0;
     QVERIFY(document.SetCircleGeometry(circleId, circleGeometry));
 
@@ -332,10 +1056,13 @@ void CanvasCoreTest::DocumentUpdatesGeometryByType()
 void CanvasCoreTest::DocumentCalculatesSelectedBounds()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId firstId = document.AddLine(QPointF(-10.0, -2.0),
-                                                        QPointF(4.0, 6.0));
-    const mini_graph::ItemId secondId = document.AddCircle(QPointF(100.0, 100.0), 5.0);
-    const mini_graph::ItemId thirdId = document.AddPoint(QPointF(-80.0, -80.0));
+    const mini_graph::ItemId firstId = document.AddLine(
+                mini_graph::CanvasVector(-10.0, -2.0),
+                mini_graph::CanvasVector(4.0, 6.0));
+    const mini_graph::ItemId secondId = document.AddCircle(
+                mini_graph::CanvasVector(100.0, 100.0), 5.0);
+    const mini_graph::ItemId thirdId = document.AddPoint(
+                mini_graph::CanvasVector(-80.0, -80.0));
 
     QCOMPARE(document.GetBounds(QVector<mini_graph::ItemId>() << firstId),
              QRectF(-10.0, -2.0, 14.0, 8.0));
@@ -353,8 +1080,10 @@ void CanvasCoreTest::DocumentChangesEmitSignals()
     mini_graph::CanvasDocument document;
     QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
 
-    const mini_graph::ItemId id = document.AddLine(QPointF(0.0, 0.0), QPointF(1.0, 1.0));
-    document.AddLine(QPointF(2.0, 2.0), QPointF(3.0, 3.0));
+    const mini_graph::ItemId id = document.AddLine(mini_graph::CanvasVector(0.0, 0.0),
+                                                  mini_graph::CanvasVector(1.0, 1.0));
+    document.AddLine(mini_graph::CanvasVector(2.0, 2.0),
+                     mini_graph::CanvasVector(3.0, 3.0));
     QVERIFY(document.RemoveItem(id));
     document.Clear();
 
@@ -367,16 +1096,16 @@ void CanvasCoreTest::DocumentStoresMixedGeometryPools()
     mini_graph::CanvasDocument document;
 
     mini_graph::StruPointGeometry pointGeometry;
-    pointGeometry.position = QPointF(1.0, 2.0);
+    pointGeometry.position = mini_graph::CanvasVector(1.0, 2.0);
     const mini_graph::ItemId pointId = document.AddPoint(pointGeometry);
 
     mini_graph::StruLineGeometry lineGeometry;
-    lineGeometry.startPoint = QPointF(-2.0, 0.0);
-    lineGeometry.endPoint = QPointF(3.0, 4.0);
+    lineGeometry.startPoint = mini_graph::CanvasVector(-2.0, 0.0);
+    lineGeometry.endPoint = mini_graph::CanvasVector(3.0, 4.0);
     const mini_graph::ItemId lineId = document.AddLine(lineGeometry);
 
     mini_graph::StruArcGeometry arcGeometry;
-    arcGeometry.center = QPointF(10.0, 10.0);
+    arcGeometry.center = mini_graph::CanvasVector(10.0, 10.0);
     arcGeometry.radius = 5.0;
     arcGeometry.startAngle = 0.0;
     arcGeometry.endAngle = 1.5707963267948966;
@@ -384,7 +1113,7 @@ void CanvasCoreTest::DocumentStoresMixedGeometryPools()
     const mini_graph::ItemId arcId = document.AddArc(arcGeometry);
 
     mini_graph::StruCircleGeometry circleGeometry;
-    circleGeometry.center = QPointF(-10.0, -5.0);
+    circleGeometry.center = mini_graph::CanvasVector(-10.0, -5.0);
     circleGeometry.radius = 2.0;
     const mini_graph::ItemId circleId = document.AddCircle(circleGeometry);
 
@@ -437,16 +1166,16 @@ void CanvasCoreTest::DocumentMixedGeometryBoundsAndOrder()
     mini_graph::CanvasDocument document;
 
     mini_graph::StruPointGeometry pointGeometry;
-    pointGeometry.position = QPointF(30.0, 40.0);
+    pointGeometry.position = mini_graph::CanvasVector(30.0, 40.0);
     const mini_graph::ItemId pointId = document.AddPoint(pointGeometry);
 
     mini_graph::StruLineGeometry lineGeometry;
-    lineGeometry.startPoint = QPointF(-5.0, -2.0);
-    lineGeometry.endPoint = QPointF(2.0, 3.0);
+    lineGeometry.startPoint = mini_graph::CanvasVector(-5.0, -2.0);
+    lineGeometry.endPoint = mini_graph::CanvasVector(2.0, 3.0);
     const mini_graph::ItemId lineId = document.AddLine(lineGeometry);
 
     mini_graph::StruArcGeometry arcGeometry;
-    arcGeometry.center = QPointF(10.0, 10.0);
+    arcGeometry.center = mini_graph::CanvasVector(10.0, 10.0);
     arcGeometry.radius = 5.0;
     arcGeometry.startAngle = 0.0;
     arcGeometry.endAngle = 1.5707963267948966;
@@ -454,7 +1183,7 @@ void CanvasCoreTest::DocumentMixedGeometryBoundsAndOrder()
     const mini_graph::ItemId arcId = document.AddArc(arcGeometry);
 
     mini_graph::StruCircleGeometry circleGeometry;
-    circleGeometry.center = QPointF(-10.0, -5.0);
+    circleGeometry.center = mini_graph::CanvasVector(-10.0, -5.0);
     circleGeometry.radius = 2.0;
     const mini_graph::ItemId circleId = document.AddCircle(circleGeometry);
 
@@ -482,17 +1211,17 @@ void CanvasCoreTest::DocumentRejectsInvalidCircularGeometry()
     QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
 
     mini_graph::StruCircleGeometry zeroRadiusCircle;
-    zeroRadiusCircle.center = QPointF(0.0, 0.0);
+    zeroRadiusCircle.center = mini_graph::CanvasVector(0.0, 0.0);
     zeroRadiusCircle.radius = 0.0;
     QCOMPARE(document.AddCircle(zeroRadiusCircle), mini_graph::ItemId(0));
 
     mini_graph::StruCircleGeometry negativeRadiusCircle;
-    negativeRadiusCircle.center = QPointF(0.0, 0.0);
+    negativeRadiusCircle.center = mini_graph::CanvasVector(0.0, 0.0);
     negativeRadiusCircle.radius = -1.0;
     QCOMPARE(document.AddCircle(negativeRadiusCircle), mini_graph::ItemId(0));
 
     mini_graph::StruArcGeometry zeroSweepArc;
-    zeroSweepArc.center = QPointF(0.0, 0.0);
+    zeroSweepArc.center = mini_graph::CanvasVector(0.0, 0.0);
     zeroSweepArc.radius = 1.0;
     zeroSweepArc.startAngle = 0.5;
     zeroSweepArc.endAngle = 0.5;
@@ -507,16 +1236,20 @@ void CanvasCoreTest::DocumentStoresPolylineAndPreservesOrder()
 {
     mini_graph::CanvasDocument document;
 
-    const mini_graph::ItemId pointId = document.AddPoint(QPointF(0.0, 0.0));
-    const QVector<QPointF> openVertices = QVector<QPointF>()
-            << QPointF(1.0, 2.0) << QPointF(4.0, 2.0);
+    const mini_graph::ItemId pointId = document.AddPoint(mini_graph::CanvasVector(0.0, 0.0));
+    const QVector<mini_graph::CanvasVector> openVertices =
+            QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(1.0, 2.0)
+            << mini_graph::CanvasVector(4.0, 2.0);
     const mini_graph::ItemId openPolylineId = document.AddPolyline(openVertices);
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(5.0, 5.0),
-                                                       QPointF(6.0, 6.0));
+    const mini_graph::ItemId lineId = document.AddLine(mini_graph::CanvasVector(5.0, 5.0),
+                                                       mini_graph::CanvasVector(6.0, 6.0));
 
     mini_graph::StruPolylineGeometry closedGeometry;
-    closedGeometry.vertices = QVector<QPointF>()
-            << QPointF(-1.0, -2.0) << QPointF(2.0, -2.0) << QPointF(2.0, 1.0);
+    closedGeometry.vertices = QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(-1.0, -2.0)
+            << mini_graph::CanvasVector(2.0, -2.0)
+            << mini_graph::CanvasVector(2.0, 1.0);
     closedGeometry.closed = true;
     const mini_graph::ItemId closedPolylineId = document.AddPolyline(closedGeometry);
 
@@ -566,18 +1299,21 @@ void CanvasCoreTest::DocumentRejectsInvalidPolylineGeometry()
     mini_graph::CanvasDocument document;
     QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
 
-    QCOMPARE(document.AddPolyline(QVector<QPointF>() << QPointF(0.0, 0.0)),
+    QCOMPARE(document.AddPolyline(QVector<mini_graph::CanvasVector>()
+                                  << mini_graph::CanvasVector(0.0, 0.0)),
              mini_graph::ItemId(0));
 
     mini_graph::StruPolylineGeometry closedWithTwoVertices;
-    closedWithTwoVertices.vertices = QVector<QPointF>()
-            << QPointF(0.0, 0.0) << QPointF(1.0, 1.0);
+    closedWithTwoVertices.vertices = QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(0.0, 0.0)
+            << mini_graph::CanvasVector(1.0, 1.0);
     closedWithTwoVertices.closed = true;
     QCOMPARE(document.AddPolyline(closedWithTwoVertices), mini_graph::ItemId(0));
 
     mini_graph::StruPolylineGeometry validGeometry;
-    validGeometry.vertices = QVector<QPointF>()
-            << QPointF(0.0, 0.0) << QPointF(1.0, 1.0);
+    validGeometry.vertices = QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(0.0, 0.0)
+            << mini_graph::CanvasVector(1.0, 1.0);
     const mini_graph::ItemId id = document.AddPolyline(validGeometry);
     QVERIFY(id != 0);
     changedSpy.clear();
@@ -592,7 +1328,7 @@ void CanvasCoreTest::DocumentRejectsInvalidPolylineGeometry()
     QCOMPARE(changedSpy.count(), 0);
 
     mini_graph::StruPolylineGeometry nonFiniteGeometry = validGeometry;
-    nonFiniteGeometry.vertices[1].setX(std::numeric_limits<qreal>::infinity());
+    nonFiniteGeometry.vertices[1].Invalidate();
     QCOMPARE(document.AddPolyline(nonFiniteGeometry), mini_graph::ItemId(0));
     QCOMPARE(document.GetItemCount(), 1);
     QCOMPARE(changedSpy.count(), 0);
@@ -602,22 +1338,25 @@ void CanvasCoreTest::DocumentBoundsAndTranslatesPolyline()
 {
     mini_graph::CanvasDocument document;
     mini_graph::StruPolylineGeometry geometry;
-    geometry.vertices = QVector<QPointF>()
-            << QPointF(-2.0, 1.0) << QPointF(4.0, -5.0) << QPointF(10.0, 3.0);
+    geometry.vertices = QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(-2.0, 1.0)
+            << mini_graph::CanvasVector(4.0, -5.0)
+            << mini_graph::CanvasVector(10.0, 3.0);
     geometry.closed = true;
     const mini_graph::ItemId id = document.AddPolyline(geometry);
 
     QVERIFY(id != 0);
     QCOMPARE(document.GetBounds(), QRectF(-2.0, -5.0, 12.0, 8.0));
     QVERIFY(document.TranslateItems(QVector<mini_graph::ItemId>() << id,
-                                    QPointF(3.0, -2.0)));
+                                    mini_graph::CanvasVector(3.0, -2.0)));
 
     mini_graph::StruPolylineGeometry translatedGeometry;
     QVERIFY(document.GetPolylineGeometry(id, &translatedGeometry));
     QCOMPARE(translatedGeometry.vertices,
-             QVector<QPointF>() << QPointF(1.0, -1.0)
-                                << QPointF(7.0, -7.0)
-                                << QPointF(13.0, 1.0));
+             QVector<mini_graph::CanvasVector>()
+             << mini_graph::CanvasVector(1.0, -1.0)
+             << mini_graph::CanvasVector(7.0, -7.0)
+             << mini_graph::CanvasVector(13.0, 1.0));
     QVERIFY(translatedGeometry.closed);
     QCOMPARE(document.GetBounds(), QRectF(1.0, -7.0, 12.0, 8.0));
 }
@@ -627,31 +1366,35 @@ void CanvasCoreTest::DocumentSupportsParameterizedCreation()
     mini_graph::CanvasDocument document;
     QSignalSpy changedSpy(&document, SIGNAL(Changed()));
 
-    const mini_graph::ItemId pointId = document.AddPoint(QPointF(1.0, 2.0));
-    const mini_graph::ItemId arcId = document.AddArc(QPointF(3.0, 4.0),
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(1.0, 2.0));
+    const mini_graph::ItemId arcId = document.AddArc(
+                                                     mini_graph::CanvasVector(3.0, 4.0),
                                                      5.0,
                                                      0.0,
                                                      1.5707963267948966,
                                                      true);
-    const mini_graph::ItemId circleId = document.AddCircle(QPointF(-2.0, -1.0),
+    const mini_graph::ItemId circleId = document.AddCircle(
+                                                           mini_graph::CanvasVector(-2.0, -1.0),
                                                            6.0);
 
     QVERIFY(pointId != 0);
     QVERIFY(arcId != 0);
     QVERIFY(circleId != 0);
     QCOMPARE(document.GetItemCount(), 3);
-    QCOMPARE(document.GetPointPrimitives().at(0).geometry.position,
-             QPointF(1.0, 2.0));
-    QCOMPARE(document.GetArcPrimitives().at(0).geometry.center,
-             QPointF(3.0, 4.0));
+    QVERIFY(document.GetPointPrimitives().at(0).geometry.position
+            == mini_graph::CanvasVector(1.0, 2.0));
+    QVERIFY(document.GetArcPrimitives().at(0).geometry.center
+            == mini_graph::CanvasVector(3.0, 4.0));
     QCOMPARE(document.GetArcPrimitives().at(0).geometry.radius, 5.0);
     QVERIFY(document.GetArcPrimitives().at(0).geometry.reversed);
-    QCOMPARE(document.GetCirclePrimitives().at(0).geometry.center,
-             QPointF(-2.0, -1.0));
+    QVERIFY(document.GetCirclePrimitives().at(0).geometry.center
+            == mini_graph::CanvasVector(-2.0, -1.0));
     QCOMPARE(document.GetCirclePrimitives().at(0).geometry.radius, 6.0);
     QCOMPARE(changedSpy.count(), 3);
 
-    QCOMPARE(document.AddCircle(QPointF(0.0, 0.0), 0.0), mini_graph::ItemId(0));
+    QCOMPARE(document.AddCircle(mini_graph::CanvasVector(0.0, 0.0), 0.0),
+             mini_graph::ItemId(0));
     QCOMPARE(changedSpy.count(), 3);
 }
 
@@ -674,7 +1417,8 @@ void CanvasCoreTest::CanvasStyleHasStableDefaultsAndValueSemantics()
 void CanvasCoreTest::DocumentStoresAndUpdatesItemStyle()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId pointId = document.AddPoint(QPointF(1.0, 2.0));
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(1.0, 2.0));
     QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
 
     mini_graph::StruCanvasStyle style;
@@ -698,8 +1442,9 @@ void CanvasCoreTest::DocumentStoresAndUpdatesItemStyle()
 void CanvasCoreTest::DocumentNormalizesLineStyleCompatibilityFields()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(0.0, 0.0),
-                                                       QPointF(1.0, 1.0),
+    const mini_graph::ItemId lineId = document.AddLine(
+                                                       mini_graph::CanvasVector(0.0, 0.0),
+                                                       mini_graph::CanvasVector(1.0, 1.0),
                                                        QColor(),
                                                        -2.0);
     QVERIFY(lineId != 0);
@@ -716,7 +1461,7 @@ void CanvasCoreTest::GeometryArcSweepFollowsDirection()
     const qreal halfPi = 1.5707963267948966;
 
     mini_graph::StruArcGeometry counterClockwiseArc;
-    counterClockwiseArc.center = QPointF(0.0, 0.0);
+    counterClockwiseArc.center = mini_graph::CanvasVector(0.0, 0.0);
     counterClockwiseArc.radius = 10.0;
     counterClockwiseArc.startAngle = 0.0;
     counterClockwiseArc.endAngle = halfPi;
@@ -724,17 +1469,17 @@ void CanvasCoreTest::GeometryArcSweepFollowsDirection()
 
     QVERIFY(qAbs(mini_graph::GetArcSweep(counterClockwiseArc) - halfPi)
             < 0.000000000001);
-    QVERIFY(qAbs(mini_graph::CalculateArcPoint(counterClockwiseArc, 0.0).x() - 10.0)
+    QVERIFY(qAbs(mini_graph::CalculateArcPoint(counterClockwiseArc, 0.0).GetX() - 10.0)
             < 0.000001);
-    QVERIFY(qAbs(mini_graph::CalculateArcPoint(counterClockwiseArc, 0.0).y())
+    QVERIFY(qAbs(mini_graph::CalculateArcPoint(counterClockwiseArc, 0.0).GetY())
             < 0.000001);
-    QVERIFY(qAbs(mini_graph::CalculateArcPoint(counterClockwiseArc, halfPi).x())
+    QVERIFY(qAbs(mini_graph::CalculateArcPoint(counterClockwiseArc, halfPi).GetX())
             < 0.000001);
-    QVERIFY(qAbs(mini_graph::CalculateArcPoint(counterClockwiseArc, halfPi).y() - 10.0)
+    QVERIFY(qAbs(mini_graph::CalculateArcPoint(counterClockwiseArc, halfPi).GetY() - 10.0)
             < 0.000001);
 
     mini_graph::StruArcGeometry clockwiseArc;
-    clockwiseArc.center = QPointF(0.0, 0.0);
+    clockwiseArc.center = mini_graph::CanvasVector(0.0, 0.0);
     clockwiseArc.radius = 10.0;
     clockwiseArc.startAngle = halfPi;
     clockwiseArc.endAngle = 0.0;
@@ -748,16 +1493,16 @@ void CanvasCoreTest::GeometryArcSweepFollowsDirection()
 void CanvasCoreTest::GeometryBoundsCoverAllPrimitiveTypes()
 {
     mini_graph::StruPointGeometry point;
-    point.position = QPointF(2.0, -3.0);
+    point.position = mini_graph::CanvasVector(2.0, -3.0);
     QCOMPARE(mini_graph::GetGeometryBounds(point), QRectF(2.0, -3.0, 0.0, 0.0));
 
     mini_graph::StruLineGeometry line;
-    line.startPoint = QPointF(-2.0, 1.0);
-    line.endPoint = QPointF(4.0, -5.0);
+    line.startPoint = mini_graph::CanvasVector(-2.0, 1.0);
+    line.endPoint = mini_graph::CanvasVector(4.0, -5.0);
     QCOMPARE(mini_graph::GetGeometryBounds(line), QRectF(-2.0, -5.0, 6.0, 6.0));
 
     mini_graph::StruArcGeometry arc;
-    arc.center = QPointF(10.0, 10.0);
+    arc.center = mini_graph::CanvasVector(10.0, 10.0);
     arc.radius = 5.0;
     arc.startAngle = 0.0;
     arc.endAngle = 1.5707963267948966;
@@ -765,7 +1510,7 @@ void CanvasCoreTest::GeometryBoundsCoverAllPrimitiveTypes()
     QCOMPARE(mini_graph::GetGeometryBounds(arc), QRectF(10.0, 10.0, 5.0, 5.0));
 
     mini_graph::StruCircleGeometry circle;
-    circle.center = QPointF(-3.0, -4.0);
+    circle.center = mini_graph::CanvasVector(-3.0, -4.0);
     circle.radius = 2.0;
     QCOMPARE(mini_graph::GetGeometryBounds(circle), QRectF(-5.0, -6.0, 4.0, 4.0));
 }
@@ -773,8 +1518,10 @@ void CanvasCoreTest::GeometryBoundsCoverAllPrimitiveTypes()
 void CanvasCoreTest::GeometryValidatesPolylineAndBounds()
 {
     mini_graph::StruPolylineGeometry openGeometry;
-    openGeometry.vertices = QVector<QPointF>()
-            << QPointF(1.0, 2.0) << QPointF(5.0, 2.0) << QPointF(5.0, 8.0);
+    openGeometry.vertices = QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(1.0, 2.0)
+            << mini_graph::CanvasVector(5.0, 2.0)
+            << mini_graph::CanvasVector(5.0, 8.0);
     QVERIFY(mini_graph::IsValidGeometry(openGeometry));
     QCOMPARE(mini_graph::GetGeometryBounds(openGeometry),
              QRectF(1.0, 2.0, 4.0, 6.0));
@@ -789,49 +1536,50 @@ void CanvasCoreTest::GeometryValidatesPolylineAndBounds()
     QVERIFY(!mini_graph::IsValidGeometry(emptyGeometry));
 
     mini_graph::StruPolylineGeometry oneVertexGeometry;
-    oneVertexGeometry.vertices << QPointF(0.0, 0.0);
+    oneVertexGeometry.vertices << mini_graph::CanvasVector(0.0, 0.0);
     QVERIFY(!mini_graph::IsValidGeometry(oneVertexGeometry));
 
     mini_graph::StruPolylineGeometry closedWithTwoVertices;
-    closedWithTwoVertices.vertices = QVector<QPointF>()
-            << QPointF(0.0, 0.0) << QPointF(1.0, 1.0);
+    closedWithTwoVertices.vertices = QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(0.0, 0.0)
+            << mini_graph::CanvasVector(1.0, 1.0);
     closedWithTwoVertices.closed = true;
     QVERIFY(!mini_graph::IsValidGeometry(closedWithTwoVertices));
 
     mini_graph::StruPolylineGeometry nonFiniteGeometry = openGeometry;
-    nonFiniteGeometry.vertices[0].setY(std::numeric_limits<qreal>::quiet_NaN());
+    nonFiniteGeometry.vertices[0].Invalidate();
     QVERIFY(!mini_graph::IsValidGeometry(nonFiniteGeometry));
 }
 
 void CanvasCoreTest::GeometryTessellatesArcAndCircle()
 {
     mini_graph::StruArcGeometry arc;
-    arc.center = QPointF(1.0, -2.0);
+    arc.center = mini_graph::CanvasVector(1.0, -2.0);
     arc.radius = 10.0;
     arc.startAngle = 0.0;
     arc.endAngle = 1.5707963267948966;
     arc.reversed = false;
 
-    const QVector<QPointF> arcPoints = mini_graph::TessellateArc(arc, 0.01);
+    const QVector<mini_graph::CanvasVector> arcPoints =
+            mini_graph::TessellateArc(arc, 0.01);
     QVERIFY(arcPoints.size() >= 2);
-    QVERIFY(QLineF(arcPoints.first(),
-                   mini_graph::CalculateArcPoint(arc, arc.startAngle)).length()
-            < 0.000001);
-    QVERIFY(QLineF(arcPoints.last(),
-                   mini_graph::CalculateArcPoint(arc, arc.endAngle)).length()
-            < 0.000001);
-    for (const QPointF &point : arcPoints) {
-        QVERIFY(qAbs(QLineF(arc.center, point).length() - arc.radius) < 0.01);
+    QVERIFY(arcPoints.first().DistanceTo(
+                mini_graph::CalculateArcPoint(arc, arc.startAngle)) < 0.000001);
+    QVERIFY(arcPoints.last().DistanceTo(
+                mini_graph::CalculateArcPoint(arc, arc.endAngle)) < 0.000001);
+    for (const mini_graph::CanvasVector &point : arcPoints) {
+        QVERIFY(qAbs(arc.center.DistanceTo(point) - arc.radius) < 0.01);
     }
 
     mini_graph::StruCircleGeometry circle;
-    circle.center = QPointF(4.0, 5.0);
+    circle.center = mini_graph::CanvasVector(4.0, 5.0);
     circle.radius = 12.0;
-    const QVector<QPointF> circlePoints = mini_graph::TessellateCircle(circle, 0.01);
+    const QVector<mini_graph::CanvasVector> circlePoints =
+            mini_graph::TessellateCircle(circle, 0.01);
     QVERIFY(circlePoints.size() >= 17);
     QCOMPARE(circlePoints.first(), circlePoints.last());
-    for (const QPointF &point : circlePoints) {
-        QVERIFY(qAbs(QLineF(circle.center, point).length() - circle.radius) < 0.01);
+    for (const mini_graph::CanvasVector &point : circlePoints) {
+        QVERIFY(qAbs(circle.center.DistanceTo(point) - circle.radius) < 0.01);
     }
 }
 
@@ -839,13 +1587,15 @@ void CanvasCoreTest::CanvasRenderContextProvidesWorldHelpers()
 {
     mini_graph::CanvasTransform transform;
     transform.SetZoom(2.0);
-    transform.SetCenter(QPointF(10.0, -5.0));
+    transform.SetCenter(mini_graph::CanvasVector(10.0, -5.0));
 
     const mini_graph::CanvasRenderContext context(nullptr,
                                                   transform,
                                                   QSize(800, 600));
-    QCOMPARE(context.MapToWorld(QPointF(400.0, 300.0)), QPointF(10.0, -5.0));
-    QCOMPARE(context.MapFromWorld(QPointF(10.0, -5.0)), QPointF(400.0, 300.0));
+    QVERIFY(context.MapToWorld(QPointF(400.0, 300.0))
+            == mini_graph::CanvasVector(10.0, -5.0));
+    QCOMPARE(context.MapFromWorld(mini_graph::CanvasVector(10.0, -5.0)),
+             QPointF(400.0, 300.0));
     QCOMPARE(context.GetVisibleWorldRect(), QRectF(-190.0, -155.0, 400.0, 300.0));
 }
 
@@ -910,7 +1660,7 @@ void CanvasCoreTest::BasicCustomRendererDrawsPainterLayers()
 
     QPainter painter(&image);
     renderer.RenderBackground(painter, context);
-    const QPointF anchor = context.MapFromWorld(QPointF(0.0, 25.0));
+    const QPointF anchor = context.MapFromWorld(mini_graph::CanvasVector(0.0, 25.0));
     QVERIFY(image.pixelColor(qRound(anchor.x()), qRound(anchor.y())) != Qt::black);
 
     renderer.RenderOverlay(painter, context);
@@ -922,12 +1672,13 @@ void CanvasCoreTest::BasicCustomRendererDrawsPainterLayers()
 void CanvasCoreTest::CanvasSnapperPrefersVisibleGeometry()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(3.0, 3.0),
-                                                       QPointF(20.0, 3.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(3.0, 3.0),
+                mini_graph::CanvasVector(20.0, 3.0));
 
     const mini_graph::CanvasSnapResult result = mini_graph::CanvasSnapper::FindSnap(
                 &document,
-                QPointF(3.4, 3.2),
+                mini_graph::CanvasVector(3.4, 3.2),
                 1.0,
                 10.0,
                 true,
@@ -935,7 +1686,7 @@ void CanvasCoreTest::CanvasSnapperPrefersVisibleGeometry()
     QCOMPARE(static_cast<int>(result.type),
              static_cast<int>(mini_graph::CanvasSnapType::LineEndpoint));
     QCOMPARE(result.itemId, lineId);
-    QCOMPARE(result.position, QPointF(3.0, 3.0));
+    QVERIFY(result.position == mini_graph::CanvasVector(3.0, 3.0));
 
     mini_graph::StruCanvasStyle style;
     QVERIFY(document.GetItemStyle(lineId, &style));
@@ -944,7 +1695,7 @@ void CanvasCoreTest::CanvasSnapperPrefersVisibleGeometry()
 
     const mini_graph::CanvasSnapResult hiddenResult = mini_graph::CanvasSnapper::FindSnap(
                 &document,
-                QPointF(3.4, 3.2),
+                mini_graph::CanvasVector(3.4, 3.2),
                 1.0,
                 10.0,
                 true,
@@ -957,7 +1708,7 @@ void CanvasCoreTest::CanvasSnapperSnapsToGrid()
 {
     const mini_graph::CanvasSnapResult result = mini_graph::CanvasSnapper::FindSnap(
                 nullptr,
-                QPointF(4.6, 5.2),
+                mini_graph::CanvasVector(4.6, 5.2),
                 1.0,
                 10.0,
                 false,
@@ -965,20 +1716,23 @@ void CanvasCoreTest::CanvasSnapperSnapsToGrid()
     QCOMPARE(static_cast<int>(result.type),
              static_cast<int>(mini_graph::CanvasSnapType::Grid));
     QCOMPARE(result.itemId, static_cast<mini_graph::ItemId>(0));
-    QCOMPARE(result.position, QPointF(0.0, 10.0));
+    QVERIFY(result.position == mini_graph::CanvasVector(0.0, 10.0));
 }
 
 void CanvasCoreTest::CanvasSnapperSnapsToPolylineVertices()
 {
     mini_graph::CanvasDocument document;
-    const QVector<QPointF> vertices = QVector<QPointF>()
-            << QPointF(1.0, 2.0) << QPointF(5.0, 6.0) << QPointF(9.0, 2.0);
+    const QVector<mini_graph::CanvasVector> vertices =
+            QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(1.0, 2.0)
+            << mini_graph::CanvasVector(5.0, 6.0)
+            << mini_graph::CanvasVector(9.0, 2.0);
     const mini_graph::ItemId polylineId = document.AddPolyline(vertices);
 
     QVERIFY(polylineId != 0);
     const mini_graph::CanvasSnapResult result = mini_graph::CanvasSnapper::FindSnap(
                 &document,
-                QPointF(5.1, 6.05),
+                mini_graph::CanvasVector(5.1, 6.05),
                 0.25,
                 1.0,
                 true,
@@ -987,7 +1741,7 @@ void CanvasCoreTest::CanvasSnapperSnapsToPolylineVertices()
     QCOMPARE(static_cast<int>(result.type),
              static_cast<int>(mini_graph::CanvasSnapType::PolylineVertex));
     QCOMPARE(result.itemId, polylineId);
-    QCOMPARE(result.position, vertices.at(1));
+    QVERIFY(result.position == vertices.at(1));
 
     mini_graph::StruCanvasStyle style;
     QVERIFY(document.GetItemStyle(polylineId, &style));
@@ -995,7 +1749,7 @@ void CanvasCoreTest::CanvasSnapperSnapsToPolylineVertices()
     QVERIFY(document.SetItemStyle(polylineId, style));
     const mini_graph::CanvasSnapResult hiddenResult = mini_graph::CanvasSnapper::FindSnap(
                 &document,
-                QPointF(5.1, 6.05),
+                mini_graph::CanvasVector(5.1, 6.05),
                 0.25,
                 1.0,
                 true,
@@ -1006,8 +1760,9 @@ void CanvasCoreTest::CanvasSnapperSnapsToPolylineVertices()
 void CanvasCoreTest::CanvasViewReportsCurrentSnap()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(3.0, 3.0),
-                                                       QPointF(20.0, 3.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(3.0, 3.0),
+                mini_graph::CanvasVector(20.0, 3.0));
 
     CanvasViewHarness view;
     view.resize(800, 600);
@@ -1015,7 +1770,8 @@ void CanvasCoreTest::CanvasViewReportsCurrentSnap()
     view.SetDocument(&document);
     view.SetSnapEnabled(true);
 
-    const QPointF mousePosition = view.MapFromWorld(QPointF(3.4, 3.2));
+    const QPointF mousePosition = view.MapFromWorld(
+                mini_graph::CanvasVector(3.4, 3.2));
     QMouseEvent move(QEvent::MouseMove,
                      mousePosition,
                      mousePosition,
@@ -1029,7 +1785,7 @@ void CanvasCoreTest::CanvasViewReportsCurrentSnap()
     QCOMPARE(static_cast<int>(result.type),
              static_cast<int>(mini_graph::CanvasSnapType::LineEndpoint));
     QCOMPARE(result.itemId, lineId);
-    QCOMPARE(result.position, QPointF(3.0, 3.0));
+    QVERIFY(result.position == mini_graph::CanvasVector(3.0, 3.0));
 
     view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
     QVERIFY(view.IsSnapEnabled());
@@ -1055,7 +1811,8 @@ void CanvasCoreTest::CanvasViewDrawsSnapMarker()
     view.SetSnapEnabled(true);
     view.SetGeometrySnapEnabled(false);
 
-    const QPointF mousePosition = view.MapFromWorld(QPointF(4.6, 5.2));
+    const QPointF mousePosition = view.MapFromWorld(
+                mini_graph::CanvasVector(4.6, 5.2));
     QMouseEvent move(QEvent::MouseMove,
                      mousePosition,
                      mousePosition,
@@ -1072,7 +1829,8 @@ void CanvasCoreTest::CanvasViewDrawsSnapMarker()
     view.DrawSnapMarker(painter);
     painter.end();
 
-    const QPointF snapPosition = view.MapFromWorld(QPointF(0.0, 10.0));
+    const QPointF snapPosition = view.MapFromWorld(
+                mini_graph::CanvasVector(0.0, 10.0));
     QVERIFY(image.pixelColor(qRound(snapPosition.x()),
                              qRound(snapPosition.y())).yellow() > 150);
 }
@@ -1081,8 +1839,8 @@ void CanvasCoreTest::CanvasViewRendersDocumentWithPainter()
 {
     mini_graph::CanvasDocument document;
     const mini_graph::ItemId lineId = document.AddLine(
-                QPointF(-30.0, 0.0),
-                QPointF(30.0, 0.0),
+                mini_graph::CanvasVector(-30.0, 0.0),
+                mini_graph::CanvasVector(30.0, 0.0),
                 QColor(255, 0, 0),
                 2.0);
     QVERIFY(lineId != 0);
@@ -1116,13 +1874,15 @@ void CanvasCoreTest::CanvasRendererDrawsOpenAndClosedPolylines()
 {
     mini_graph::CanvasDocument document;
     const mini_graph::ItemId openId = document.AddPolyline(
-                QVector<QPointF>() << QPointF(-30.0, 20.0)
-                                   << QPointF(0.0, 50.0)
-                                   << QPointF(30.0, 20.0));
+                QVector<mini_graph::CanvasVector>()
+                << mini_graph::CanvasVector(-30.0, 20.0)
+                << mini_graph::CanvasVector(0.0, 50.0)
+                << mini_graph::CanvasVector(30.0, 20.0));
     const mini_graph::ItemId closedId = document.AddPolyline(
-                QVector<QPointF>() << QPointF(-30.0, -10.0)
-                                   << QPointF(30.0, -10.0)
-                                   << QPointF(0.0, -50.0),
+                QVector<mini_graph::CanvasVector>()
+                << mini_graph::CanvasVector(-30.0, -10.0)
+                << mini_graph::CanvasVector(30.0, -10.0)
+                << mini_graph::CanvasVector(0.0, -50.0),
                 true);
     QVERIFY(openId != 0);
     QVERIFY(closedId != 0);
@@ -1171,8 +1931,10 @@ void CanvasCoreTest::CanvasRendererDrawsOpenAndClosedPolylines()
         return false;
     };
 
-    QVERIFY(hasColorNear(view.MapFromWorld(QPointF(-15.0, 35.0)), QColor(Qt::blue)));
-    QVERIFY(hasColorNear(view.MapFromWorld(QPointF(-15.0, -30.0)), QColor(Qt::green)));
+    QVERIFY(hasColorNear(view.MapFromWorld(mini_graph::CanvasVector(-15.0, 35.0)),
+                         QColor(Qt::blue)));
+    QVERIFY(hasColorNear(view.MapFromWorld(mini_graph::CanvasVector(-15.0, -30.0)),
+                         QColor(Qt::green)));
 }
 
 void CanvasCoreTest::CanvasViewWheelUsesCadLabScale()
@@ -1199,7 +1961,7 @@ void CanvasCoreTest::CanvasViewMiddlePanUsesDeadband()
     CanvasViewHarness view;
     view.resize(800, 600);
     view.setUpdatesEnabled(false);
-    const QPointF initialCenter = view.GetTransform().GetCenter();
+    const mini_graph::CanvasVector initialCenter = view.GetTransform().GetCenter();
 
     QMouseEvent press(QEvent::MouseButtonPress,
                       QPointF(100.0, 100.0),
@@ -1219,7 +1981,7 @@ void CanvasCoreTest::CanvasViewMiddlePanUsesDeadband()
                                Qt::MiddleButton,
                                Qt::NoModifier);
     view.mouseMoveEvent(&insideDeadband);
-    QCOMPARE(view.GetTransform().GetCenter(), initialCenter);
+        QVERIFY(view.GetTransform().GetCenter() == initialCenter);
 
     QMouseEvent outsideDeadband(QEvent::MouseMove,
                                 QPointF(112.0, 100.0),
@@ -1247,7 +2009,8 @@ void CanvasCoreTest::CanvasViewPreviewNavigationPansWithLeftAndMiddleButtons()
 {
     CanvasViewHarness view;
     mini_graph::CanvasDocument document;
-    document.AddLine(QPointF(0.0, 0.0), QPointF(20.0, 0.0));
+    document.AddLine(mini_graph::CanvasVector(0.0, 0.0),
+                     mini_graph::CanvasVector(20.0, 0.0));
     view.resize(640, 480);
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
@@ -1257,7 +2020,7 @@ void CanvasCoreTest::CanvasViewPreviewNavigationPansWithLeftAndMiddleButtons()
 
     const Qt::MouseButton panButtons[] = { Qt::LeftButton, Qt::MiddleButton };
     for (Qt::MouseButton button : panButtons) {
-        const QPointF before = view.MapFromWorld(QPointF(0.0, 0.0));
+        const QPointF before = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
         QMouseEvent press(QEvent::MouseButtonPress, QPointF(100.0, 100.0),
                           QPointF(100.0, 100.0), QPointF(100.0, 100.0),
                           button, button, Qt::NoModifier);
@@ -1268,13 +2031,13 @@ void CanvasCoreTest::CanvasViewPreviewNavigationPansWithLeftAndMiddleButtons()
                            QPointF(103.0, 100.0), QPointF(103.0, 100.0),
                            Qt::NoButton, button, Qt::NoModifier);
         view.mouseMoveEvent(&inside);
-        QCOMPARE(view.MapFromWorld(QPointF(0.0, 0.0)), before);
+        QCOMPARE(view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0)), before);
 
         QMouseEvent move(QEvent::MouseMove, QPointF(140.0, 120.0),
                          QPointF(140.0, 120.0), QPointF(140.0, 120.0),
                          Qt::NoButton, button, Qt::NoModifier);
         view.mouseMoveEvent(&move);
-        QCOMPARE(view.MapFromWorld(QPointF(0.0, 0.0)),
+        QCOMPARE(view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0)),
                  before + QPointF(40.0, 20.0));
         QCOMPARE(view.cursor().shape(), Qt::ClosedHandCursor);
 
@@ -1287,7 +2050,7 @@ void CanvasCoreTest::CanvasViewPreviewNavigationPansWithLeftAndMiddleButtons()
     }
 
     QSignalSpy contextSpy(&view, &mini_graph::CanvasView::ContextMenuRequested);
-    const QPointF beforeRight = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF beforeRight = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
     QMouseEvent rightPress(QEvent::MouseButtonPress, QPointF(100.0, 100.0),
                            QPointF(100.0, 100.0), QPointF(100.0, 100.0),
                            Qt::RightButton, Qt::RightButton, Qt::NoModifier);
@@ -1300,15 +2063,16 @@ void CanvasCoreTest::CanvasViewPreviewNavigationPansWithLeftAndMiddleButtons()
                              QPointF(140.0, 120.0), QPointF(140.0, 120.0),
                              Qt::RightButton, Qt::NoButton, Qt::NoModifier);
     view.mouseReleaseEvent(&rightRelease);
-    QCOMPARE(view.MapFromWorld(QPointF(0.0, 0.0)), beforeRight);
+    QCOMPARE(view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0)), beforeRight);
     QCOMPARE(contextSpy.count(), 0);
 }
 
 void CanvasCoreTest::CanvasViewPreviewNavigationIgnoresSelectionAndDelete()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-20.0, 0.0),
-                                                       QPointF(20.0, 0.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-20.0, 0.0),
+                mini_graph::CanvasVector(20.0, 0.0));
     document.SelectItem(lineId);
     CanvasViewHarness view;
     view.resize(640, 480);
@@ -1319,7 +2083,7 @@ void CanvasCoreTest::CanvasViewPreviewNavigationIgnoresSelectionAndDelete()
     QCOMPARE(document.GetSelectedItemCount(), 0);
     QVERIFY(view.IsSnapEnabled());
 
-    const QPointF start = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF start = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
     const QPointF end = start + QPointF(30.0, 20.0);
     QMouseEvent clickPress(QEvent::MouseButtonPress, start, start, start,
                            Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
@@ -1339,10 +2103,10 @@ void CanvasCoreTest::CanvasViewPreviewNavigationIgnoresSelectionAndDelete()
                         Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
     view.mouseReleaseEvent(&release);
     QCOMPARE(document.GetSelectedItemCount(), 0);
-    QCOMPARE(document.GetLinePrimitives().first().geometry.startPoint,
-             QPointF(-20.0, 0.0));
-    QCOMPARE(document.GetLinePrimitives().first().geometry.endPoint,
-             QPointF(20.0, 0.0));
+    QVERIFY(document.GetLinePrimitives().first().geometry.startPoint
+            == mini_graph::CanvasVector(-20.0, 0.0));
+    QVERIFY(document.GetLinePrimitives().first().geometry.endPoint
+            == mini_graph::CanvasVector(20.0, 0.0));
 
     QKeyEvent deleteEvent(QEvent::KeyPress, Qt::Key_Delete, Qt::NoModifier);
     view.keyPressEvent(&deleteEvent);
@@ -1359,7 +2123,7 @@ void CanvasCoreTest::CanvasViewPreviewNavigationIgnoresSelectionAndDelete()
                         QPointF(120.0, 100.0), QPointF(120.0, 100.0),
                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
     view.mouseMoveEvent(&panMove);
-    const QPointF originAfterPan = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF originAfterPan = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
     QKeyEvent escapeEvent(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
     view.keyPressEvent(&escapeEvent);
     QCOMPARE(view.cursor().shape(), Qt::ArrowCursor);
@@ -1367,16 +2131,16 @@ void CanvasCoreTest::CanvasViewPreviewNavigationIgnoresSelectionAndDelete()
                                 QPointF(150.0, 100.0), QPointF(150.0, 100.0),
                                 Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
     view.mouseMoveEvent(&moveAfterEscape);
-    QCOMPARE(view.MapFromWorld(QPointF(0.0, 0.0)), originAfterPan);
+    QCOMPARE(view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0)), originAfterPan);
     QCOMPARE(document.GetSelectedItemCount(), 1);
     QCOMPARE(document.GetItemCount(), 1);
-    QCOMPARE(document.GetLinePrimitives().first().geometry.startPoint,
-             QPointF(-20.0, 0.0));
+    QVERIFY(document.GetLinePrimitives().first().geometry.startPoint
+            == mini_graph::CanvasVector(-20.0, 0.0));
     view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::Edit);
     QVERIFY(view.IsSnapEnabled());
     QCOMPARE(view.GetInteractionMode(), mini_graph::CanvasView::InteractionMode::Edit);
 
-    const QPointF editStart = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF editStart = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
     const QPointF editEnd = editStart + QPointF(25.0, 0.0);
     QMouseEvent editPress(QEvent::MouseButtonPress, editStart, editStart, editStart,
                           Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
@@ -1385,15 +2149,16 @@ void CanvasCoreTest::CanvasViewPreviewNavigationIgnoresSelectionAndDelete()
                          Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
     view.mouseMoveEvent(&editMove);
     QVERIFY(document.GetLinePrimitives().first().geometry.startPoint
-            != QPointF(-20.0, 0.0));
+            != mini_graph::CanvasVector(-20.0, 0.0));
     view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
-    QCOMPARE(document.GetLinePrimitives().first().geometry.startPoint,
-             QPointF(-20.0, 0.0));
+    QVERIFY(document.GetLinePrimitives().first().geometry.startPoint
+            == mini_graph::CanvasVector(-20.0, 0.0));
     QCOMPARE(document.GetSelectedItemCount(), 0);
 
     document.SelectItem(lineId);
     view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::Edit);
-    const QPointF handleStart = view.MapFromWorld(QPointF(-20.0, 0.0));
+    const QPointF handleStart = view.MapFromWorld(
+                mini_graph::CanvasVector(-20.0, 0.0));
     const QPointF handleEnd = handleStart + QPointF(-15.0, -10.0);
     QMouseEvent handlePress(QEvent::MouseButtonPress,
                             handleStart, handleStart, handleStart,
@@ -1403,10 +2168,10 @@ void CanvasCoreTest::CanvasViewPreviewNavigationIgnoresSelectionAndDelete()
                            Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
     view.mouseMoveEvent(&handleMove);
     QVERIFY(document.GetLinePrimitives().first().geometry.startPoint
-            != QPointF(-20.0, 0.0));
+            != mini_graph::CanvasVector(-20.0, 0.0));
     view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
-    QCOMPARE(document.GetLinePrimitives().first().geometry.startPoint,
-             QPointF(-20.0, 0.0));
+    QVERIFY(document.GetLinePrimitives().first().geometry.startPoint
+            == mini_graph::CanvasVector(-20.0, 0.0));
     QCOMPARE(document.GetSelectedItemCount(), 0);
 }
 
@@ -1445,19 +2210,19 @@ void CanvasCoreTest::CanvasViewPreviewNavigationMatchesCadLabWheelGestures()
         view.resize(640, 480);
         view.setUpdatesEnabled(false);
         view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
-        const QPointF originBefore = view.MapFromWorld(QPointF(0.0, 0.0));
+        const QPointF originBefore = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
         const QPointF anchor(200.0, 150.0);
-        const QPointF worldAtAnchor = view.MapToWorld(anchor);
+        const mini_graph::CanvasVector worldAtAnchor = view.MapToWorld(anchor);
         QWheelEvent wheel(anchor, anchor, testCase.pixel, testCase.angle,
                           Qt::NoButton, testCase.modifiers,
                           Qt::ScrollUpdate, false);
         view.wheelEvent(&wheel);
         QVERIFY(qAbs(view.GetZoom() - testCase.expectedZoom) < 0.000001);
         if (testCase.expectedZoom != 1.0) {
-            const QPointF anchored = view.MapToWorld(anchor);
-            QVERIFY(QLineF(anchored, worldAtAnchor).length() < 0.000001);
+            const mini_graph::CanvasVector anchored = view.MapToWorld(anchor);
+            QVERIFY(anchored.DistanceTo(worldAtAnchor) < 0.000001);
         } else {
-            QCOMPARE(view.MapFromWorld(QPointF(0.0, 0.0)),
+            QCOMPARE(view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0)),
                      originBefore + testCase.expectedPan);
         }
     }
@@ -1466,13 +2231,14 @@ void CanvasCoreTest::CanvasViewPreviewNavigationMatchesCadLabWheelGestures()
 void CanvasCoreTest::CanvasViewPreviewNavigationDoubleClickFitsAll()
 {
     mini_graph::CanvasDocument document;
-    document.AddLine(QPointF(-100.0, -50.0), QPointF(100.0, 50.0));
+    document.AddLine(mini_graph::CanvasVector(-100.0, -50.0),
+                     mini_graph::CanvasVector(100.0, 50.0));
     CanvasViewHarness view;
     view.resize(640, 480);
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
     view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
-    view.CenterOnWorld(QPointF(1000.0, 1000.0));
+    view.CenterOnWorld(mini_graph::CanvasVector(1000.0, 1000.0));
 
     QMouseEvent doubleClick(QEvent::MouseButtonDblClick,
                             QPointF(220.0, 180.0), QPointF(220.0, 180.0),
@@ -1480,11 +2246,11 @@ void CanvasCoreTest::CanvasViewPreviewNavigationDoubleClickFitsAll()
                             Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
     view.mouseDoubleClickEvent(&doubleClick);
 
-    const QPointF first = view.MapFromWorld(QPointF(-100.0, -50.0));
-    const QPointF second = view.MapFromWorld(QPointF(100.0, 50.0));
+    const QPointF first = view.MapFromWorld(mini_graph::CanvasVector(-100.0, -50.0));
+    const QPointF second = view.MapFromWorld(mini_graph::CanvasVector(100.0, 50.0));
     QVERIFY(first.x() >= 9.9 && first.y() <= 470.1);
     QVERIFY(second.x() <= 630.1 && second.y() >= 9.9);
-    QVERIFY(QLineF(view.MapFromWorld(QPointF(0.0, 0.0)),
+    QVERIFY(QLineF(view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0)),
                    QPointF(320.0, 240.0)).length() < 0.000001);
     QVERIFY(view.GetZoom() > 1.0);
 }
@@ -1494,7 +2260,8 @@ void CanvasCoreTest::CanvasViewKeyboardAndContextSignals()
     CanvasViewHarness view;
     view.resize(800, 600);
     view.setUpdatesEnabled(false);
-    QSignalSpy contextSpy(&view, SIGNAL(ContextMenuRequested(QPointF,QPoint)));
+    QSignalSpy contextSpy(&view,
+                          &mini_graph::CanvasView::ContextMenuRequested);
     QSignalSpy cancelledSpy(&view, SIGNAL(InteractionCancelled()));
 
     QVERIFY(contextSpy.isValid());
@@ -1552,14 +2319,17 @@ void CanvasCoreTest::CanvasViewDisplayPropertiesAndMapping()
     QVERIFY(!view.IsGridVisible());
     QVERIFY(!view.IsAxisVisible());
     QVERIFY(view.IsRulerVisible());
-    QCOMPARE(view.MapToWorld(QPointF(400.0, 300.0)), QPointF(0.0, 0.0));
-    QCOMPARE(view.MapFromWorld(QPointF(0.0, 0.0)), QPointF(400.0, 300.0));
+    QVERIFY(view.MapToWorld(QPointF(400.0, 300.0))
+            == mini_graph::CanvasVector(0.0, 0.0));
+    QCOMPARE(view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0)),
+             QPointF(400.0, 300.0));
 }
 
 void CanvasCoreTest::CanvasViewFitAllUsesDocumentBounds()
 {
     mini_graph::CanvasDocument document;
-    document.AddLine(QPointF(-100.0, -50.0), QPointF(100.0, 50.0));
+    document.AddLine(mini_graph::CanvasVector(-100.0, -50.0),
+                     mini_graph::CanvasVector(100.0, 50.0));
 
     CanvasViewHarness view;
     view.resize(800, 600);
@@ -1567,18 +2337,19 @@ void CanvasCoreTest::CanvasViewFitAllUsesDocumentBounds()
     view.SetDocument(&document);
 
     QVERIFY(view.FitAll(40.0));
-    QCOMPARE(view.GetTransform().GetCenter(), QPointF(0.0, 0.0));
+    QVERIFY(view.GetTransform().GetCenter() == mini_graph::CanvasVector(0.0, 0.0));
     QVERIFY(qAbs(view.GetZoom() - 3.6) < 0.000001);
-    QVERIFY(view.MapFromWorld(QPointF(-100.0, 50.0)).x() >= 40.0);
-    QVERIFY(view.MapFromWorld(QPointF(100.0, -50.0)).x() <= 760.0);
+    QVERIFY(view.MapFromWorld(mini_graph::CanvasVector(-100.0, 50.0)).x() >= 40.0);
+    QVERIFY(view.MapFromWorld(mini_graph::CanvasVector(100.0, -50.0)).x() <= 760.0);
 }
 
 void CanvasCoreTest::CanvasViewFitSelectionUsesSelectedBounds()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId selectedId = document.AddCircle(QPointF(100.0, 50.0),
+    const mini_graph::ItemId selectedId = document.AddCircle(
+                                                             mini_graph::CanvasVector(100.0, 50.0),
                                                              10.0);
-    document.AddCircle(QPointF(-500.0, -500.0), 20.0);
+    document.AddCircle(mini_graph::CanvasVector(-500.0, -500.0), 20.0);
     document.SelectItem(selectedId);
 
     CanvasViewHarness view;
@@ -1587,8 +2358,9 @@ void CanvasCoreTest::CanvasViewFitSelectionUsesSelectedBounds()
     view.SetDocument(&document);
 
     QVERIFY(view.FitSelection(40.0));
-    QCOMPARE(view.GetTransform().GetCenter(), QPointF(100.0, 50.0));
-    QVERIFY(view.MapFromWorld(QPointF(100.0, 50.0)) == QPointF(400.0, 300.0));
+    QVERIFY(view.GetTransform().GetCenter() == mini_graph::CanvasVector(100.0, 50.0));
+    QCOMPARE(view.MapFromWorld(mini_graph::CanvasVector(100.0, 50.0)),
+             QPointF(400.0, 300.0));
 }
 
 void CanvasCoreTest::CanvasViewFitCommandsRejectEmptyDocument()
@@ -1602,7 +2374,7 @@ void CanvasCoreTest::CanvasViewFitCommandsRejectEmptyDocument()
     const mini_graph::CanvasTransform initialTransform = view.GetTransform();
     QVERIFY(!view.FitAll());
     QVERIFY(!view.FitSelection());
-    QCOMPARE(view.GetTransform().GetCenter(), initialTransform.GetCenter());
+    QVERIFY(view.GetTransform().GetCenter() == initialTransform.GetCenter());
     QCOMPARE(view.GetTransform().GetZoom(), initialTransform.GetZoom());
 }
 
@@ -1612,10 +2384,11 @@ void CanvasCoreTest::CanvasViewCenterOnWorldMovesViewportCenter()
     view.resize(800, 600);
     view.setUpdatesEnabled(false);
 
-    view.CenterOnWorld(QPointF(125.0, -75.0));
+    view.CenterOnWorld(mini_graph::CanvasVector(125.0, -75.0));
 
-    QCOMPARE(view.GetTransform().GetCenter(), QPointF(125.0, -75.0));
-    QCOMPARE(view.MapFromWorld(QPointF(125.0, -75.0)), QPointF(400.0, 300.0));
+    QVERIFY(view.GetTransform().GetCenter() == mini_graph::CanvasVector(125.0, -75.0));
+    QCOMPARE(view.MapFromWorld(mini_graph::CanvasVector(125.0, -75.0)),
+             QPointF(400.0, 300.0));
 }
 
 void CanvasCoreTest::CanvasViewZoomInShowsFinerGridUnits()
@@ -1710,7 +2483,7 @@ void CanvasCoreTest::CanvasViewAxesStayAttachedToWorldAfterPan()
                      Qt::NoModifier);
     view.mouseMoveEvent(&move);
 
-    const QPointF origin = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF origin = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
     QVERIFY(qAbs(origin.x() - 799.0) < 0.000001);
     QVERIFY(qAbs(origin.y() - 300.0) < 0.000001);
 
@@ -1774,8 +2547,10 @@ void CanvasCoreTest::CanvasViewAxisDirectionsFollowFlipState()
 void CanvasCoreTest::DocumentSelectionTogglesAndSignals()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId firstId = document.AddLine(QPointF(-1.0, 0.0), QPointF(1.0, 0.0));
-    const mini_graph::ItemId secondId = document.AddLine(QPointF(-1.0, 1.0), QPointF(1.0, 1.0));
+    const mini_graph::ItemId firstId = document.AddLine(
+                mini_graph::CanvasVector(-1.0, 0.0), mini_graph::CanvasVector(1.0, 0.0));
+    const mini_graph::ItemId secondId = document.AddLine(
+                mini_graph::CanvasVector(-1.0, 1.0), mini_graph::CanvasVector(1.0, 1.0));
     QSignalSpy selectionSpy(&document, &mini_graph::CanvasDocument::SelectionChanged);
 
     document.SelectItem(firstId);
@@ -1800,8 +2575,12 @@ void CanvasCoreTest::DocumentSelectionTogglesAndSignals()
 void CanvasCoreTest::CanvasViewSingleClickSelectionFollowsCadLabRules()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId firstId = document.AddLine(QPointF(-100.0, 50.0), QPointF(100.0, 50.0));
-    const mini_graph::ItemId secondId = document.AddLine(QPointF(-100.0, -50.0), QPointF(100.0, -50.0));
+    const mini_graph::ItemId firstId = document.AddLine(
+                mini_graph::CanvasVector(-100.0, 50.0),
+                mini_graph::CanvasVector(100.0, 50.0));
+    const mini_graph::ItemId secondId = document.AddLine(
+                mini_graph::CanvasVector(-100.0, -50.0),
+                mini_graph::CanvasVector(100.0, -50.0));
 
     CanvasViewHarness view;
     view.resize(800, 600);
@@ -1897,14 +2676,18 @@ void CanvasCoreTest::CanvasViewSingleClickSelectionFollowsCadLabRules()
 void CanvasCoreTest::CanvasViewSingleClickSelectsAllGeometryTypes()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId pointId = document.AddPoint(QPointF(-150.0, 100.0));
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-80.0, -30.0),
-                                                       QPointF(80.0, -30.0));
-    const mini_graph::ItemId arcId = document.AddArc(QPointF(0.0, 100.0),
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(-150.0, 100.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-80.0, -30.0),
+                mini_graph::CanvasVector(80.0, -30.0));
+    const mini_graph::ItemId arcId = document.AddArc(
+                                                     mini_graph::CanvasVector(0.0, 100.0),
                                                      40.0,
                                                      0.0,
                                                      1.5707963267948966);
-    const mini_graph::ItemId circleId = document.AddCircle(QPointF(150.0, 100.0),
+    const mini_graph::ItemId circleId = document.AddCircle(
+                                                            mini_graph::CanvasVector(150.0, 100.0),
                                                             35.0);
 
     CanvasViewHarness view;
@@ -1931,26 +2714,26 @@ void CanvasCoreTest::CanvasViewSingleClickSelectsAllGeometryTypes()
         view.mouseReleaseEvent(&release);
     };
 
-    clickAt(view.MapFromWorld(QPointF(-150.0, 100.0)));
+    clickAt(view.MapFromWorld(mini_graph::CanvasVector(-150.0, 100.0)));
     QVERIFY(document.IsItemSelected(pointId));
     document.ClearSelection();
 
-    clickAt(view.MapFromWorld(QPointF(0.0, -30.0)));
+    clickAt(view.MapFromWorld(mini_graph::CanvasVector(0.0, -30.0)));
     QVERIFY(document.IsItemSelected(lineId));
     document.ClearSelection();
 
     mini_graph::StruArcGeometry arcGeometry;
-    arcGeometry.center = QPointF(0.0, 100.0);
+    arcGeometry.center = mini_graph::CanvasVector(0.0, 100.0);
     arcGeometry.radius = 40.0;
     arcGeometry.startAngle = 0.0;
     arcGeometry.endAngle = 1.5707963267948966;
-    const QPointF arcPoint = mini_graph::CalculateArcPoint(arcGeometry,
-                                                           0.7853981633974483);
+    const mini_graph::CanvasVector arcPoint =
+            mini_graph::CalculateArcPoint(arcGeometry, 0.7853981633974483);
     clickAt(view.MapFromWorld(arcPoint));
     QVERIFY(document.IsItemSelected(arcId));
     document.ClearSelection();
 
-    clickAt(view.MapFromWorld(QPointF(185.0, 100.0)));
+    clickAt(view.MapFromWorld(mini_graph::CanvasVector(185.0, 100.0)));
     QVERIFY(document.IsItemSelected(circleId));
 }
 
@@ -1958,12 +2741,14 @@ void CanvasCoreTest::CanvasViewSelectsPolylineByStroke()
 {
     mini_graph::CanvasDocument document;
     const mini_graph::ItemId openId = document.AddPolyline(
-                QVector<QPointF>() << QPointF(-100.0, 0.0)
-                                   << QPointF(100.0, 0.0));
+                QVector<mini_graph::CanvasVector>()
+                << mini_graph::CanvasVector(-100.0, 0.0)
+                << mini_graph::CanvasVector(100.0, 0.0));
     const mini_graph::ItemId closedId = document.AddPolyline(
-                QVector<QPointF>() << QPointF(-30.0, -10.0)
-                                   << QPointF(30.0, -10.0)
-                                   << QPointF(0.0, -50.0),
+                QVector<mini_graph::CanvasVector>()
+                << mini_graph::CanvasVector(-30.0, -10.0)
+                << mini_graph::CanvasVector(30.0, -10.0)
+                << mini_graph::CanvasVector(0.0, -50.0),
                 true);
 
     CanvasViewHarness view;
@@ -1992,19 +2777,20 @@ void CanvasCoreTest::CanvasViewSelectsPolylineByStroke()
 
     QVERIFY(openId != 0);
     QVERIFY(closedId != 0);
-    clickAt(view.MapFromWorld(QPointF(0.0, 0.0)));
+    clickAt(view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0)));
     QVERIFY(document.IsItemSelected(openId));
 
     document.ClearSelection();
-    clickAt(view.MapFromWorld(QPointF(-15.0, -30.0)));
+    clickAt(view.MapFromWorld(mini_graph::CanvasVector(-15.0, -30.0)));
     QVERIFY(document.IsItemSelected(closedId));
 }
 
 void CanvasCoreTest::CanvasViewHitTestIgnoresInvisibleGeometry()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-20.0, 0.0),
-                                                       QPointF(20.0, 0.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-20.0, 0.0),
+                mini_graph::CanvasVector(20.0, 0.0));
     mini_graph::StruCanvasStyle style;
     QVERIFY(document.GetItemStyle(lineId, &style));
     style.visible = false;
@@ -2015,7 +2801,7 @@ void CanvasCoreTest::CanvasViewHitTestIgnoresInvisibleGeometry()
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
 
-    const QPointF position = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF position = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
     QMouseEvent press(QEvent::MouseButtonPress,
                       position,
                       position,
@@ -2039,7 +2825,8 @@ void CanvasCoreTest::CanvasViewHitTestIgnoresInvisibleGeometry()
 void CanvasCoreTest::CanvasViewHitTestUsesPointDisplaySize()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId pointId = document.AddPoint(QPointF(0.0, 0.0));
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(0.0, 0.0));
     mini_graph::StruCanvasStyle style;
     QVERIFY(document.GetItemStyle(pointId, &style));
     style.pointSize = 24.0;
@@ -2050,7 +2837,7 @@ void CanvasCoreTest::CanvasViewHitTestUsesPointDisplaySize()
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
 
-    const QPointF pointPosition = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF pointPosition = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
     const QPointF clickPosition = pointPosition + QPointF(10.0, 0.0);
     QMouseEvent press(QEvent::MouseButtonPress,
                       clickPosition,
@@ -2075,8 +2862,9 @@ void CanvasCoreTest::CanvasViewHitTestUsesPointDisplaySize()
 void CanvasCoreTest::CanvasViewHitTestUsesLineDisplayWidth()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-40.0, 0.0),
-                                                       QPointF(40.0, 0.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-40.0, 0.0),
+                mini_graph::CanvasVector(40.0, 0.0));
     mini_graph::StruCanvasStyle style;
     QVERIFY(document.GetItemStyle(lineId, &style));
     style.strokeWidth = 20.0;
@@ -2087,7 +2875,7 @@ void CanvasCoreTest::CanvasViewHitTestUsesLineDisplayWidth()
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
 
-    const QPointF clickPosition = view.MapFromWorld(QPointF(0.0, 9.0));
+    const QPointF clickPosition = view.MapFromWorld(mini_graph::CanvasVector(0.0, 9.0));
     QMouseEvent press(QEvent::MouseButtonPress,
                       clickPosition,
                       clickPosition,
@@ -2111,12 +2899,15 @@ void CanvasCoreTest::CanvasViewHitTestUsesLineDisplayWidth()
 void CanvasCoreTest::CanvasViewWindowSelectionUsesDragDirection()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId containedId = document.AddLine(QPointF(-100.0, 50.0),
-                                                            QPointF(100.0, 50.0));
-    const mini_graph::ItemId crossingId = document.AddLine(QPointF(100.0, 50.0),
-                                                            QPointF(220.0, 50.0));
-    const mini_graph::ItemId outsideId = document.AddLine(QPointF(220.0, 180.0),
-                                                          QPointF(300.0, 180.0));
+    const mini_graph::ItemId containedId = document.AddLine(
+                mini_graph::CanvasVector(-100.0, 50.0),
+                mini_graph::CanvasVector(100.0, 50.0));
+    const mini_graph::ItemId crossingId = document.AddLine(
+                mini_graph::CanvasVector(100.0, 50.0),
+                mini_graph::CanvasVector(220.0, 50.0));
+    const mini_graph::ItemId outsideId = document.AddLine(
+                mini_graph::CanvasVector(220.0, 180.0),
+                mini_graph::CanvasVector(300.0, 180.0));
 
     CanvasViewHarness view;
     view.resize(800, 600);
@@ -2185,24 +2976,29 @@ void CanvasCoreTest::CanvasViewWindowSelectionUsesDragDirection()
 void CanvasCoreTest::CanvasViewWindowSelectionSelectsAllGeometryTypes()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId pointId = document.AddPoint(QPointF(-150.0, 100.0));
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-100.0, -50.0),
-                                                       QPointF(100.0, -50.0));
-    const mini_graph::ItemId arcId = document.AddArc(QPointF(0.0, 100.0),
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(-150.0, 100.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-100.0, -50.0),
+                mini_graph::CanvasVector(100.0, -50.0));
+    const mini_graph::ItemId arcId = document.AddArc(
+                                                     mini_graph::CanvasVector(0.0, 100.0),
                                                      40.0,
                                                      0.0,
                                                      1.5707963267948966);
-    const mini_graph::ItemId circleId = document.AddCircle(QPointF(150.0, 100.0),
+    const mini_graph::ItemId circleId = document.AddCircle(
+                                                            mini_graph::CanvasVector(150.0, 100.0),
                                                             30.0);
-    const mini_graph::ItemId outsideId = document.AddPoint(QPointF(300.0, 300.0));
+    const mini_graph::ItemId outsideId = document.AddPoint(
+                mini_graph::CanvasVector(300.0, 300.0));
 
     CanvasViewHarness view;
     view.resize(800, 600);
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
 
-    auto dragSelect = [&view](const QPointF &worldStart,
-                              const QPointF &worldEnd) {
+    auto dragSelect = [&view](const mini_graph::CanvasVector &worldStart,
+                              const mini_graph::CanvasVector &worldEnd) {
         const QPointF start = view.MapFromWorld(worldStart);
         const QPointF end = view.MapFromWorld(worldEnd);
         QMouseEvent press(QEvent::MouseButtonPress,
@@ -2231,7 +3027,8 @@ void CanvasCoreTest::CanvasViewWindowSelectionSelectsAllGeometryTypes()
         view.mouseReleaseEvent(&release);
     };
 
-    dragSelect(QPointF(-200.0, -100.0), QPointF(220.0, 180.0));
+    dragSelect(mini_graph::CanvasVector(-200.0, -100.0),
+               mini_graph::CanvasVector(220.0, 180.0));
     QVERIFY(document.IsItemSelected(pointId));
     QVERIFY(document.IsItemSelected(lineId));
     QVERIFY(document.IsItemSelected(arcId));
@@ -2239,7 +3036,8 @@ void CanvasCoreTest::CanvasViewWindowSelectionSelectsAllGeometryTypes()
     QVERIFY(!document.IsItemSelected(outsideId));
 
     document.ClearSelection();
-    dragSelect(QPointF(220.0, 180.0), QPointF(-200.0, -100.0));
+    dragSelect(mini_graph::CanvasVector(220.0, 180.0),
+               mini_graph::CanvasVector(-200.0, -100.0));
     QVERIFY(document.IsItemSelected(pointId));
     QVERIFY(document.IsItemSelected(lineId));
     QVERIFY(document.IsItemSelected(arcId));
@@ -2251,13 +3049,15 @@ void CanvasCoreTest::CanvasViewWindowSelectionSelectsPolylines()
 {
     mini_graph::CanvasDocument document;
     const mini_graph::ItemId containedOpenId = document.AddPolyline(
-                QVector<QPointF>() << QPointF(-30.0, 0.0)
-                                   << QPointF(0.0, 30.0)
-                                   << QPointF(30.0, 0.0));
+                QVector<mini_graph::CanvasVector>()
+                << mini_graph::CanvasVector(-30.0, 0.0)
+                << mini_graph::CanvasVector(0.0, 30.0)
+                << mini_graph::CanvasVector(30.0, 0.0));
     const mini_graph::ItemId crossingClosedId = document.AddPolyline(
-                QVector<QPointF>() << QPointF(60.0, -10.0)
-                                   << QPointF(0.0, -60.0)
-                                   << QPointF(-60.0, -10.0),
+                QVector<mini_graph::CanvasVector>()
+                << mini_graph::CanvasVector(60.0, -10.0)
+                << mini_graph::CanvasVector(0.0, -60.0)
+                << mini_graph::CanvasVector(-60.0, -10.0),
                 true);
 
     CanvasViewHarness view;
@@ -2296,21 +3096,22 @@ void CanvasCoreTest::CanvasViewWindowSelectionSelectsPolylines()
     QVERIFY(containedOpenId != 0);
     QVERIFY(crossingClosedId != 0);
 
-    dragSelect(view.MapFromWorld(QPointF(-50.0, 50.0)),
-               view.MapFromWorld(QPointF(50.0, -50.0)));
+    dragSelect(view.MapFromWorld(mini_graph::CanvasVector(-50.0, 50.0)),
+               view.MapFromWorld(mini_graph::CanvasVector(50.0, -50.0)));
     QVERIFY(document.IsItemSelected(containedOpenId));
     QVERIFY(!document.IsItemSelected(crossingClosedId));
 
     document.ClearSelection();
-    dragSelect(view.MapFromWorld(QPointF(50.0, -50.0)),
-               view.MapFromWorld(QPointF(-50.0, 50.0)));
+    dragSelect(view.MapFromWorld(mini_graph::CanvasVector(50.0, -50.0)),
+               view.MapFromWorld(mini_graph::CanvasVector(-50.0, 50.0)));
     QVERIFY(document.IsItemSelected(crossingClosedId));
 }
 
 void CanvasCoreTest::CanvasViewWindowSelectionIgnoresInvisibleGeometry()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId circleId = document.AddCircle(QPointF(0.0, 0.0),
+    const mini_graph::ItemId circleId = document.AddCircle(
+                                                            mini_graph::CanvasVector(0.0, 0.0),
                                                             5.0);
     mini_graph::StruCanvasStyle style;
     QVERIFY(document.GetItemStyle(circleId, &style));
@@ -2322,8 +3123,8 @@ void CanvasCoreTest::CanvasViewWindowSelectionIgnoresInvisibleGeometry()
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
 
-    const QPointF start = view.MapFromWorld(QPointF(-20.0, -20.0));
-    const QPointF end = view.MapFromWorld(QPointF(20.0, 20.0));
+    const QPointF start = view.MapFromWorld(mini_graph::CanvasVector(-20.0, -20.0));
+    const QPointF end = view.MapFromWorld(mini_graph::CanvasVector(20.0, 20.0));
     QMouseEvent press(QEvent::MouseButtonPress,
                       start,
                       start,
@@ -2422,9 +3223,11 @@ void CanvasCoreTest::CanvasViewSelectionBoxUsesCadLabStyle()
 void CanvasCoreTest::CanvasViewDeleteKeyRemovesSelectedGeometry()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId pointId = document.AddPoint(QPointF(-20.0, 10.0));
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-10.0, 0.0),
-                                                       QPointF(10.0, 0.0));
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(-20.0, 10.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-10.0, 0.0),
+                mini_graph::CanvasVector(10.0, 0.0));
     document.SelectItems(QVector<mini_graph::ItemId>() << pointId << lineId,
                          false,
                          false);
@@ -2441,7 +3244,8 @@ void CanvasCoreTest::CanvasViewDeleteKeyRemovesSelectedGeometry()
     QCOMPARE(document.GetItemCount(), 0);
     QCOMPARE(document.GetSelectedItemCount(), 0);
 
-    const mini_graph::ItemId circleId = document.AddCircle(QPointF(30.0, 0.0),
+    const mini_graph::ItemId circleId = document.AddCircle(
+                                                            mini_graph::CanvasVector(30.0, 0.0),
                                                             5.0);
     document.SelectItem(circleId);
     QKeyEvent backspaceEvent(QEvent::KeyPress,
@@ -2455,9 +3259,11 @@ void CanvasCoreTest::CanvasViewDeleteKeyRemovesSelectedGeometry()
 void CanvasCoreTest::CanvasViewEscapeClearsSelection()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId firstId = document.AddLine(QPointF(-20.0, 0.0),
-                                                        QPointF(20.0, 0.0));
-    const mini_graph::ItemId secondId = document.AddCircle(QPointF(40.0, 0.0),
+    const mini_graph::ItemId firstId = document.AddLine(
+                mini_graph::CanvasVector(-20.0, 0.0),
+                mini_graph::CanvasVector(20.0, 0.0));
+    const mini_graph::ItemId secondId = document.AddCircle(
+                                                           mini_graph::CanvasVector(40.0, 0.0),
                                                            5.0);
     document.SelectItems(QVector<mini_graph::ItemId>() << firstId << secondId,
                          false,
@@ -2481,14 +3287,18 @@ void CanvasCoreTest::CanvasViewEscapeClearsSelection()
 void CanvasCoreTest::CanvasViewDragMovesSelectedGeometry()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId pointId = document.AddPoint(QPointF(-20.0, 10.0));
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-10.0, 0.0),
-                                                       QPointF(10.0, 0.0));
-    const mini_graph::ItemId arcId = document.AddArc(QPointF(0.0, 30.0),
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(-20.0, 10.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-10.0, 0.0),
+                mini_graph::CanvasVector(10.0, 0.0));
+    const mini_graph::ItemId arcId = document.AddArc(
+                                                     mini_graph::CanvasVector(0.0, 30.0),
                                                      5.0,
                                                      0.0,
                                                      1.5707963267948966);
-    const mini_graph::ItemId circleId = document.AddCircle(QPointF(30.0, 0.0),
+    const mini_graph::ItemId circleId = document.AddCircle(
+                                                            mini_graph::CanvasVector(30.0, 0.0),
                                                             4.0);
     document.SelectItems(QVector<mini_graph::ItemId>()
                           << pointId << lineId << arcId << circleId,
@@ -2500,9 +3310,10 @@ void CanvasCoreTest::CanvasViewDragMovesSelectedGeometry()
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
 
-    const QPointF start = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF start = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
     const QPointF end = start + QPointF(80.0, -40.0);
-    const QPointF worldDelta = view.MapToWorld(end) - view.MapToWorld(start);
+    const mini_graph::CanvasVector worldDelta = view.MapToWorld(end)
+            - view.MapToWorld(start);
 
     QMouseEvent press(QEvent::MouseButtonPress,
                       start,
@@ -2525,16 +3336,16 @@ void CanvasCoreTest::CanvasViewDragMovesSelectedGeometry()
     const mini_graph::StruLinePrimitive &line = document.GetLinePrimitives().at(0);
     const mini_graph::StruArcPrimitive &arc = document.GetArcPrimitives().at(0);
     const mini_graph::StruCirclePrimitive &circle = document.GetCirclePrimitives().at(0);
-    QVERIFY(qAbs(point.geometry.position.x() - (-20.0 + worldDelta.x())) < 0.000001);
-    QVERIFY(qAbs(point.geometry.position.y() - (10.0 + worldDelta.y())) < 0.000001);
-    QVERIFY(qAbs(line.geometry.startPoint.x() - (-10.0 + worldDelta.x())) < 0.000001);
-    QVERIFY(qAbs(line.geometry.startPoint.y() - worldDelta.y()) < 0.000001);
-    QVERIFY(qAbs(line.geometry.endPoint.x() - (10.0 + worldDelta.x())) < 0.000001);
-    QVERIFY(qAbs(line.geometry.endPoint.y() - worldDelta.y()) < 0.000001);
-    QVERIFY(qAbs(arc.geometry.center.x() - worldDelta.x()) < 0.000001);
-    QVERIFY(qAbs(arc.geometry.center.y() - (30.0 + worldDelta.y())) < 0.000001);
-    QVERIFY(qAbs(circle.geometry.center.x() - (30.0 + worldDelta.x())) < 0.000001);
-    QVERIFY(qAbs(circle.geometry.center.y() - worldDelta.y()) < 0.000001);
+    QVERIFY(qAbs(point.geometry.position.GetX() - (-20.0 + worldDelta.GetX())) < 0.000001);
+    QVERIFY(qAbs(point.geometry.position.GetY() - (10.0 + worldDelta.GetY())) < 0.000001);
+    QVERIFY(qAbs(line.geometry.startPoint.GetX() - (-10.0 + worldDelta.GetX())) < 0.000001);
+    QVERIFY(qAbs(line.geometry.startPoint.GetY() - worldDelta.GetY()) < 0.000001);
+    QVERIFY(qAbs(line.geometry.endPoint.GetX() - (10.0 + worldDelta.GetX())) < 0.000001);
+    QVERIFY(qAbs(line.geometry.endPoint.GetY() - worldDelta.GetY()) < 0.000001);
+    QVERIFY(qAbs(arc.geometry.center.GetX() - worldDelta.GetX()) < 0.000001);
+    QVERIFY(qAbs(arc.geometry.center.GetY() - (30.0 + worldDelta.GetY())) < 0.000001);
+    QVERIFY(qAbs(circle.geometry.center.GetX() - (30.0 + worldDelta.GetX())) < 0.000001);
+    QVERIFY(qAbs(circle.geometry.center.GetY() - worldDelta.GetY()) < 0.000001);
 
     QMouseEvent release(QEvent::MouseButtonRelease,
                         end,
@@ -2551,8 +3362,10 @@ void CanvasCoreTest::CanvasViewMovesPolylineVerticesTogether()
 {
     mini_graph::CanvasDocument document;
     mini_graph::StruPolylineGeometry geometry;
-    geometry.vertices = QVector<QPointF>()
-            << QPointF(-20.0, 0.0) << QPointF(20.0, 0.0) << QPointF(20.0, 20.0);
+    geometry.vertices = QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(-20.0, 0.0)
+            << mini_graph::CanvasVector(20.0, 0.0)
+            << mini_graph::CanvasVector(20.0, 20.0);
     geometry.closed = true;
     const mini_graph::ItemId polylineId = document.AddPolyline(geometry);
     document.SelectItem(polylineId);
@@ -2562,9 +3375,10 @@ void CanvasCoreTest::CanvasViewMovesPolylineVerticesTogether()
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
 
-    const QPointF start = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF start = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
     const QPointF end = start + QPointF(40.0, -30.0);
-    const QPointF worldDelta = view.MapToWorld(end) - view.MapToWorld(start);
+    const mini_graph::CanvasVector worldDelta = view.MapToWorld(end)
+            - view.MapToWorld(start);
     QMouseEvent press(QEvent::MouseButtonPress,
                       start,
                       start,
@@ -2585,9 +3399,10 @@ void CanvasCoreTest::CanvasViewMovesPolylineVerticesTogether()
     mini_graph::StruPolylineGeometry movedGeometry;
     QVERIFY(document.GetPolylineGeometry(polylineId, &movedGeometry));
     QCOMPARE(movedGeometry.vertices,
-             QVector<QPointF>() << QPointF(-20.0, 0.0) + worldDelta
-                                << QPointF(20.0, 0.0) + worldDelta
-                                << QPointF(20.0, 20.0) + worldDelta);
+             QVector<mini_graph::CanvasVector>()
+             << mini_graph::CanvasVector(-20.0, 0.0) + worldDelta
+             << mini_graph::CanvasVector(20.0, 0.0) + worldDelta
+             << mini_graph::CanvasVector(20.0, 20.0) + worldDelta);
     QVERIFY(movedGeometry.closed);
 
     QMouseEvent release(QEvent::MouseButtonRelease,
@@ -2604,8 +3419,10 @@ void CanvasCoreTest::CanvasViewDragsPolylineVertexHandle()
 {
     mini_graph::CanvasDocument document;
     mini_graph::StruPolylineGeometry geometry;
-    geometry.vertices = QVector<QPointF>()
-            << QPointF(-20.0, 0.0) << QPointF(0.0, 20.0) << QPointF(20.0, 0.0);
+    geometry.vertices = QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(-20.0, 0.0)
+            << mini_graph::CanvasVector(0.0, 20.0)
+            << mini_graph::CanvasVector(20.0, 0.0);
     geometry.closed = true;
     const mini_graph::ItemId polylineId = document.AddPolyline(geometry);
     document.SelectItem(polylineId);
@@ -2616,7 +3433,7 @@ void CanvasCoreTest::CanvasViewDragsPolylineVertexHandle()
     view.SetDocument(&document);
 
     const QPointF start = view.MapFromWorld(geometry.vertices.at(1));
-    const QPointF editedVertex(5.0, 30.0);
+    const mini_graph::CanvasVector editedVertex(5.0, 30.0);
     const QPointF end = view.MapFromWorld(editedVertex);
     QMouseEvent press(QEvent::MouseButtonPress,
                       start,
@@ -2656,8 +3473,10 @@ void CanvasCoreTest::CanvasViewEscapeRestoresPolylineVertexEdit()
 {
     mini_graph::CanvasDocument document;
     mini_graph::StruPolylineGeometry geometry;
-    geometry.vertices = QVector<QPointF>()
-            << QPointF(-20.0, 0.0) << QPointF(0.0, 20.0) << QPointF(20.0, 0.0);
+    geometry.vertices = QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(-20.0, 0.0)
+            << mini_graph::CanvasVector(0.0, 20.0)
+            << mini_graph::CanvasVector(20.0, 0.0);
     geometry.closed = true;
     const mini_graph::ItemId polylineId = document.AddPolyline(geometry);
     document.SelectItem(polylineId);
@@ -2668,7 +3487,7 @@ void CanvasCoreTest::CanvasViewEscapeRestoresPolylineVertexEdit()
     view.SetDocument(&document);
 
     const QPointF start = view.MapFromWorld(geometry.vertices.at(1));
-    const QPointF end = view.MapFromWorld(QPointF(5.0, 30.0));
+    const QPointF end = view.MapFromWorld(mini_graph::CanvasVector(5.0, 30.0));
     QMouseEvent press(QEvent::MouseButtonPress,
                       start,
                       start,
@@ -2689,7 +3508,7 @@ void CanvasCoreTest::CanvasViewEscapeRestoresPolylineVertexEdit()
     mini_graph::StruPolylineGeometry changedGeometry;
     QVERIFY(document.GetPolylineGeometry(polylineId, &changedGeometry));
     QCOMPARE(changedGeometry.vertices.at(0), geometry.vertices.at(0));
-    QCOMPARE(changedGeometry.vertices.at(1), QPointF(5.0, 30.0));
+    QVERIFY(changedGeometry.vertices.at(1) == mini_graph::CanvasVector(5.0, 30.0));
     QCOMPARE(changedGeometry.vertices.at(2), geometry.vertices.at(2));
 
     QKeyEvent escapeEvent(QEvent::KeyPress,
@@ -2706,8 +3525,9 @@ void CanvasCoreTest::CanvasViewEscapeRestoresPolylineVertexEdit()
 void CanvasCoreTest::CanvasViewEscapeCancelsGeometryMove()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-10.0, 0.0),
-                                                       QPointF(10.0, 0.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-10.0, 0.0),
+                mini_graph::CanvasVector(10.0, 0.0));
     document.SelectItem(lineId);
 
     CanvasViewHarness view;
@@ -2716,7 +3536,7 @@ void CanvasCoreTest::CanvasViewEscapeCancelsGeometryMove()
     view.SetDocument(&document);
     QSignalSpy cancelSpy(&view, &mini_graph::CanvasView::InteractionCancelled);
 
-    const QPointF start = view.MapFromWorld(QPointF(0.0, 0.0));
+    const QPointF start = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
     const QPointF end = start + QPointF(60.0, -30.0);
     QMouseEvent press(QEvent::MouseButtonPress,
                       start,
@@ -2734,17 +3554,18 @@ void CanvasCoreTest::CanvasViewEscapeCancelsGeometryMove()
                      Qt::LeftButton,
                      Qt::NoModifier);
     view.mouseMoveEvent(&move);
-    QVERIFY(document.GetLinePrimitives().at(0).geometry.startPoint != QPointF(-10.0, 0.0));
+    QVERIFY(document.GetLinePrimitives().at(0).geometry.startPoint
+            != mini_graph::CanvasVector(-10.0, 0.0));
 
     QKeyEvent escapeEvent(QEvent::KeyPress,
                           Qt::Key_Escape,
                           Qt::NoModifier);
     view.keyPressEvent(&escapeEvent);
 
-    QCOMPARE(document.GetLinePrimitives().at(0).geometry.startPoint,
-             QPointF(-10.0, 0.0));
-    QCOMPARE(document.GetLinePrimitives().at(0).geometry.endPoint,
-             QPointF(10.0, 0.0));
+    QVERIFY(document.GetLinePrimitives().at(0).geometry.startPoint
+            == mini_graph::CanvasVector(-10.0, 0.0));
+    QVERIFY(document.GetLinePrimitives().at(0).geometry.endPoint
+            == mini_graph::CanvasVector(10.0, 0.0));
     QCOMPARE(document.GetSelectedItemCount(), 0);
     QCOMPARE(cancelSpy.count(), 1);
 }
@@ -2752,8 +3573,9 @@ void CanvasCoreTest::CanvasViewEscapeCancelsGeometryMove()
 void CanvasCoreTest::CanvasViewDragMovesLineEndpointHandle()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-10.0, 0.0),
-                                                       QPointF(10.0, 0.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-10.0, 0.0),
+                mini_graph::CanvasVector(10.0, 0.0));
     document.SelectItem(lineId);
 
     CanvasViewHarness view;
@@ -2761,8 +3583,8 @@ void CanvasCoreTest::CanvasViewDragMovesLineEndpointHandle()
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
 
-    const QPointF start = view.MapFromWorld(QPointF(-10.0, 0.0));
-    const QPointF end = view.MapFromWorld(QPointF(-20.0, 15.0));
+    const QPointF start = view.MapFromWorld(mini_graph::CanvasVector(-10.0, 0.0));
+    const QPointF end = view.MapFromWorld(mini_graph::CanvasVector(-20.0, 15.0));
     QMouseEvent press(QEvent::MouseButtonPress,
                       start,
                       start,
@@ -2782,8 +3604,8 @@ void CanvasCoreTest::CanvasViewDragMovesLineEndpointHandle()
 
     const mini_graph::StruLineGeometry geometry =
             document.GetLinePrimitives().at(0).geometry;
-    QCOMPARE(geometry.startPoint, QPointF(-20.0, 15.0));
-    QCOMPARE(geometry.endPoint, QPointF(10.0, 0.0));
+    QVERIFY(geometry.startPoint == mini_graph::CanvasVector(-20.0, 15.0));
+    QVERIFY(geometry.endPoint == mini_graph::CanvasVector(10.0, 0.0));
 
     QMouseEvent release(QEvent::MouseButtonRelease,
                         end,
@@ -2798,7 +3620,8 @@ void CanvasCoreTest::CanvasViewDragMovesLineEndpointHandle()
 void CanvasCoreTest::CanvasViewDragChangesCircleRadiusHandle()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId circleId = document.AddCircle(QPointF(0.0, 0.0),
+    const mini_graph::ItemId circleId = document.AddCircle(
+                                                           mini_graph::CanvasVector(0.0, 0.0),
                                                            10.0);
     document.SelectItem(circleId);
 
@@ -2807,8 +3630,8 @@ void CanvasCoreTest::CanvasViewDragChangesCircleRadiusHandle()
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
 
-    const QPointF start = view.MapFromWorld(QPointF(10.0, 0.0));
-    const QPointF end = view.MapFromWorld(QPointF(20.0, 0.0));
+    const QPointF start = view.MapFromWorld(mini_graph::CanvasVector(10.0, 0.0));
+    const QPointF end = view.MapFromWorld(mini_graph::CanvasVector(20.0, 0.0));
     QMouseEvent press(QEvent::MouseButtonPress,
                       start,
                       start,
@@ -2828,7 +3651,7 @@ void CanvasCoreTest::CanvasViewDragChangesCircleRadiusHandle()
 
     const mini_graph::StruCircleGeometry geometry =
             document.GetCirclePrimitives().at(0).geometry;
-    QCOMPARE(geometry.center, QPointF(0.0, 0.0));
+    QVERIFY(geometry.center == mini_graph::CanvasVector(0.0, 0.0));
     QCOMPARE(geometry.radius, 20.0);
 
     QMouseEvent release(QEvent::MouseButtonRelease,
@@ -2844,7 +3667,8 @@ void CanvasCoreTest::CanvasViewDragChangesCircleRadiusHandle()
 void CanvasCoreTest::CanvasViewDragChangesArcEndpointHandle()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId arcId = document.AddArc(QPointF(0.0, 0.0),
+    const mini_graph::ItemId arcId = document.AddArc(
+                                                     mini_graph::CanvasVector(0.0, 0.0),
                                                      10.0,
                                                      0.0,
                                                      1.5707963267948966);
@@ -2855,8 +3679,8 @@ void CanvasCoreTest::CanvasViewDragChangesArcEndpointHandle()
     view.setUpdatesEnabled(false);
     view.SetDocument(&document);
 
-    const QPointF start = view.MapFromWorld(QPointF(10.0, 0.0));
-    const QPointF end = view.MapFromWorld(QPointF(20.0, 0.0));
+    const QPointF start = view.MapFromWorld(mini_graph::CanvasVector(10.0, 0.0));
+    const QPointF end = view.MapFromWorld(mini_graph::CanvasVector(20.0, 0.0));
     QMouseEvent press(QEvent::MouseButtonPress,
                       start,
                       start,
@@ -2876,7 +3700,7 @@ void CanvasCoreTest::CanvasViewDragChangesArcEndpointHandle()
 
     const mini_graph::StruArcGeometry geometry =
             document.GetArcPrimitives().at(0).geometry;
-    QCOMPARE(geometry.center, QPointF(0.0, 0.0));
+    QVERIFY(geometry.center == mini_graph::CanvasVector(0.0, 0.0));
     QCOMPARE(geometry.radius, 20.0);
     QCOMPARE(geometry.startAngle, 0.0);
     QCOMPARE(geometry.endAngle, 1.5707963267948966);
@@ -2894,8 +3718,9 @@ void CanvasCoreTest::CanvasViewDragChangesArcEndpointHandle()
 void CanvasCoreTest::CanvasViewEscapeCancelsGeometryHandleEdit()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-10.0, 0.0),
-                                                       QPointF(10.0, 0.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-10.0, 0.0),
+                mini_graph::CanvasVector(10.0, 0.0));
     document.SelectItem(lineId);
 
     CanvasViewHarness view;
@@ -2904,8 +3729,8 @@ void CanvasCoreTest::CanvasViewEscapeCancelsGeometryHandleEdit()
     view.SetDocument(&document);
     QSignalSpy cancelSpy(&view, &mini_graph::CanvasView::InteractionCancelled);
 
-    const QPointF start = view.MapFromWorld(QPointF(-10.0, 0.0));
-    const QPointF end = view.MapFromWorld(QPointF(-20.0, 15.0));
+    const QPointF start = view.MapFromWorld(mini_graph::CanvasVector(-10.0, 0.0));
+    const QPointF end = view.MapFromWorld(mini_graph::CanvasVector(-20.0, 15.0));
     QMouseEvent press(QEvent::MouseButtonPress,
                       start,
                       start,
@@ -2923,20 +3748,20 @@ void CanvasCoreTest::CanvasViewEscapeCancelsGeometryHandleEdit()
                      Qt::NoModifier);
     view.mouseMoveEvent(&move);
 
-    QCOMPARE(document.GetLinePrimitives().at(0).geometry.startPoint,
-             QPointF(-20.0, 15.0));
-    QCOMPARE(document.GetLinePrimitives().at(0).geometry.endPoint,
-             QPointF(10.0, 0.0));
+    QVERIFY(document.GetLinePrimitives().at(0).geometry.startPoint
+            == mini_graph::CanvasVector(-20.0, 15.0));
+    QVERIFY(document.GetLinePrimitives().at(0).geometry.endPoint
+            == mini_graph::CanvasVector(10.0, 0.0));
 
     QKeyEvent escapeEvent(QEvent::KeyPress,
                           Qt::Key_Escape,
                           Qt::NoModifier);
     view.keyPressEvent(&escapeEvent);
 
-    QCOMPARE(document.GetLinePrimitives().at(0).geometry.startPoint,
-             QPointF(-10.0, 0.0));
-    QCOMPARE(document.GetLinePrimitives().at(0).geometry.endPoint,
-             QPointF(10.0, 0.0));
+    QVERIFY(document.GetLinePrimitives().at(0).geometry.startPoint
+            == mini_graph::CanvasVector(-10.0, 0.0));
+    QVERIFY(document.GetLinePrimitives().at(0).geometry.endPoint
+            == mini_graph::CanvasVector(10.0, 0.0));
     QCOMPARE(document.GetSelectedItemCount(), 0);
     QCOMPARE(cancelSpy.count(), 1);
 }
@@ -2944,8 +3769,9 @@ void CanvasCoreTest::CanvasViewEscapeCancelsGeometryHandleEdit()
 void CanvasCoreTest::CanvasViewDrawsEditHandlesForSingleSelection()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-10.0, 0.0),
-                                                       QPointF(10.0, 0.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-10.0, 0.0),
+                mini_graph::CanvasVector(10.0, 0.0));
     document.SelectItem(lineId);
 
     CanvasViewHarness view;
@@ -2960,8 +3786,8 @@ void CanvasCoreTest::CanvasViewDrawsEditHandlesForSingleSelection()
     view.DrawEditHandles(painter);
     painter.end();
 
-    const QPointF start = view.MapFromWorld(QPointF(-10.0, 0.0));
-    const QPointF end = view.MapFromWorld(QPointF(10.0, 0.0));
+    const QPointF start = view.MapFromWorld(mini_graph::CanvasVector(-10.0, 0.0));
+    const QPointF end = view.MapFromWorld(mini_graph::CanvasVector(10.0, 0.0));
     QCOMPARE(image.pixelColor(qRound(start.x()), qRound(start.y())),
              QColor(0, 170, 255));
     QCOMPARE(image.pixelColor(qRound(end.x()), qRound(end.y())),
@@ -2971,8 +3797,11 @@ void CanvasCoreTest::CanvasViewDrawsEditHandlesForSingleSelection()
 void CanvasCoreTest::CanvasViewDrawsPolylineVertexHandles()
 {
     mini_graph::CanvasDocument document;
-    const QVector<QPointF> vertices = QVector<QPointF>()
-            << QPointF(-30.0, -20.0) << QPointF(0.0, 10.0) << QPointF(30.0, -20.0);
+    const QVector<mini_graph::CanvasVector> vertices =
+            QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(-30.0, -20.0)
+            << mini_graph::CanvasVector(0.0, 10.0)
+            << mini_graph::CanvasVector(30.0, -20.0);
     const mini_graph::ItemId polylineId = document.AddPolyline(vertices);
     document.SelectItem(polylineId);
 
@@ -2988,7 +3817,7 @@ void CanvasCoreTest::CanvasViewDrawsPolylineVertexHandles()
     view.DrawEditHandles(painter);
     painter.end();
 
-    for (const QPointF &vertex : vertices) {
+    for (const mini_graph::CanvasVector &vertex : vertices) {
         const QPointF position = view.MapFromWorld(vertex);
         QCOMPARE(image.pixelColor(qRound(position.x()), qRound(position.y())),
                  QColor(0, 170, 255));
@@ -3012,10 +3841,12 @@ void CanvasCoreTest::CanvasViewSupportsCustomRendererAssignment()
 void CanvasCoreTest::CanvasViewLifecycleCanBeCreatedAndDestroyed()
 {
     mini_graph::CanvasDocument document;
-    document.AddPoint(QPointF(20.0, 30.0));
-    document.AddLine(QPointF(-80.0, -40.0), QPointF(80.0, -40.0));
-    document.AddArc(QPointF(-40.0, 40.0), 20.0, 0.0, 1.5707963267948966);
-    document.AddCircle(QPointF(50.0, 40.0), 15.0);
+    document.AddPoint(mini_graph::CanvasVector(20.0, 30.0));
+    document.AddLine(mini_graph::CanvasVector(-80.0, -40.0),
+                     mini_graph::CanvasVector(80.0, -40.0));
+    document.AddArc(mini_graph::CanvasVector(-40.0, 40.0),
+                    20.0, 0.0, 1.5707963267948966);
+    document.AddCircle(mini_graph::CanvasVector(50.0, 40.0), 15.0);
 
     for (int index = 0; index < 2; ++index) {
         CanvasViewHarness *view = new CanvasViewHarness;
@@ -3062,8 +3893,8 @@ void CanvasCoreTest::BasicExampleGeometryDialogCreatesCircle()
 
     QCOMPARE(dialog.result(), QDialog::Accepted);
     QCOMPARE(document.GetItemCount(), 1);
-    QCOMPARE(document.GetCirclePrimitives().at(0).geometry.center,
-             QPointF(12.0, -8.0));
+    QVERIFY(document.GetCirclePrimitives().at(0).geometry.center
+            == mini_graph::CanvasVector(12.0, -8.0));
     QCOMPARE(document.GetCirclePrimitives().at(0).geometry.radius, 4.0);
 }
 
@@ -3099,18 +3930,21 @@ void CanvasCoreTest::BasicExampleGeometryDialogCreatesPolyline()
     QCOMPARE(document.GetItemCount(), 1);
     const mini_graph::StruPolylineGeometry geometry =
             document.GetPolylinePrimitives().at(0).geometry;
-    QCOMPARE(geometry.vertices,
-             QVector<QPointF>() << QPointF(-10.0, 2.0)
-                                << QPointF(3.5, 4.25)
-                                << QPointF(6.0, -7.0));
+    QVERIFY(geometry.vertices == (QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(-10.0, 2.0)
+            << mini_graph::CanvasVector(3.5, 4.25)
+            << mini_graph::CanvasVector(6.0, -7.0)));
     QVERIFY(geometry.closed);
 }
 
 void CanvasCoreTest::BasicExampleGeometryEditDialogUpdatesPolyline()
 {
     mini_graph::CanvasDocument document;
-    const QVector<QPointF> originalVertices = QVector<QPointF>()
-            << QPointF(1.0, 2.0) << QPointF(4.0, 5.0) << QPointF(7.0, 8.0);
+    const QVector<mini_graph::CanvasVector> originalVertices =
+            QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(1.0, 2.0)
+            << mini_graph::CanvasVector(4.0, 5.0)
+            << mini_graph::CanvasVector(7.0, 8.0);
     const mini_graph::ItemId polylineId = document.AddPolyline(originalVertices, true);
     GeometryEditDialog dialog(&document, polylineId);
 
@@ -3135,17 +3969,18 @@ void CanvasCoreTest::BasicExampleGeometryEditDialogUpdatesPolyline()
     QCOMPARE(dialog.result(), QDialog::Accepted);
     mini_graph::StruPolylineGeometry geometry;
     QVERIFY(document.GetPolylineGeometry(polylineId, &geometry));
-    QCOMPARE(geometry.vertices,
-             QVector<QPointF>() << QPointF(-8.0, 3.0)
-                                << QPointF(0.0, 12.0)
-                                << QPointF(11.0, -4.0));
+    QVERIFY(geometry.vertices == (QVector<mini_graph::CanvasVector>()
+            << mini_graph::CanvasVector(-8.0, 3.0)
+            << mini_graph::CanvasVector(0.0, 12.0)
+            << mini_graph::CanvasVector(11.0, -4.0)));
     QVERIFY(!geometry.closed);
 }
 
 void CanvasCoreTest::BasicExampleGeometryEditDialogUpdatesArcAndStyle()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId arcId = document.AddArc(QPointF(10.0, 20.0),
+    const mini_graph::ItemId arcId = document.AddArc(
+                                                     mini_graph::CanvasVector(10.0, 20.0),
                                                      5.0,
                                                      0.0,
                                                      1.5707963267948966);
@@ -3202,7 +4037,7 @@ void CanvasCoreTest::BasicExampleGeometryEditDialogUpdatesArcAndStyle()
 
     mini_graph::StruArcGeometry geometry;
     QVERIFY(document.GetArcGeometry(arcId, &geometry));
-    QCOMPARE(geometry.center, QPointF(-12.0, 32.0));
+    QVERIFY(geometry.center == mini_graph::CanvasVector(-12.0, 32.0));
     QCOMPARE(geometry.radius, 18.0);
     QCOMPARE(geometry.startAngle, 0.25);
     QCOMPARE(geometry.endAngle, 2.5);
@@ -3219,8 +4054,9 @@ void CanvasCoreTest::BasicExampleGeometryEditDialogUpdatesArcAndStyle()
 void CanvasCoreTest::BasicExampleGeometryEditDialogCancelKeepsGeometry()
 {
     mini_graph::CanvasDocument document;
-    const mini_graph::ItemId lineId = document.AddLine(QPointF(-2.0, -3.0),
-                                                       QPointF(4.0, 5.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-2.0, -3.0),
+                mini_graph::CanvasVector(4.0, 5.0));
     GeometryEditDialog dialog(&document, lineId);
 
     QDoubleSpinBox *startXSpinBox = dialog.findChild<QDoubleSpinBox *>(
@@ -3236,8 +4072,8 @@ void CanvasCoreTest::BasicExampleGeometryEditDialogCancelKeepsGeometry()
     QCOMPARE(dialog.result(), QDialog::Rejected);
     mini_graph::StruLineGeometry geometry;
     QVERIFY(document.GetLineGeometry(lineId, &geometry));
-    QCOMPARE(geometry.startPoint, QPointF(-2.0, -3.0));
-    QCOMPARE(geometry.endPoint, QPointF(4.0, 5.0));
+    QVERIFY(geometry.startPoint == mini_graph::CanvasVector(-2.0, -3.0));
+    QVERIFY(geometry.endPoint == mini_graph::CanvasVector(4.0, 5.0));
 }
 
 QTEST_MAIN(CanvasCoreTest)

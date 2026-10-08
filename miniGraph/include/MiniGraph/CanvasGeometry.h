@@ -24,8 +24,8 @@ MINIGRAPH_EXPORT bool IsAngleOnArc(const StruArcGeometry &geometry,
                                     qreal angle);
 
 // 返回圆弧支撑圆上指定角度对应的世界坐标点。
-MINIGRAPH_EXPORT QPointF CalculateArcPoint(const StruArcGeometry &geometry,
-                                           qreal angle);
+MINIGRAPH_EXPORT CanvasVector CalculateArcPoint(const StruArcGeometry &geometry,
+                                                qreal angle);
 
 // 返回点几何数据的包围矩形。
 MINIGRAPH_EXPORT QRectF GetGeometryBounds(const StruPointGeometry &geometry);
@@ -43,11 +43,13 @@ MINIGRAPH_EXPORT QRectF GetGeometryBounds(const StruCircleGeometry &geometry);
 MINIGRAPH_EXPORT QRectF GetGeometryBounds(const StruPolylineGeometry &geometry);
 
 // 将圆弧离散为点序列，结果包含起点和终点。
-MINIGRAPH_EXPORT QVector<QPointF> TessellateArc(const StruArcGeometry &geometry,
-                                                qreal maximumError);
+MINIGRAPH_EXPORT QVector<CanvasVector> TessellateArc(
+        const StruArcGeometry &geometry,
+        qreal maximumError);
 
 // 将圆离散为闭合点序列。
-MINIGRAPH_EXPORT QVector<QPointF> TessellateCircle(const StruCircleGeometry &geometry,
-                                                   qreal maximumError);
+MINIGRAPH_EXPORT QVector<CanvasVector> TessellateCircle(
+        const StruCircleGeometry &geometry,
+        qreal maximumError);
 
 } // namespace mini_graph
