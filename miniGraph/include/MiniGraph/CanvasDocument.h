@@ -1,9 +1,11 @@
 ﻿#pragma once
 
+#include "CanvasEntities.h"
 #include "CanvasTypes.h"
 
 #include <QObject>
 #include <QHash>
+#include <QSharedPointer>
 #include <QRectF>
 #include <QSet>
 #include <QVector>
@@ -21,6 +23,16 @@ public:
     // 构造一个空的画布文档。
     // parent 为 Qt 对象父级，默认为 nullptr。
     explicit CanvasDocument(QObject *parent = nullptr);
+
+    // 克隆并登记一个有效图元；文档会分配唯一 ID，失败时返回 0。
+    ItemId AddEntity(const CanvasEntity &entity);
+
+    // 返回文档所持图元的只读借用指针；该图元被替换、删除或文档清空后指针失效。
+    const CanvasEntity *GetEntity(ItemId id) const;
+
+    // 克隆并替换指定图元，保留其 ID、文档顺序和选择状态。
+    // 替换图元允许使用不同类型；图元不存在或新图元无效时返回 false。
+    bool ReplaceEntity(ItemId id, const CanvasEntity &entity);
 
     // 向文档中添加一条线段。
     // start 和 end 为线段端点的世界坐标。
@@ -88,24 +100,19 @@ public:
     // 返回当前文档中的图元数量。
     int GetItemCount() const;
 
-    // 返回当前保存的线段图元列表。
-    // 返回值是文档内部容器的只读引用，文档发生修改后引用内容可能变化。
+    // 返回旧式线段图元兼容视图；引用在文档内容修改后可能失效。
     const QVector<StruLinePrimitive> &GetLinePrimitives() const;
 
-    // 返回当前保存的点图元列表。
-    // 返回值是文档内部容器的只读引用，文档发生修改后引用内容可能变化。
+    // 返回旧式点图元兼容视图；引用在文档内容修改后可能失效。
     const QVector<StruPointPrimitive> &GetPointPrimitives() const;
 
-    // 返回当前保存的圆弧图元列表。
-    // 返回值是文档内部容器的只读引用，文档发生修改后引用内容可能变化。
+    // 返回旧式圆弧图元兼容视图；引用在文档内容修改后可能失效。
     const QVector<StruArcPrimitive> &GetArcPrimitives() const;
 
-    // 返回当前保存的圆图元列表。
-    // 返回值是文档内部容器的只读引用，文档发生修改后引用内容可能变化。
+    // 返回旧式圆图元兼容视图；引用在文档内容修改后可能失效。
     const QVector<StruCirclePrimitive> &GetCirclePrimitives() const;
 
-    // 返回当前保存的多段线图元列表。
-    // 返回值是文档内部容器的只读引用，文档发生修改后引用内容可能变化。
+    // 返回仅由直线段组成的旧式多段线兼容视图；引用在内容修改后可能失效。
     const QVector<StruPolylinePrimitive> &GetPolylinePrimitives() const;
 
     // 返回全部图元标识，结果按照图元添加顺序排列。
@@ -197,38 +204,37 @@ signals:
     void SelectionChanged();
 
 private:
-    // 查找指定图元的可写显示样式。
-    StruCanvasStyle *FindItemStyle(ItemId id);
+    // 查找指定图元的可写对象。
+    CanvasEntity *FindEntity(ItemId id);
 
-    // 查找指定图元的只读显示样式。
-    const StruCanvasStyle *FindItemStyle(ItemId id) const;
+    // 查找指定图元的只读对象。
+    const CanvasEntity *FindEntity(ItemId id) const;
 
-    // 当前文档保存的点图元。
-    QVector<StruPointPrimitive> m_Points;
+    // 标记旧式图元兼容视图需要从实体数据重新生成。
+    void InvalidatePrimitiveViews();
 
-    // 当前文档保存的线段图元。
-    QVector<StruLinePrimitive> m_Lines;
+    // 按文档顺序重建旧式图元兼容视图。
+    void EnsurePrimitiveViews() const;
 
-    // 当前文档保存的圆弧图元。
-    QVector<StruArcPrimitive> m_Arcs;
-
-    // 当前文档保存的圆图元。
-    QVector<StruCirclePrimitive> m_Circles;
-
-    // 当前文档保存的多段线图元。
-    QVector<StruPolylinePrimitive> m_Polylines;
+    // 文档唯一持有的实体对象；所有旧式视图均由此数据派生。
+    QHash<ItemId, QSharedPointer<CanvasEntity>> m_Entities;
 
     // 当前文档中全部图元的添加顺序。
     QVector<ItemId> m_ItemOrder;
-
-    // 图元标识到几何类型的索引。
-    QHash<ItemId, CanvasEntityType> m_ItemTypes;
 
     // 下一次添加图元时使用的标识值。
     ItemId m_NextId;
 
     // 当前被选中的图元标识集合。
     QSet<ItemId> m_SelectedIds;
+
+    // 为旧式公开接口缓存的兼容视图，不作为文档权威数据。
+    mutable QVector<StruPointPrimitive> m_PointPrimitiveView;
+    mutable QVector<StruLinePrimitive> m_LinePrimitiveView;
+    mutable QVector<StruArcPrimitive> m_ArcPrimitiveView;
+    mutable QVector<StruCirclePrimitive> m_CirclePrimitiveView;
+    mutable QVector<StruPolylinePrimitive> m_PolylinePrimitiveView;
+    mutable bool m_PrimitiveViewsDirty;
 };
 
 } // namespace mini_graph

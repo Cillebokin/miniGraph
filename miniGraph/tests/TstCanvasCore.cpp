@@ -86,6 +86,10 @@ private slots:
     void DocumentChangesEmitSignals();
     void DocumentStoresMixedGeometryPools();
     void DocumentMixedGeometryBoundsAndOrder();
+    void DocumentOwnsCanvasEntityClonesAndBoundsAllTypes();
+    void DocumentReplacesCanvasEntityWithoutChangingIdentity();
+    void DocumentRejectsInvalidCanvasEntitiesAtomically();
+    void DocumentTranslatesSplineAndGroupEntities();
     void DocumentRejectsInvalidCircularGeometry();
     void DocumentStoresPolylineAndPreservesOrder();
     void DocumentRejectsInvalidPolylineGeometry();
@@ -94,6 +98,7 @@ private slots:
     void CanvasStyleHasStableDefaultsAndValueSemantics();
     void DocumentStoresAndUpdatesItemStyle();
     void DocumentNormalizesLineStyleCompatibilityFields();
+    void DocumentRejectsNonFiniteLineWidths();
     void GeometryArcSweepFollowsDirection();
     void GeometryBoundsCoverAllPrimitiveTypes();
     void GeometryValidatesPolylineAndBounds();
@@ -1208,6 +1213,187 @@ void CanvasCoreTest::DocumentMixedGeometryBoundsAndOrder()
              QVector<mini_graph::ItemId>() << pointId << lineId << circleId);
 }
 
+void CanvasCoreTest::DocumentOwnsCanvasEntityClonesAndBoundsAllTypes()
+{
+    mini_graph::CanvasDocument document;
+    QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
+
+    mini_graph::CanvasPoint point(mini_graph::CanvasVector(1.0, 2.0));
+    mini_graph::CanvasLine line(mini_graph::CanvasVector(0.0, 0.0),
+                                mini_graph::CanvasVector(4.0, 4.0));
+    mini_graph::CanvasArc arc(mini_graph::CanvasVector(4.0, 0.0),
+                              2.0, 0.0, 1.5707963267948966);
+    mini_graph::CanvasCircle circle(mini_graph::CanvasVector(10.0, 0.0), 1.0);
+    mini_graph::CanvasEllipse ellipse;
+    QVERIFY(ellipse.SetGeometry(mini_graph::CanvasVector(20.0, 0.0),
+                                mini_graph::CanvasVector(3.0, 0.0),
+                                0.5, false));
+
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasLine(
+                                    mini_graph::CanvasVector(30.0, 0.0),
+                                    mini_graph::CanvasVector(31.0, 0.0))));
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasLine(
+                                    mini_graph::CanvasVector(31.0, 0.0),
+                                    mini_graph::CanvasVector(32.0, 0.0))));
+
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(1,
+                           QVector<mini_graph::CanvasVector>()
+                           << mini_graph::CanvasVector(40.0, 0.0)
+                           << mini_graph::CanvasVector(42.0, 0.0),
+                           QVector<qreal>() << 0.0 << 0.0 << 1.0 << 1.0,
+                           QVector<qreal>(), false, false));
+
+    mini_graph::CanvasGroupContainer group;
+    QVERIFY(group.AddChild(mini_graph::CanvasPoint(
+                               mini_graph::CanvasVector(-10.0, -10.0))));
+
+    QVector<mini_graph::ItemId> ids;
+    ids.append(document.AddEntity(point));
+    ids.append(document.AddEntity(line));
+    ids.append(document.AddEntity(arc));
+    ids.append(document.AddEntity(circle));
+    ids.append(document.AddEntity(ellipse));
+    ids.append(document.AddEntity(polyline));
+    ids.append(document.AddEntity(spline));
+    ids.append(document.AddEntity(group));
+    const QVector<mini_graph::CanvasEntityType> expectedTypes =
+            QVector<mini_graph::CanvasEntityType>()
+            << mini_graph::CanvasEntityType::Point
+            << mini_graph::CanvasEntityType::Line
+            << mini_graph::CanvasEntityType::Arc
+            << mini_graph::CanvasEntityType::Circle
+            << mini_graph::CanvasEntityType::Ellipse
+            << mini_graph::CanvasEntityType::Polyline
+            << mini_graph::CanvasEntityType::Spline
+            << mini_graph::CanvasEntityType::GroupContainer;
+
+    QCOMPARE(ids.size(), 8);
+    for (int index = 0; index < ids.size(); ++index) {
+        QVERIFY(ids.at(index) != 0);
+        const mini_graph::CanvasEntity *stored = document.GetEntity(ids.at(index));
+        QVERIFY(stored);
+        QCOMPARE(stored->GetId(), ids.at(index));
+        QCOMPARE(stored->GetType(), expectedTypes.at(index));
+    }
+    QCOMPARE(document.GetItemIds(), ids);
+    QCOMPARE(document.GetBounds(), QRectF(-10.0, -10.0, 52.0, 14.0));
+    QCOMPARE(changedSpy.count(), 8);
+
+    QVERIFY(ellipse.SetGeometry(mini_graph::CanvasVector(200.0, 200.0),
+                                mini_graph::CanvasVector(3.0, 0.0),
+                                0.5, false));
+    QVERIFY(group.ReplaceChild(0, mini_graph::CanvasPoint(
+                                   mini_graph::CanvasVector(500.0, 500.0))));
+    const mini_graph::CanvasEllipse *storedEllipse =
+            dynamic_cast<const mini_graph::CanvasEllipse *>(
+                document.GetEntity(ids.at(4)));
+    const mini_graph::CanvasGroupContainer *storedGroup =
+            dynamic_cast<const mini_graph::CanvasGroupContainer *>(
+                document.GetEntity(ids.at(7)));
+    QVERIFY(storedEllipse);
+    QVERIFY(storedGroup);
+    QCOMPARE(storedEllipse->GetCenter(), mini_graph::CanvasVector(20.0, 0.0));
+    const mini_graph::CanvasPoint *storedChild =
+            dynamic_cast<const mini_graph::CanvasPoint *>(storedGroup->GetChild(0));
+    QVERIFY(storedChild);
+    QCOMPARE(storedChild->GetPosition(), mini_graph::CanvasVector(-10.0, -10.0));
+    QCOMPARE(changedSpy.count(), 8);
+}
+
+void CanvasCoreTest::DocumentReplacesCanvasEntityWithoutChangingIdentity()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId firstId = document.AddEntity(
+                mini_graph::CanvasPoint(mini_graph::CanvasVector(1.0, 2.0)));
+    const mini_graph::ItemId secondId = document.AddEntity(
+                mini_graph::CanvasLine(mini_graph::CanvasVector(0.0, 0.0),
+                                       mini_graph::CanvasVector(2.0, 2.0)));
+    QVERIFY(firstId != 0);
+    QVERIFY(secondId != 0);
+    document.SelectItem(firstId);
+    QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
+    QSignalSpy selectionSpy(&document, &mini_graph::CanvasDocument::SelectionChanged);
+
+    mini_graph::CanvasCircle replacement(mini_graph::CanvasVector(8.0, 9.0), 3.0);
+    replacement.SetTag(QStringLiteral("replacement"));
+    QVERIFY(document.ReplaceEntity(firstId, replacement));
+
+    QCOMPARE(document.GetItemIds(),
+             QVector<mini_graph::ItemId>() << firstId << secondId);
+    QCOMPARE(document.GetItemType(firstId), mini_graph::CanvasEntityType::Circle);
+    QCOMPARE(document.GetEntity(firstId)->GetId(), firstId);
+    QCOMPARE(document.GetEntity(firstId)->GetTag(), QStringLiteral("replacement"));
+    QVERIFY(document.IsItemSelected(firstId));
+    QCOMPARE(changedSpy.count(), 1);
+    QCOMPARE(selectionSpy.count(), 0);
+    QCOMPARE(document.GetBounds(QVector<mini_graph::ItemId>() << firstId),
+             QRectF(5.0, 6.0, 6.0, 6.0));
+}
+
+void CanvasCoreTest::DocumentRejectsInvalidCanvasEntitiesAtomically()
+{
+    mini_graph::CanvasDocument document;
+    QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
+
+    mini_graph::CanvasCircle invalidCircle;
+    QCOMPARE(document.AddEntity(invalidCircle), mini_graph::ItemId(0));
+    mini_graph::CanvasCircle unrepresentableCircle(
+                mini_graph::CanvasVector(1.0e308, 0.0), 1.0e308);
+    QCOMPARE(document.AddEntity(unrepresentableCircle), mini_graph::ItemId(0));
+    QCOMPARE(document.GetItemCount(), 0);
+    QCOMPARE(changedSpy.count(), 0);
+
+    const mini_graph::ItemId id = document.AddEntity(
+                mini_graph::CanvasPoint(mini_graph::CanvasVector(3.0, 4.0)));
+    QVERIFY(id != 0);
+    changedSpy.clear();
+    QVERIFY(!document.ReplaceEntity(id, invalidCircle));
+    QVERIFY(!document.ReplaceEntity(999, mini_graph::CanvasCircle(
+                                       mini_graph::CanvasVector(0.0, 0.0), 1.0)));
+    QCOMPARE(document.GetItemType(id), mini_graph::CanvasEntityType::Point);
+    QCOMPARE(document.GetEntity(id)->GetId(), id);
+    QCOMPARE(document.GetBounds(), QRectF(3.0, 4.0, 0.0, 0.0));
+    QCOMPARE(changedSpy.count(), 0);
+}
+
+void CanvasCoreTest::DocumentTranslatesSplineAndGroupEntities()
+{
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(1,
+                           QVector<mini_graph::CanvasVector>()
+                           << mini_graph::CanvasVector(0.0, 0.0)
+                           << mini_graph::CanvasVector(2.0, 2.0),
+                           QVector<qreal>() << 0.0 << 0.0 << 1.0 << 1.0,
+                           QVector<qreal>(), false, false));
+    mini_graph::CanvasGroupContainer group;
+    QVERIFY(group.AddChild(mini_graph::CanvasPoint(
+                               mini_graph::CanvasVector(5.0, 5.0))));
+    const mini_graph::ItemId splineId = document.AddEntity(spline);
+    const mini_graph::ItemId groupId = document.AddEntity(group);
+
+    QVERIFY(document.TranslateItems(QVector<mini_graph::ItemId>()
+                                    << splineId << groupId,
+                                    mini_graph::CanvasVector(10.0, -3.0)));
+
+    const mini_graph::CanvasSpline *translatedSpline =
+            dynamic_cast<const mini_graph::CanvasSpline *>(document.GetEntity(splineId));
+    const mini_graph::CanvasGroupContainer *translatedGroup =
+            dynamic_cast<const mini_graph::CanvasGroupContainer *>(document.GetEntity(groupId));
+    QVERIFY(translatedSpline);
+    QVERIFY(translatedGroup);
+    QCOMPARE(translatedSpline->GetControlPoints(),
+             QVector<mini_graph::CanvasVector>()
+             << mini_graph::CanvasVector(10.0, -3.0)
+             << mini_graph::CanvasVector(12.0, -1.0));
+    const mini_graph::CanvasPoint *translatedChild =
+            dynamic_cast<const mini_graph::CanvasPoint *>(translatedGroup->GetChild(0));
+    QVERIFY(translatedChild);
+    QCOMPARE(translatedChild->GetPosition(), mini_graph::CanvasVector(15.0, 2.0));
+}
+
 void CanvasCoreTest::DocumentRejectsInvalidCircularGeometry()
 {
     mini_graph::CanvasDocument document;
@@ -1457,6 +1643,26 @@ void CanvasCoreTest::DocumentNormalizesLineStyleCompatibilityFields()
     QCOMPARE(line.color, line.style.strokeColor);
     QCOMPARE(line.style.strokeWidth, 0.0);
     QCOMPARE(line.width, line.style.strokeWidth);
+}
+
+void CanvasCoreTest::DocumentRejectsNonFiniteLineWidths()
+{
+    mini_graph::CanvasDocument document;
+    QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
+    const mini_graph::CanvasVector start(0.0, 0.0);
+    const mini_graph::CanvasVector end(1.0, 1.0);
+
+    const qreal invalidWidths[] = {
+        std::numeric_limits<qreal>::quiet_NaN(),
+        std::numeric_limits<qreal>::infinity()
+    };
+
+    for (qreal width : invalidWidths) {
+        QCOMPARE(document.AddLine(start, end, QColor(Qt::white), width),
+                 mini_graph::ItemId(0));
+        QCOMPARE(document.GetItemCount(), 0);
+        QCOMPARE(changedSpy.count(), 0);
+    }
 }
 
 void CanvasCoreTest::GeometryArcSweepFollowsDirection()
