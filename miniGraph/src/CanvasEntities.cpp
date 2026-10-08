@@ -147,9 +147,16 @@ bool IsValidSplineData(int degree,
         }
     }
 
+    int knotMultiplicity = 0;
     for (int index = 0; index < knots.size(); ++index) {
         if (!IsFinite(knots.at(index))
                 || (index > 0 && knots.at(index) < knots.at(index - 1))) {
+            return false;
+        }
+        knotMultiplicity = index > 0
+                && knots.at(index) == knots.at(index - 1)
+                ? knotMultiplicity + 1 : 1;
+        if (knotMultiplicity > degree + 1) {
             return false;
         }
     }

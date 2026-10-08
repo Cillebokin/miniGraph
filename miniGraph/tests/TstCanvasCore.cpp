@@ -118,6 +118,12 @@ private slots:
     void CanvasViewReportsCurrentSnap();
     void CanvasViewDrawsSnapMarker();
     void CanvasViewRendersDocumentWithPainter();
+    void CanvasViewRendersAllCanvasEntityTypes();
+    void CanvasViewRendersCompleteSplineAtTessellationLimit();
+    void CanvasViewDoesNotCloseEachDiscontinuousSplinePath();
+    void CanvasViewDoesNotCloseNonmatchingPeriodicSplineEndpoints();
+    void CanvasViewRendersNurbsWithLargeFiniteWeights();
+    void CanvasViewRendersNurbsWithExtremeWeightRange();
     void CanvasRendererDrawsOpenAndClosedPolylines();
     void CanvasViewWheelUsesCadLabScale();
     void CanvasViewMiddlePanUsesDeadband();
@@ -726,6 +732,23 @@ void CanvasCoreTest::CanvasSplineValidatesNurbsDataAndClone()
                             << mini_graph::CanvasVector()
                             << mini_graph::CanvasVector(3.0, 0.0),
                             knots, QVector<qreal>(), false, false));
+
+    mini_graph::CanvasSpline excessiveKnotMultiplicity;
+    QVERIFY(!excessiveKnotMultiplicity.SetData(
+                2,
+                QVector<mini_graph::CanvasVector>()
+                << mini_graph::CanvasVector(0.0, 0.0)
+                << mini_graph::CanvasVector(1.0, 1.0)
+                << mini_graph::CanvasVector(2.0, 0.0)
+                << mini_graph::CanvasVector(3.0, 1.0)
+                << mini_graph::CanvasVector(4.0, 0.0)
+                << mini_graph::CanvasVector(5.0, 1.0)
+                << mini_graph::CanvasVector(6.0, 0.0),
+                QVector<qreal>() << 0.0 << 0.0 << 0.0
+                << 0.5 << 0.5 << 0.5 << 0.5
+                << 1.0 << 1.0 << 1.0,
+                QVector<qreal>(), false, false));
+
     QVERIFY(spline.IsValid());
     QVERIFY(spline.IsClosed());
 
@@ -2228,6 +2251,481 @@ void CanvasCoreTest::CanvasViewRendersDocumentWithPainter()
         }
     }
     QVERIFY(foundRedPixel);
+}
+
+void CanvasCoreTest::CanvasViewRendersAllCanvasEntityTypes()
+{
+    mini_graph::CanvasDocument document;
+    const qreal halfPi = 1.5707963267948966;
+    const qreal quarterPi = 0.7853981633974483;
+    const auto styleFor = [](const QColor &color) {
+        mini_graph::StruCanvasStyle style;
+        style.strokeColor = color;
+        style.selectedStrokeColor = color;
+        style.strokeWidth = 4.0;
+        style.pointSize = 10.0;
+        return style;
+    };
+
+    mini_graph::CanvasPoint point(mini_graph::CanvasVector(-110.0, 100.0));
+    QVERIFY(point.SetStyle(styleFor(QColor(240, 50, 50))));
+    QVERIFY(document.AddEntity(point) != 0);
+
+    mini_graph::CanvasLine line(mini_graph::CanvasVector(-80.0, 100.0),
+                                mini_graph::CanvasVector(-40.0, 100.0));
+    QVERIFY(line.SetStyle(styleFor(QColor(50, 230, 70))));
+    QVERIFY(document.AddEntity(line) != 0);
+
+    mini_graph::CanvasArc arc(mini_graph::CanvasVector(0.0, 100.0),
+                              20.0, 0.0, halfPi);
+    QVERIFY(arc.SetStyle(styleFor(QColor(40, 100, 250))));
+    QVERIFY(document.AddEntity(arc) != 0);
+
+    mini_graph::CanvasCircle circle(mini_graph::CanvasVector(60.0, 100.0),
+                                    15.0);
+    QVERIFY(circle.SetStyle(styleFor(QColor(230, 230, 40))));
+    QVERIFY(document.AddEntity(circle) != 0);
+
+    mini_graph::CanvasEllipse ellipse;
+    QVERIFY(ellipse.SetGeometry(mini_graph::CanvasVector(-105.0, 0.0),
+                                mini_graph::CanvasVector(20.0, 0.0),
+                                0.5, false));
+    QVERIFY(ellipse.SetStyle(styleFor(QColor(230, 40, 220))));
+    QVERIFY(document.AddEntity(ellipse) != 0);
+
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasLine(
+                                    mini_graph::CanvasVector(45.0, 30.0),
+                                    mini_graph::CanvasVector(65.0, 30.0))));
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasArc(
+                                    mini_graph::CanvasVector(65.0, 40.0),
+                                    10.0, -halfPi, 0.0)));
+    QVERIFY(polyline.SetStyle(styleFor(QColor(30, 210, 210))));
+    QVERIFY(document.AddEntity(polyline) != 0);
+
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(2,
+                           QVector<mini_graph::CanvasVector>()
+                           << mini_graph::CanvasVector(-20.0, -60.0)
+                           << mini_graph::CanvasVector(0.0, 0.0)
+                           << mini_graph::CanvasVector(20.0, -60.0),
+                           QVector<qreal>() << 0.0 << 0.0 << 0.0
+                           << 1.0 << 1.0 << 1.0,
+                           QVector<qreal>(), false, false));
+    QVERIFY(spline.SetStyle(styleFor(QColor(255, 130, 20))));
+    QVERIFY(document.AddEntity(spline) != 0);
+
+    mini_graph::CanvasPoint groupPoint(mini_graph::CanvasVector(100.0, -100.0));
+    QVERIFY(groupPoint.SetStyle(styleFor(QColor(145, 80, 245))));
+    mini_graph::CanvasGroupContainer group;
+    QVERIFY(group.AddChild(groupPoint));
+    QVERIFY(document.AddEntity(group) != 0);
+
+    CanvasViewHarness view;
+    view.resize(320, 280);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const auto hasColorNear = [&image, &view](const mini_graph::CanvasVector &world,
+                                               const QColor &expectedColor) {
+        const QPointF position = view.MapFromWorld(world);
+        const int centerX = qRound(position.x());
+        const int centerY = qRound(position.y());
+        for (int y = centerY - 3; y <= centerY + 3; ++y) {
+            for (int x = centerX - 3; x <= centerX + 3; ++x) {
+                if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+                    continue;
+                }
+                const QColor actualColor = image.pixelColor(x, y);
+                if (qAbs(actualColor.red() - expectedColor.red()) < 45
+                        && qAbs(actualColor.green() - expectedColor.green()) < 45
+                        && qAbs(actualColor.blue() - expectedColor.blue()) < 45) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    QVERIFY(hasColorNear(mini_graph::CanvasVector(-110.0, 100.0),
+                         QColor(240, 50, 50)));
+    QVERIFY(hasColorNear(mini_graph::CanvasVector(-60.0, 100.0),
+                         QColor(50, 230, 70)));
+    QVERIFY(hasColorNear(mini_graph::CanvasVector(20.0 * std::cos(quarterPi),
+                                                   100.0 + 20.0 * std::sin(quarterPi)),
+                         QColor(40, 100, 250)));
+    QVERIFY(hasColorNear(mini_graph::CanvasVector(75.0, 100.0),
+                         QColor(230, 230, 40)));
+    QVERIFY(hasColorNear(mini_graph::CanvasVector(-105.0, 10.0),
+                         QColor(230, 40, 220)));
+    QVERIFY(hasColorNear(mini_graph::CanvasVector(55.0, 30.0),
+                         QColor(30, 210, 210)));
+    QVERIFY(hasColorNear(mini_graph::CanvasVector(0.0, -30.0),
+                         QColor(255, 130, 20)));
+    QVERIFY(hasColorNear(mini_graph::CanvasVector(100.0, -100.0),
+                         QColor(145, 80, 245)));
+}
+
+void CanvasCoreTest::CanvasViewRendersCompleteSplineAtTessellationLimit()
+{
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(3,
+                           QVector<mini_graph::CanvasVector>()
+                           << mini_graph::CanvasVector(0.0, 0.0)
+                           << mini_graph::CanvasVector(100.0, 1000.0)
+                           << mini_graph::CanvasVector(200.0, -1000.0)
+                           << mini_graph::CanvasVector(300.0, 1000.0)
+                           << mini_graph::CanvasVector(400.0, -1000.0)
+                           << mini_graph::CanvasVector(500.0, 1000.0)
+                           << mini_graph::CanvasVector(600.0, -1000.0)
+                           << mini_graph::CanvasVector(700.0, 1000.0)
+                           << mini_graph::CanvasVector(800.0, -1000.0)
+                           << mini_graph::CanvasVector(900.0, 1000.0)
+                           << mini_graph::CanvasVector(1000.0, 0.0),
+                           QVector<qreal>() << 0.0 << 0.0 << 0.0 << 0.0
+                           << (1.0 / 8.0) << (2.0 / 8.0) << (3.0 / 8.0)
+                           << (4.0 / 8.0) << (5.0 / 8.0) << (6.0 / 8.0)
+                           << (7.0 / 8.0)
+                           << 1.0 << 1.0 << 1.0 << 1.0,
+                           QVector<qreal>(), false, false));
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(240, 50, 50);
+    style.selectedStrokeColor = style.strokeColor;
+    style.strokeWidth = 4.0;
+    QVERIFY(spline.SetStyle(style));
+    QVERIFY(document.AddEntity(spline) != 0);
+
+    CanvasViewHarness view;
+    view.resize(320, 280);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+    view.CenterOnWorld(mini_graph::CanvasVector(1000.0, 0.0));
+
+    for (int index = 0; index < 100; ++index) {
+        QWheelEvent wheelEvent(QPointF(160.0, 140.0),
+                               QPointF(160.0, 140.0),
+                               QPoint(0, 0),
+                               QPoint(0, 120),
+                               Qt::NoButton,
+                               Qt::NoModifier,
+                               Qt::ScrollUpdate,
+                               false);
+        view.wheelEvent(&wheelEvent);
+    }
+    QCOMPARE(view.GetZoom(), mini_graph::CanvasTransform::GetMaximumZoom());
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const QPointF endpoint = view.MapFromWorld(
+                mini_graph::CanvasVector(1000.0, 0.0));
+    bool foundEndpoint = false;
+    for (int y = qRound(endpoint.y()) - 3;
+         y <= qRound(endpoint.y()) + 3 && !foundEndpoint; ++y) {
+        for (int x = qRound(endpoint.x()) - 3;
+             x <= qRound(endpoint.x()) + 3; ++x) {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+                continue;
+            }
+            const QColor actualColor = image.pixelColor(x, y);
+            if (actualColor.red() > 180 && actualColor.green() < 100
+                    && actualColor.blue() < 100) {
+                foundEndpoint = true;
+                break;
+            }
+        }
+    }
+    QVERIFY(foundEndpoint);
+}
+
+void CanvasCoreTest::CanvasViewDoesNotCloseEachDiscontinuousSplinePath()
+{
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(2,
+                           QVector<mini_graph::CanvasVector>()
+                           << mini_graph::CanvasVector(-80.0, -60.0)
+                           << mini_graph::CanvasVector(-50.0, -30.0)
+                           << mini_graph::CanvasVector(-20.0, -60.0)
+                           << mini_graph::CanvasVector(20.0, -60.0)
+                           << mini_graph::CanvasVector(50.0, -30.0)
+                           << mini_graph::CanvasVector(80.0, -20.0),
+                           QVector<qreal>() << 0.0 << 0.0 << 0.0
+                           << 0.5 << 0.5 << 0.5
+                           << 1.0 << 1.0 << 1.0,
+                           QVector<qreal>(), true, false));
+
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.strokeWidth = 4.0;
+    QVERIFY(spline.SetStyle(style));
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId splineId = document.AddEntity(spline);
+    QVERIFY(splineId != 0);
+    const mini_graph::CanvasSpline *storedSpline =
+            dynamic_cast<const mini_graph::CanvasSpline *>(
+                document.GetEntity(splineId));
+    QVERIFY(storedSpline);
+    QVERIFY(storedSpline->IsClosed());
+    QVERIFY(!storedSpline->IsPeriodic());
+
+    CanvasViewHarness view;
+    view.resize(320, 280);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const QPointF gapPoint = view.MapFromWorld(
+                mini_graph::CanvasVector(-50.0, -60.0));
+    bool foundUnwantedClosingSegment = false;
+    for (int y = qRound(gapPoint.y()) - 1;
+         y <= qRound(gapPoint.y()) + 1 && !foundUnwantedClosingSegment; ++y) {
+        for (int x = qRound(gapPoint.x()) - 1;
+             x <= qRound(gapPoint.x()) + 1; ++x) {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+                continue;
+            }
+            const QColor actualColor = image.pixelColor(x, y);
+            if (actualColor.red() > 150 && actualColor.green() < 100
+                    && actualColor.blue() < 100) {
+                foundUnwantedClosingSegment = true;
+                break;
+            }
+        }
+    }
+    QVERIFY(!foundUnwantedClosingSegment);
+
+    const QPointF expectedClosurePoint = view.MapFromWorld(
+                mini_graph::CanvasVector(0.0, -40.0));
+    bool foundExpectedClosure = false;
+    for (int y = qRound(expectedClosurePoint.y()) - 1;
+         y <= qRound(expectedClosurePoint.y()) + 1 && !foundExpectedClosure;
+         ++y) {
+        for (int x = qRound(expectedClosurePoint.x()) - 1;
+             x <= qRound(expectedClosurePoint.x()) + 1; ++x) {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+                continue;
+            }
+            const QColor actualColor = image.pixelColor(x, y);
+            if (actualColor.red() > 150 && actualColor.green() < 100
+                    && actualColor.blue() < 100) {
+                foundExpectedClosure = true;
+                break;
+            }
+        }
+    }
+    QVERIFY(foundExpectedClosure);
+}
+
+void CanvasCoreTest::CanvasViewDoesNotCloseNonmatchingPeriodicSplineEndpoints()
+{
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(2,
+                           QVector<mini_graph::CanvasVector>()
+                           << mini_graph::CanvasVector(-80.0, 0.0)
+                           << mini_graph::CanvasVector(0.0, 60.0)
+                           << mini_graph::CanvasVector(80.0, 0.0),
+                           QVector<qreal>() << 0.0 << 0.0 << 0.0
+                           << 1.0 << 1.0 << 1.0,
+                           QVector<qreal>(), false, true));
+    QVERIFY(spline.IsPeriodic());
+    QVERIFY(!spline.IsClosed());
+
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.strokeWidth = 4.0;
+    QVERIFY(spline.SetStyle(style));
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId splineId = document.AddEntity(spline);
+    QVERIFY(splineId != 0);
+    const mini_graph::CanvasSpline *storedSpline =
+            dynamic_cast<const mini_graph::CanvasSpline *>(
+                document.GetEntity(splineId));
+    QVERIFY(storedSpline);
+    QVERIFY(storedSpline->IsPeriodic());
+    QVERIFY(!storedSpline->IsClosed());
+
+    CanvasViewHarness view;
+    view.resize(320, 280);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const QPointF gapPoint = view.MapFromWorld(
+                mini_graph::CanvasVector(0.0, 0.0));
+    bool foundArtificialClosure = false;
+    for (int y = qRound(gapPoint.y()) - 1;
+         y <= qRound(gapPoint.y()) + 1 && !foundArtificialClosure; ++y) {
+        for (int x = qRound(gapPoint.x()) - 1;
+             x <= qRound(gapPoint.x()) + 1; ++x) {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+                continue;
+            }
+            const QColor actualColor = image.pixelColor(x, y);
+            if (actualColor.red() > 150 && actualColor.green() < 100
+                    && actualColor.blue() < 100) {
+                foundArtificialClosure = true;
+                break;
+            }
+        }
+    }
+    QVERIFY(!foundArtificialClosure);
+
+    const QPointF curvePoint = view.MapFromWorld(
+                mini_graph::CanvasVector(0.0, 30.0));
+    bool foundCurve = false;
+    for (int y = qRound(curvePoint.y()) - 2;
+         y <= qRound(curvePoint.y()) + 2 && !foundCurve; ++y) {
+        for (int x = qRound(curvePoint.x()) - 2;
+             x <= qRound(curvePoint.x()) + 2; ++x) {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+                continue;
+            }
+            const QColor actualColor = image.pixelColor(x, y);
+            if (actualColor.red() > 150 && actualColor.green() < 100
+                    && actualColor.blue() < 100) {
+                foundCurve = true;
+                break;
+            }
+        }
+    }
+    QVERIFY(foundCurve);
+}
+
+void CanvasCoreTest::CanvasViewRendersNurbsWithLargeFiniteWeights()
+{
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(2,
+                           QVector<mini_graph::CanvasVector>()
+                           << mini_graph::CanvasVector(-50.0, 0.0)
+                           << mini_graph::CanvasVector(0.0, 60.0)
+                           << mini_graph::CanvasVector(50.0, 0.0),
+                           QVector<qreal>() << 0.0 << 0.0 << 0.0
+                           << 1.0 << 1.0 << 1.0,
+                           QVector<qreal>() << 1.0e308 << 1.0e308 << 1.0e308,
+                           false, false));
+
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    QVERIFY(spline.SetStyle(style));
+
+    mini_graph::CanvasDocument document;
+    QVERIFY(document.AddEntity(spline) != 0);
+
+    CanvasViewHarness view;
+    view.resize(320, 280);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const QPointF curvePoint = view.MapFromWorld(
+                mini_graph::CanvasVector(0.0, 30.0));
+    bool foundCurve = false;
+    for (int y = qRound(curvePoint.y()) - 2;
+         y <= qRound(curvePoint.y()) + 2 && !foundCurve; ++y) {
+        for (int x = qRound(curvePoint.x()) - 2;
+             x <= qRound(curvePoint.x()) + 2; ++x) {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+                continue;
+            }
+            const QColor actualColor = image.pixelColor(x, y);
+            if (actualColor.red() > 150 && actualColor.green() < 100
+                    && actualColor.blue() < 100) {
+                foundCurve = true;
+                break;
+            }
+        }
+    }
+    QVERIFY(foundCurve);
+}
+
+void CanvasCoreTest::CanvasViewRendersNurbsWithExtremeWeightRange()
+{
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(2,
+                           QVector<mini_graph::CanvasVector>()
+                           << mini_graph::CanvasVector(-50.0, 0.0)
+                           << mini_graph::CanvasVector(0.0, 60.0)
+                           << mini_graph::CanvasVector(50.0, 0.0),
+                           QVector<qreal>() << 0.0 << 0.0 << 0.0
+                           << 1.0 << 1.0 << 1.0,
+                           QVector<qreal>() << 1.0e308 << 1.0e-308 << 1.0e-308,
+                           false, false));
+
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.strokeWidth = 4.0;
+    QVERIFY(spline.SetStyle(style));
+
+    mini_graph::CanvasDocument document;
+    QVERIFY(document.AddEntity(spline) != 0);
+
+    CanvasViewHarness view;
+    view.resize(320, 280);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const QPointF endpoint = view.MapFromWorld(
+                mini_graph::CanvasVector(50.0, 0.0));
+    bool foundEndpoint = false;
+    for (int y = qRound(endpoint.y()) - 2;
+         y <= qRound(endpoint.y()) + 2 && !foundEndpoint; ++y) {
+        for (int x = qRound(endpoint.x()) - 2;
+             x <= qRound(endpoint.x()) + 2; ++x) {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+                continue;
+            }
+            const QColor actualColor = image.pixelColor(x, y);
+            if (actualColor.red() > 150 && actualColor.green() < 100
+                    && actualColor.blue() < 100) {
+                foundEndpoint = true;
+                break;
+            }
+        }
+    }
+    QVERIFY(foundEndpoint);
 }
 
 void CanvasCoreTest::CanvasRendererDrawsOpenAndClosedPolylines()
