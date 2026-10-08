@@ -658,6 +658,22 @@ void RenderEntity(QPainter &painter,
 
 } // namespace
 
+namespace detail {
+
+QVector<CanvasVector> TessellateEllipseForSelection(
+        const CanvasEllipse &ellipse, qreal maximumError, bool *closed)
+{
+    return TessellateEllipse(ellipse, maximumError, closed);
+}
+
+QVector<QVector<CanvasVector>> TessellateSplineForSelection(
+        const CanvasSpline &spline, qreal maximumError)
+{
+    return TessellateSpline(spline, maximumError);
+}
+
+} // namespace detail
+
 void CanvasPainterRenderer::Render(
         QPainter &painter,
         const CanvasRenderContext &context) const

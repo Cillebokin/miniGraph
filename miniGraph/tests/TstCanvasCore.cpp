@@ -150,6 +150,10 @@ private slots:
     void CanvasViewHitTestUsesLineDisplayWidth();
     void CanvasViewWindowSelectionUsesDragDirection();
     void CanvasViewWindowSelectionSelectsAllGeometryTypes();
+    void CanvasViewSingleClickSelectsAllCanvasEntityTypes();
+    void CanvasViewWindowSelectionSelectsAllCanvasEntityTypes();
+    void CanvasViewCrossingSelectionUsesCanvasEntityPaths();
+    void CanvasViewEntityHitTestRespectsGroupVisibility();
     void CanvasViewWindowSelectionSelectsPolylines();
     void CanvasViewWindowSelectionIgnoresInvisibleGeometry();
     void CanvasViewSelectionBoxUsesCadLabStyle();
@@ -3593,6 +3597,316 @@ void CanvasCoreTest::CanvasViewSingleClickSelectsAllGeometryTypes()
 
     clickAt(view.MapFromWorld(mini_graph::CanvasVector(185.0, 100.0)));
     QVERIFY(document.IsItemSelected(circleId));
+}
+
+void CanvasCoreTest::CanvasViewSingleClickSelectsAllCanvasEntityTypes()
+{
+    mini_graph::CanvasDocument document;
+    const qreal pi = std::acos(-1.0);
+
+    mini_graph::CanvasEllipse ellipse;
+    QVERIFY(ellipse.SetGeometry(mini_graph::CanvasVector(-150.0, -100.0),
+                                mini_graph::CanvasVector(30.0, 0.0),
+                                0.5, false));
+    const mini_graph::ItemId ellipseId = document.AddEntity(ellipse);
+
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasArc(
+                                    mini_graph::CanvasVector(50.0, -100.0),
+                                    30.0, 0.0, pi / 2.0)));
+    const mini_graph::ItemId polylineId = document.AddEntity(polyline);
+
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(2,
+                           QVector<mini_graph::CanvasVector>()
+                           << mini_graph::CanvasVector(-70.0, -100.0)
+                           << mini_graph::CanvasVector(-50.0, -60.0)
+                           << mini_graph::CanvasVector(-30.0, -100.0),
+                           QVector<qreal>() << 0.0 << 0.0 << 0.0
+                           << 1.0 << 1.0 << 1.0,
+                           QVector<qreal>(), false, false));
+    const mini_graph::ItemId splineId = document.AddEntity(spline);
+
+    mini_graph::CanvasGroupContainer nestedGroup;
+    QVERIFY(nestedGroup.AddChild(mini_graph::CanvasLine(
+                                     mini_graph::CanvasVector(120.0, -100.0),
+                                     mini_graph::CanvasVector(180.0, -100.0))));
+    mini_graph::CanvasGroupContainer group;
+    QVERIFY(group.AddChild(nestedGroup));
+    const mini_graph::ItemId groupId = document.AddEntity(group);
+
+    QVERIFY(ellipseId != 0);
+    QVERIFY(polylineId != 0);
+    QVERIFY(splineId != 0);
+    QVERIFY(groupId != 0);
+
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+
+    const auto clickAt = [&view](const mini_graph::CanvasVector &worldPosition) {
+        const QPointF position = view.MapFromWorld(worldPosition);
+        QMouseEvent press(QEvent::MouseButtonPress,
+                          position, position, position,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        view.mousePressEvent(&press);
+        QMouseEvent release(QEvent::MouseButtonRelease,
+                            position, position, position,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        view.mouseReleaseEvent(&release);
+    };
+
+    clickAt(mini_graph::CanvasVector(-150.0, -85.0));
+    QVERIFY(document.IsItemSelected(ellipseId));
+    document.ClearSelection();
+    clickAt(mini_graph::CanvasVector(-150.0, -100.0));
+    QVERIFY(!document.IsItemSelected(ellipseId));
+
+    clickAt(mini_graph::CanvasVector(50.0 + 30.0 / std::sqrt(2.0),
+                                    -100.0 + 30.0 / std::sqrt(2.0)));
+    QVERIFY(document.IsItemSelected(polylineId));
+    document.ClearSelection();
+
+    clickAt(mini_graph::CanvasVector(-50.0, -80.0));
+    QVERIFY(document.IsItemSelected(splineId));
+    document.ClearSelection();
+    clickAt(mini_graph::CanvasVector(-50.0, -60.0));
+    QVERIFY(!document.IsItemSelected(splineId));
+
+    clickAt(mini_graph::CanvasVector(150.0, -100.0));
+    QVERIFY(document.IsItemSelected(groupId));
+    QCOMPARE(document.GetSelectedItemCount(), 1);
+}
+
+void CanvasCoreTest::CanvasViewWindowSelectionSelectsAllCanvasEntityTypes()
+{
+    mini_graph::CanvasDocument document;
+    const qreal pi = std::acos(-1.0);
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(-150.0, 100.0));
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-100.0, -50.0),
+                mini_graph::CanvasVector(100.0, -50.0));
+    const mini_graph::ItemId arcId = document.AddArc(
+                mini_graph::CanvasVector(0.0, 100.0), 40.0, 0.0, pi / 2.0);
+    const mini_graph::ItemId circleId = document.AddCircle(
+                mini_graph::CanvasVector(150.0, 100.0), 30.0);
+
+    mini_graph::CanvasEllipse ellipse;
+    QVERIFY(ellipse.SetGeometry(mini_graph::CanvasVector(-100.0, 0.0),
+                                mini_graph::CanvasVector(20.0, 0.0),
+                                0.5, false));
+    const mini_graph::ItemId ellipseId = document.AddEntity(ellipse);
+
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasArc(
+                                    mini_graph::CanvasVector(120.0, -10.0),
+                                    15.0, 0.0, pi / 2.0)));
+    const mini_graph::ItemId polylineId = document.AddEntity(polyline);
+
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(2,
+                           QVector<mini_graph::CanvasVector>()
+                           << mini_graph::CanvasVector(-30.0, 30.0)
+                           << mini_graph::CanvasVector(0.0, 60.0)
+                           << mini_graph::CanvasVector(30.0, 30.0),
+                           QVector<qreal>() << 0.0 << 0.0 << 0.0
+                           << 1.0 << 1.0 << 1.0,
+                           QVector<qreal>(), false, false));
+    const mini_graph::ItemId splineId = document.AddEntity(spline);
+
+    mini_graph::CanvasGroupContainer group;
+    QVERIFY(group.AddChild(mini_graph::CanvasLine(
+                               mini_graph::CanvasVector(150.0, -60.0),
+                               mini_graph::CanvasVector(180.0, -60.0))));
+    const mini_graph::ItemId groupId = document.AddEntity(group);
+    const mini_graph::ItemId outsideId = document.AddPoint(
+                mini_graph::CanvasVector(300.0, 300.0));
+
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+
+    const auto dragSelect = [&view](const mini_graph::CanvasVector &worldStart,
+                                    const mini_graph::CanvasVector &worldEnd) {
+        const QPointF start = view.MapFromWorld(worldStart);
+        const QPointF end = view.MapFromWorld(worldEnd);
+        QMouseEvent press(QEvent::MouseButtonPress,
+                          start, start, start,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        view.mousePressEvent(&press);
+        QMouseEvent move(QEvent::MouseMove,
+                         end, end, end,
+                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        view.mouseMoveEvent(&move);
+        QMouseEvent release(QEvent::MouseButtonRelease,
+                            end, end, end,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        view.mouseReleaseEvent(&release);
+    };
+
+    const auto verifySelected = [&document, pointId, lineId, arcId, circleId,
+                                 ellipseId, polylineId, splineId, groupId,
+                                 outsideId]() {
+        QVERIFY(document.IsItemSelected(pointId));
+        QVERIFY(document.IsItemSelected(lineId));
+        QVERIFY(document.IsItemSelected(arcId));
+        QVERIFY(document.IsItemSelected(circleId));
+        QVERIFY(document.IsItemSelected(ellipseId));
+        QVERIFY(document.IsItemSelected(polylineId));
+        QVERIFY(document.IsItemSelected(splineId));
+        QVERIFY(document.IsItemSelected(groupId));
+        QVERIFY(!document.IsItemSelected(outsideId));
+    };
+
+    dragSelect(mini_graph::CanvasVector(-200.0, -100.0),
+               mini_graph::CanvasVector(220.0, 180.0));
+    verifySelected();
+
+    document.ClearSelection();
+    dragSelect(mini_graph::CanvasVector(220.0, 180.0),
+               mini_graph::CanvasVector(-200.0, -100.0));
+    verifySelected();
+}
+
+void CanvasCoreTest::CanvasViewCrossingSelectionUsesCanvasEntityPaths()
+{
+    mini_graph::CanvasDocument document;
+    const qreal pi = std::acos(-1.0);
+
+    mini_graph::CanvasEllipse ellipse;
+    QVERIFY(ellipse.SetGeometry(mini_graph::CanvasVector(-200.0, 0.0),
+                                mini_graph::CanvasVector(50.0, 0.0),
+                                0.5, false));
+    const mini_graph::ItemId ellipseId = document.AddEntity(ellipse);
+
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(2,
+                           QVector<mini_graph::CanvasVector>()
+                           << mini_graph::CanvasVector(-100.0, 0.0)
+                           << mini_graph::CanvasVector(-60.0, 80.0)
+                           << mini_graph::CanvasVector(-20.0, 0.0),
+                           QVector<qreal>() << 0.0 << 0.0 << 0.0
+                           << 1.0 << 1.0 << 1.0,
+                           QVector<qreal>(), false, false));
+    const mini_graph::ItemId splineId = document.AddEntity(spline);
+
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasArc(
+                                    mini_graph::CanvasVector(100.0, 0.0),
+                                    50.0, 0.0, pi / 2.0)));
+    const mini_graph::ItemId polylineId = document.AddEntity(polyline);
+
+    mini_graph::CanvasGroupContainer group;
+    QVERIFY(group.AddChild(mini_graph::CanvasLine(
+                               mini_graph::CanvasVector(200.0, 150.0),
+                               mini_graph::CanvasVector(300.0, 150.0))));
+    const mini_graph::ItemId groupId = document.AddEntity(group);
+
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+
+    const auto crossingSelect = [&view](const QPointF &worldTopLeft,
+                                        const QPointF &worldBottomRight) {
+        const QPointF start = view.MapFromWorld(mini_graph::CanvasVector(
+                    worldBottomRight.x(), worldTopLeft.y()));
+        const QPointF end = view.MapFromWorld(mini_graph::CanvasVector(
+                    worldTopLeft.x(), worldBottomRight.y()));
+        QMouseEvent press(QEvent::MouseButtonPress,
+                          start, start, start,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        view.mousePressEvent(&press);
+        QMouseEvent move(QEvent::MouseMove,
+                         end, end, end,
+                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        view.mouseMoveEvent(&move);
+        QMouseEvent release(QEvent::MouseButtonRelease,
+                            end, end, end,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        view.mouseReleaseEvent(&release);
+    };
+
+    crossingSelect(QPointF(-210.0, -10.0), QPointF(-190.0, 10.0));
+    QVERIFY(!document.IsItemSelected(ellipseId));
+    crossingSelect(QPointF(-210.0, 20.0), QPointF(-190.0, 30.0));
+    QVERIFY(document.IsItemSelected(ellipseId));
+
+    document.ClearSelection();
+    crossingSelect(QPointF(-70.0, 60.0), QPointF(-50.0, 70.0));
+    QVERIFY(!document.IsItemSelected(splineId));
+    crossingSelect(QPointF(-70.0, 35.0), QPointF(-50.0, 45.0));
+    QVERIFY(document.IsItemSelected(splineId));
+
+    document.ClearSelection();
+    crossingSelect(QPointF(130.0, 30.0), QPointF(140.0, 40.0));
+    QVERIFY(document.IsItemSelected(polylineId));
+
+    document.ClearSelection();
+    crossingSelect(QPointF(240.0, 145.0), QPointF(260.0, 155.0));
+    QVERIFY(document.IsItemSelected(groupId));
+    QCOMPARE(document.GetSelectedItemCount(), 1);
+}
+
+void CanvasCoreTest::CanvasViewEntityHitTestRespectsGroupVisibility()
+{
+    mini_graph::CanvasDocument document;
+
+    mini_graph::CanvasLine hiddenChild(mini_graph::CanvasVector(-100.0, 0.0),
+                                       mini_graph::CanvasVector(-50.0, 0.0));
+    mini_graph::StruCanvasStyle hiddenChildStyle = hiddenChild.GetStyle();
+    hiddenChildStyle.visible = false;
+    QVERIFY(hiddenChild.SetStyle(hiddenChildStyle));
+    mini_graph::CanvasGroupContainer groupWithHiddenChild;
+    QVERIFY(groupWithHiddenChild.AddChild(hiddenChild));
+    const mini_graph::ItemId hiddenChildGroupId =
+            document.AddEntity(groupWithHiddenChild);
+
+    mini_graph::CanvasGroupContainer hiddenGroup;
+    QVERIFY(hiddenGroup.AddChild(mini_graph::CanvasLine(
+                                     mini_graph::CanvasVector(50.0, 0.0),
+                                     mini_graph::CanvasVector(100.0, 0.0))));
+    mini_graph::StruCanvasStyle hiddenGroupStyle = hiddenGroup.GetStyle();
+    hiddenGroupStyle.visible = false;
+    QVERIFY(hiddenGroup.SetStyle(hiddenGroupStyle));
+    const mini_graph::ItemId hiddenGroupId = document.AddEntity(hiddenGroup);
+
+    mini_graph::CanvasGroupContainer visibleGroup;
+    QVERIFY(visibleGroup.AddChild(mini_graph::CanvasLine(
+                                      mini_graph::CanvasVector(150.0, 0.0),
+                                      mini_graph::CanvasVector(200.0, 0.0))));
+    const mini_graph::ItemId visibleGroupId = document.AddEntity(visibleGroup);
+
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+
+    const auto clickAt = [&view](const mini_graph::CanvasVector &worldPosition) {
+        const QPointF position = view.MapFromWorld(worldPosition);
+        QMouseEvent press(QEvent::MouseButtonPress,
+                          position, position, position,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        view.mousePressEvent(&press);
+        QMouseEvent release(QEvent::MouseButtonRelease,
+                            position, position, position,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        view.mouseReleaseEvent(&release);
+    };
+
+    QVERIFY(hiddenChildGroupId != 0);
+    QVERIFY(hiddenGroupId != 0);
+    QVERIFY(visibleGroupId != 0);
+    clickAt(mini_graph::CanvasVector(175.0, 0.0));
+    QVERIFY(document.IsItemSelected(visibleGroupId));
+    document.ClearSelection();
+    clickAt(mini_graph::CanvasVector(-75.0, 0.0));
+    QCOMPARE(document.GetSelectedItemCount(), 0);
+    clickAt(mini_graph::CanvasVector(75.0, 0.0));
+    QCOMPARE(document.GetSelectedItemCount(), 0);
 }
 
 void CanvasCoreTest::CanvasViewSelectsPolylineByStroke()

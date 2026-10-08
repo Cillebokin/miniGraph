@@ -119,8 +119,7 @@ bool SegmentIntersectsRect(const CanvasVector &start,
 }
 
 bool PolylineIntersectsRect(const QVector<CanvasVector> &points,
-                            const QRectF &rect,
-                            bool closed = false)
+                            const QRectF &rect)
 {
     if (points.isEmpty()) {
         return false;
@@ -140,69 +139,7 @@ bool PolylineIntersectsRect(const QVector<CanvasVector> &points,
         }
     }
 
-    if (closed && points.size() > 2
-            && SegmentIntersectsRect(points.last(), points.first(), rect)) {
-        return true;
-    }
-
     return false;
-}
-
-bool IsGeometryBoundsContained(const QRectF &geometryBounds,
-                               const QRectF &selectionRect)
-{
-    return selectionRect.contains(geometryBounds.topLeft())
-            && selectionRect.contains(geometryBounds.bottomRight());
-}
-
-qreal DistanceSquaredToArc(const CanvasVector &point,
-                           const StruArcGeometry &geometry)
-{
-    const CanvasVector delta = point - geometry.center;
-    const qreal distance = delta.Length();
-    if (distance > 0.0
-            && IsAngleOnArc(geometry,
-                            std::atan2(delta.GetY(), delta.GetX()))) {
-        const qreal radialDelta = distance - geometry.radius;
-        return radialDelta * radialDelta;
-    }
-
-    const CanvasVector startPoint = CalculateArcPoint(geometry, geometry.startAngle);
-    const CanvasVector endPoint = CalculateArcPoint(geometry, geometry.endAngle);
-    return qMin(point.SquaredDistanceTo(startPoint),
-                point.SquaredDistanceTo(endPoint));
-}
-
-qreal DistanceSquaredToCircle(const CanvasVector &point,
-                              const StruCircleGeometry &geometry)
-{
-    const CanvasVector delta = point - geometry.center;
-    const qreal distance = delta.Length();
-    const qreal radialDelta = distance - geometry.radius;
-    return radialDelta * radialDelta;
-}
-
-qreal DistanceSquaredToPolyline(const CanvasVector &point,
-                                const StruPolylineGeometry &geometry)
-{
-    qreal bestDistanceSquared = std::numeric_limits<qreal>::max();
-    for (int index = 1; index < geometry.vertices.size(); ++index) {
-        bestDistanceSquared = qMin(
-                    bestDistanceSquared,
-                    DistanceSquaredToSegment(point,
-                                             geometry.vertices.at(index - 1),
-                                             geometry.vertices.at(index)));
-    }
-
-    if (geometry.closed && geometry.vertices.size() > 2) {
-        bestDistanceSquared = qMin(
-                    bestDistanceSquared,
-                    DistanceSquaredToSegment(point,
-                                             geometry.vertices.last(),
-                                             geometry.vertices.first()));
-    }
-
-    return bestDistanceSquared;
 }
 
 qreal CalculateHitToleranceSquared(qreal zoom, qreal displaySize)
@@ -212,6 +149,199 @@ qreal CalculateHitToleranceSquared(qreal zoom, qreal displaySize)
                                       halfDisplaySize);
     const qreal worldTolerance = pixelTolerance / zoom;
     return worldTolerance * worldTolerance;
+}
+
+struct EntitySelectionPath
+{
+    QVector<CanvasVector> points;
+    qreal displaySize;
+};
+
+void AppendSelectionPath(const QVector<CanvasVector> &points,
+                         qreal displaySize,
+                         QVector<EntitySelectionPath> *paths)
+{
+    if (!paths || points.isEmpty()) {
+        return;
+    }
+
+    EntitySelectionPath path;
+    path.points = points;
+    path.displaySize = displaySize;
+    paths->append(path);
+}
+
+void CollectEntitySelectionPaths(const CanvasEntity &entity,
+                                 qreal maximumWorldError,
+                                 QVector<EntitySelectionPath> *paths)
+{
+    if (!paths || !entity.GetStyle().visible || !entity.IsValid()) {
+        return;
+    }
+
+    const StruCanvasStyle &style = entity.GetStyle();
+    switch (entity.GetType()) {
+    case CanvasEntityType::Point: {
+        const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(&entity);
+        if (point) {
+            AppendSelectionPath(QVector<CanvasVector>() << point->GetPosition(),
+                                style.pointSize, paths);
+        }
+        return;
+    }
+    case CanvasEntityType::Line: {
+        const CanvasLine *line = dynamic_cast<const CanvasLine *>(&entity);
+        if (line) {
+            AppendSelectionPath(QVector<CanvasVector>()
+                                << line->GetStartPoint()
+                                << line->GetEndPoint(),
+                                style.strokeWidth, paths);
+        }
+        return;
+    }
+    case CanvasEntityType::Arc: {
+        const CanvasArc *arc = dynamic_cast<const CanvasArc *>(&entity);
+        if (arc) {
+            StruArcGeometry geometry;
+            geometry.center = arc->GetCenter();
+            geometry.radius = arc->GetRadius();
+            geometry.startAngle = arc->GetStartAngle();
+            geometry.endAngle = arc->GetEndAngle();
+            geometry.reversed = arc->IsReversed();
+            AppendSelectionPath(TessellateArc(geometry, maximumWorldError),
+                                style.strokeWidth, paths);
+        }
+        return;
+    }
+    case CanvasEntityType::Circle: {
+        const CanvasCircle *circle = dynamic_cast<const CanvasCircle *>(&entity);
+        if (circle) {
+            StruCircleGeometry geometry;
+            geometry.center = circle->GetCenter();
+            geometry.radius = circle->GetRadius();
+            AppendSelectionPath(TessellateCircle(geometry, maximumWorldError),
+                                style.strokeWidth, paths);
+        }
+        return;
+    }
+    case CanvasEntityType::Ellipse: {
+        const CanvasEllipse *ellipse =
+                dynamic_cast<const CanvasEllipse *>(&entity);
+        if (ellipse) {
+            AppendSelectionPath(detail::TessellateEllipseForSelection(
+                                    *ellipse, maximumWorldError, nullptr),
+                                style.strokeWidth, paths);
+        }
+        return;
+    }
+    case CanvasEntityType::Polyline: {
+        const CanvasPolyline *polyline =
+                dynamic_cast<const CanvasPolyline *>(&entity);
+        if (!polyline) {
+            return;
+        }
+        for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+            const CanvasEntity *segment = polyline->GetSegment(index);
+            if (const CanvasLine *line =
+                    dynamic_cast<const CanvasLine *>(segment)) {
+                AppendSelectionPath(QVector<CanvasVector>()
+                                    << line->GetStartPoint()
+                                    << line->GetEndPoint(),
+                                    style.strokeWidth, paths);
+            } else if (const CanvasArc *arc =
+                       dynamic_cast<const CanvasArc *>(segment)) {
+                StruArcGeometry geometry;
+                geometry.center = arc->GetCenter();
+                geometry.radius = arc->GetRadius();
+                geometry.startAngle = arc->GetStartAngle();
+                geometry.endAngle = arc->GetEndAngle();
+                geometry.reversed = arc->IsReversed();
+                AppendSelectionPath(TessellateArc(geometry,
+                                                   maximumWorldError),
+                                    style.strokeWidth, paths);
+            }
+        }
+        return;
+    }
+    case CanvasEntityType::Spline: {
+        const CanvasSpline *spline = dynamic_cast<const CanvasSpline *>(&entity);
+        if (!spline) {
+            return;
+        }
+        const QVector<QVector<CanvasVector>> splinePaths =
+                detail::TessellateSplineForSelection(*spline,
+                                                     maximumWorldError);
+        for (const QVector<CanvasVector> &splinePath : splinePaths) {
+            AppendSelectionPath(splinePath, style.strokeWidth, paths);
+        }
+        return;
+    }
+    case CanvasEntityType::GroupContainer: {
+        const CanvasGroupContainer *group =
+                dynamic_cast<const CanvasGroupContainer *>(&entity);
+        if (!group) {
+            return;
+        }
+        for (int index = 0; index < group->GetChildCount(); ++index) {
+            const CanvasEntity *child = group->GetChild(index);
+            if (child) {
+                CollectEntitySelectionPaths(*child, maximumWorldError, paths);
+            }
+        }
+        return;
+    }
+    case CanvasEntityType::Invalid:
+        return;
+    }
+}
+
+qreal DistanceSquaredToPath(const CanvasVector &point,
+                            const QVector<CanvasVector> &path)
+{
+    if (path.isEmpty()) {
+        return std::numeric_limits<qreal>::max();
+    }
+    if (path.size() == 1) {
+        return point.SquaredDistanceTo(path.first());
+    }
+
+    qreal bestDistanceSquared = std::numeric_limits<qreal>::max();
+    for (int index = 1; index < path.size(); ++index) {
+        bestDistanceSquared = qMin(
+                    bestDistanceSquared,
+                    DistanceSquaredToSegment(point,
+                                             path.at(index - 1),
+                                             path.at(index)));
+    }
+    return bestDistanceSquared;
+}
+
+bool AreEntityPathsContained(const QVector<EntitySelectionPath> &paths,
+                             const QRectF &rect)
+{
+    if (paths.isEmpty()) {
+        return false;
+    }
+
+    for (const EntitySelectionPath &path : paths) {
+        for (const CanvasVector &point : path.points) {
+            if (!rect.contains(QPointF(point.GetX(), point.GetY()))) {
+                return false;
+            }
+        }
+    }
+    return true;
+}
+
+bool DoEntityPathsIntersectRect(const QVector<EntitySelectionPath> &paths,
+                                const QRectF &rect)
+{
+    for (const EntitySelectionPath &path : paths) {
+        if (PolylineIntersectsRect(path.points, rect)) {
+            return true;
+        }
+    }
+    return false;
 }
 
 } // namespace
@@ -1907,6 +2037,7 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
     const CanvasVector worldPosition = MapToWorld(viewportPosition);
     const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
                                    CanvasTransform::GetMinimumZoom());
+    const qreal maximumWorldError = qMax<qreal>(1.0e-6, 0.5 / zoom);
     qreal bestDistanceSquared = std::numeric_limits<qreal>::max();
     ItemId hitId = 0;
 
@@ -1924,67 +2055,21 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
         }
     };
 
-    const QVector<StruPointPrimitive> &points = m_Document->GetPointPrimitives();
-    for (int pointIndex = points.size() - 1; pointIndex >= 0; --pointIndex) {
-        const StruPointPrimitive &point = points.at(pointIndex);
-        if (!point.style.visible) {
+    const QVector<ItemId> ids = m_Document->GetItemIds();
+    for (int itemIndex = ids.size() - 1; itemIndex >= 0; --itemIndex) {
+        const ItemId id = ids.at(itemIndex);
+        const CanvasEntity *entity = m_Document->GetEntity(id);
+        if (!entity) {
             continue;
         }
-        considerHit(point.id,
-                    worldPosition.SquaredDistanceTo(point.geometry.position),
-                    CalculateHitToleranceSquared(zoom, point.style.pointSize));
-    }
-
-    const QVector<StruLinePrimitive> &lines = m_Document->GetLinePrimitives();
-    for (int lineIndex = lines.size() - 1; lineIndex >= 0; --lineIndex) {
-        const StruLinePrimitive &line = lines.at(lineIndex);
-        if (!line.style.visible) {
-            continue;
+        QVector<EntitySelectionPath> paths;
+        CollectEntitySelectionPaths(*entity, maximumWorldError, &paths);
+        for (const EntitySelectionPath &path : paths) {
+            const qreal distanceSquared = DistanceSquaredToPath(worldPosition,
+                                                                 path.points);
+            considerHit(id, distanceSquared,
+                        CalculateHitToleranceSquared(zoom, path.displaySize));
         }
-        const qreal distanceSquared = DistanceSquaredToSegment(worldPosition,
-                                                                line.geometry.startPoint,
-                                                                line.geometry.endPoint);
-        considerHit(line.id,
-                    distanceSquared,
-                    CalculateHitToleranceSquared(zoom, line.style.strokeWidth));
-    }
-
-    const QVector<StruArcPrimitive> &arcs = m_Document->GetArcPrimitives();
-    for (int arcIndex = arcs.size() - 1; arcIndex >= 0; --arcIndex) {
-        const StruArcPrimitive &arc = arcs.at(arcIndex);
-        if (!arc.style.visible) {
-            continue;
-        }
-        considerHit(arc.id,
-                    DistanceSquaredToArc(worldPosition, arc.geometry),
-                    CalculateHitToleranceSquared(zoom, arc.style.strokeWidth));
-    }
-
-    const QVector<StruCirclePrimitive> &circles = m_Document->GetCirclePrimitives();
-    for (int circleIndex = circles.size() - 1; circleIndex >= 0; --circleIndex) {
-        const StruCirclePrimitive &circle = circles.at(circleIndex);
-        if (!circle.style.visible) {
-            continue;
-        }
-        considerHit(circle.id,
-                    DistanceSquaredToCircle(worldPosition, circle.geometry),
-                    CalculateHitToleranceSquared(zoom, circle.style.strokeWidth));
-    }
-
-    const QVector<StruPolylinePrimitive> &polylines =
-            m_Document->GetPolylinePrimitives();
-    for (int polylineIndex = polylines.size() - 1;
-         polylineIndex >= 0;
-         --polylineIndex) {
-        const StruPolylinePrimitive &polyline = polylines.at(polylineIndex);
-        if (!polyline.style.visible) {
-            continue;
-        }
-        considerHit(polyline.id,
-                    DistanceSquaredToPolyline(worldPosition,
-                                              polyline.geometry),
-                    CalculateHitToleranceSquared(zoom,
-                                                 polyline.style.strokeWidth));
     }
 
     return hitId;
@@ -1999,123 +2084,23 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
     }
 
     const QRectF normalizedRect = worldRect.normalized();
-
-    const auto isPointSelected = [&normalizedRect](const CanvasVector &point) {
-        return normalizedRect.contains(QPointF(point.GetX(), point.GetY()));
-    };
-
-    const auto isArcSelected = [this, &normalizedRect, crossing](
-            const StruArcGeometry &geometry) {
-        const QRectF geometryBounds = GetGeometryBounds(geometry);
-        if (geometryBounds.isEmpty()
-                || !geometryBounds.intersects(normalizedRect)) {
-            return false;
-        }
-
-        if (!crossing) {
-            return IsGeometryBoundsContained(geometryBounds, normalizedRect);
-        }
-
-        const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
-                                       CanvasTransform::GetMinimumZoom());
-        const qreal maximumWorldError = qMax<qreal>(1.0e-6, 0.5 / zoom);
-        return PolylineIntersectsRect(TessellateArc(geometry,
-                                                   maximumWorldError),
-                                      normalizedRect);
-    };
-
-    const auto isCircleSelected = [this, &normalizedRect, crossing](
-            const StruCircleGeometry &geometry) {
-        const QRectF geometryBounds = GetGeometryBounds(geometry);
-        if (geometryBounds.isEmpty()
-                || !geometryBounds.intersects(normalizedRect)) {
-            return false;
-        }
-
-        if (!crossing) {
-            return IsGeometryBoundsContained(geometryBounds, normalizedRect);
-        }
-
-        const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
-                                       CanvasTransform::GetMinimumZoom());
-        const qreal maximumWorldError = qMax<qreal>(1.0e-6, 0.5 / zoom);
-        return PolylineIntersectsRect(TessellateCircle(geometry,
-                                                      maximumWorldError),
-                                      normalizedRect);
-    };
-
-    const auto isPolylineSelected = [&normalizedRect, crossing](
-            const StruPolylineGeometry &geometry) {
-        if (crossing) {
-            return PolylineIntersectsRect(geometry.vertices,
-                                          normalizedRect,
-                                          geometry.closed);
-        }
-
-        for (const CanvasVector &vertex : geometry.vertices) {
-            if (!normalizedRect.contains(QPointF(vertex.GetX(), vertex.GetY()))) {
-                return false;
-            }
-        }
-        return true;
-    };
-
-    const QVector<StruPointPrimitive> &points = m_Document->GetPointPrimitives();
-    for (const StruPointPrimitive &point : points) {
-        if (!point.style.visible) {
+    const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
+                                   CanvasTransform::GetMinimumZoom());
+    const qreal maximumWorldError = qMax<qreal>(1.0e-6, 0.5 / zoom);
+    const QVector<ItemId> ids = m_Document->GetItemIds();
+    for (const ItemId id : ids) {
+        const CanvasEntity *entity = m_Document->GetEntity(id);
+        if (!entity) {
             continue;
         }
-        if (isPointSelected(point.geometry.position)) {
-            selectedIds.append(point.id);
-        }
-    }
 
-    const QVector<StruLinePrimitive> &lines = m_Document->GetLinePrimitives();
-    for (const StruLinePrimitive &line : lines) {
-        if (!line.style.visible) {
-            continue;
-        }
+        QVector<EntitySelectionPath> paths;
+        CollectEntitySelectionPaths(*entity, maximumWorldError, &paths);
         const bool selected = crossing
-                ? SegmentIntersectsRect(line.geometry.startPoint,
-                                        line.geometry.endPoint,
-                                        normalizedRect)
-                : (normalizedRect.contains(QPointF(line.geometry.startPoint.GetX(),
-                                                   line.geometry.startPoint.GetY()))
-                   && normalizedRect.contains(QPointF(line.geometry.endPoint.GetX(),
-                                                      line.geometry.endPoint.GetY())));
+                ? DoEntityPathsIntersectRect(paths, normalizedRect)
+                : AreEntityPathsContained(paths, normalizedRect);
         if (selected) {
-            selectedIds.append(line.id);
-        }
-    }
-
-    const QVector<StruArcPrimitive> &arcs = m_Document->GetArcPrimitives();
-    for (const StruArcPrimitive &arc : arcs) {
-        if (!arc.style.visible) {
-            continue;
-        }
-        if (isArcSelected(arc.geometry)) {
-            selectedIds.append(arc.id);
-        }
-    }
-
-    const QVector<StruCirclePrimitive> &circles = m_Document->GetCirclePrimitives();
-    for (const StruCirclePrimitive &circle : circles) {
-        if (!circle.style.visible) {
-            continue;
-        }
-        if (isCircleSelected(circle.geometry)) {
-            selectedIds.append(circle.id);
-        }
-    }
-
-    const QVector<StruPolylinePrimitive> &polylines =
-            m_Document->GetPolylinePrimitives();
-    for (const StruPolylinePrimitive &polyline : polylines) {
-        if (!polyline.style.visible) {
-            continue;
-        }
-        if (isPolylineSelected(polyline.geometry)) {
-            selectedIds.append(polyline.id);
+            selectedIds.append(id);
         }
     }
 
