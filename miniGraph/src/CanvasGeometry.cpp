@@ -1,8 +1,10 @@
 #include "MiniGraph/CanvasGeometry.h"
+#include "MiniGraph/CanvasEntities.h"
 
 #include <QtGlobal>
 
 #include <cmath>
+#include <limits>
 
 namespace mini_graph {
 
@@ -99,6 +101,387 @@ int CalculateSegmentCount(qreal sweep,
     return qBound(minimumSegments,
                   qMax(1, calculatedSegments),
                   MAX_TESSELLATION_SEGMENTS);
+}
+
+class SafeBounds
+{
+public:
+    SafeBounds()
+        : m_HasValue(false)
+        , m_Left(0.0)
+        , m_Right(0.0)
+        , m_Top(0.0)
+        , m_Bottom(0.0)
+    {
+    }
+
+    bool IncludePoint(qreal x, qreal y)
+    {
+        if (!IsFinite(x) || !IsFinite(y)) {
+            return false;
+        }
+
+        if (!m_HasValue) {
+            m_Left = x;
+            m_Right = x;
+            m_Top = y;
+            m_Bottom = y;
+            m_HasValue = true;
+            return true;
+        }
+
+        m_Left = qMin(m_Left, x);
+        m_Right = qMax(m_Right, x);
+        m_Top = qMin(m_Top, y);
+        m_Bottom = qMax(m_Bottom, y);
+        return true;
+    }
+
+    bool IncludePoint(const CanvasVector &point)
+    {
+        return point.IsValid() && IncludePoint(point.GetX(), point.GetY());
+    }
+
+    bool IncludeExtents(qreal left, qreal top, qreal right, qreal bottom)
+    {
+        return left <= right && top <= bottom
+                && IncludePoint(left, top)
+                && IncludePoint(right, bottom);
+    }
+
+    bool ToRect(QRectF *rect) const
+    {
+        if (!rect || !m_HasValue) {
+            return false;
+        }
+
+        qreal width = m_Right - m_Left;
+        qreal height = m_Bottom - m_Top;
+        if (!IsFinite(width) || !IsFinite(height)
+                || width < 0.0 || height < 0.0) {
+            return false;
+        }
+
+        const qreal infinity = std::numeric_limits<qreal>::infinity();
+        if (m_Left + width < m_Right) {
+            width = std::nextafter(width, infinity);
+        }
+        if (m_Top + height < m_Bottom) {
+            height = std::nextafter(height, infinity);
+        }
+        if (!IsFinite(width) || !IsFinite(height)) {
+            return false;
+        }
+
+        const QRectF candidate(m_Left, m_Top, width, height);
+        if (!IsFinite(candidate.right()) || !IsFinite(candidate.bottom())
+                || candidate.right() < m_Right
+                || candidate.bottom() < m_Bottom) {
+            return false;
+        }
+
+        *rect = candidate;
+        return true;
+    }
+
+private:
+    bool m_HasValue;
+    qreal m_Left;
+    qreal m_Right;
+    qreal m_Top;
+    qreal m_Bottom;
+};
+
+bool CalculateDirectedSweep(qreal startAngle,
+                            qreal endAngle,
+                            bool reversed,
+                            qreal *sweep)
+{
+    if (!sweep || !IsFinite(startAngle) || !IsFinite(endAngle)) {
+        return false;
+    }
+
+    const qreal normalizedStart = NormalizeAngle(startAngle);
+    const qreal normalizedEnd = NormalizeAngle(endAngle);
+    const qreal directedDelta = reversed
+            ? normalizedStart - normalizedEnd
+            : normalizedEnd - normalizedStart;
+    *sweep = NormalizeAngle(directedDelta);
+    return IsFinite(*sweep);
+}
+
+qreal CalculateDirectedProgress(qreal startAngle,
+                                qreal angle,
+                                bool reversed)
+{
+    const qreal normalizedStart = NormalizeAngle(startAngle);
+    const qreal normalizedAngle = NormalizeAngle(angle);
+    const qreal directedDelta = reversed
+            ? normalizedStart - normalizedAngle
+            : normalizedAngle - normalizedStart;
+    return NormalizeAngle(directedDelta);
+}
+
+void CalculateSinCos(qreal angle, qreal *sine, qreal *cosine)
+{
+    const qreal normalizedAngle = NormalizeAngle(angle);
+    if (normalizedAngle == 0.0) {
+        *sine = 0.0;
+        *cosine = 1.0;
+    } else if (normalizedAngle == TWO_PI / 4.0) {
+        *sine = 1.0;
+        *cosine = 0.0;
+    } else if (normalizedAngle == TWO_PI / 2.0) {
+        *sine = 0.0;
+        *cosine = -1.0;
+    } else if (normalizedAngle == TWO_PI * 3.0 / 4.0) {
+        *sine = -1.0;
+        *cosine = 0.0;
+    } else {
+        *sine = std::sin(angle);
+        *cosine = std::cos(angle);
+    }
+}
+
+bool IsAngleOnDirectedSweep(qreal startAngle,
+                            qreal sweep,
+                            qreal angle,
+                            bool reversed)
+{
+    if (!IsFinite(angle)) {
+        return false;
+    }
+    return CalculateDirectedProgress(startAngle, angle, reversed)
+            <= sweep + GEOMETRY_TOLERANCE;
+}
+
+bool IncludeFullCircle(const CanvasVector &center,
+                       qreal radius,
+                       SafeBounds *bounds)
+{
+    if (!bounds || !center.IsValid() || !IsFinite(radius) || radius <= 0.0) {
+        return false;
+    }
+    return bounds->IncludeExtents(center.GetX() - radius,
+                                  center.GetY() - radius,
+                                  center.GetX() + radius,
+                                  center.GetY() + radius);
+}
+
+bool IncludeArcBounds(const CanvasArc &arc, SafeBounds *bounds)
+{
+    if (!bounds || !arc.IsValid()) {
+        return false;
+    }
+
+    const CanvasVector startPoint = arc.GetStartPoint();
+    const CanvasVector endPoint = arc.GetEndPoint();
+    if (!bounds->IncludePoint(startPoint) || !bounds->IncludePoint(endPoint)) {
+        return false;
+    }
+
+    qreal sweep = 0.0;
+    if (!CalculateDirectedSweep(arc.GetStartAngle(), arc.GetEndAngle(),
+                                arc.IsReversed(), &sweep)) {
+        return false;
+    }
+
+    if (sweep <= GEOMETRY_TOLERANCE
+            || TWO_PI - sweep <= GEOMETRY_TOLERANCE) {
+        return IncludeFullCircle(arc.GetCenter(), arc.GetRadius(), bounds);
+    }
+
+    const CanvasVector center = arc.GetCenter();
+    const qreal radius = arc.GetRadius();
+    const qreal cardinalX[] = {
+        center.GetX() + radius,
+        center.GetX(),
+        center.GetX() - radius,
+        center.GetX()
+    };
+    const qreal cardinalY[] = {
+        center.GetY(),
+        center.GetY() + radius,
+        center.GetY(),
+        center.GetY() - radius
+    };
+    const qreal cardinalAngles[] = {
+        0.0,
+        TWO_PI / 4.0,
+        TWO_PI / 2.0,
+        TWO_PI * 3.0 / 4.0
+    };
+    for (int index = 0; index < 4; ++index) {
+        const qreal angle = cardinalAngles[index];
+        if (!IsAngleOnDirectedSweep(arc.GetStartAngle(), sweep,
+                                    angle, arc.IsReversed())) {
+            continue;
+        }
+
+        if (!bounds->IncludePoint(cardinalX[index], cardinalY[index])) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool CalculateEllipsePoint(const CanvasEllipse &ellipse,
+                           qreal parameter,
+                           qreal *x,
+                           qreal *y)
+{
+    if (!x || !y || !ellipse.IsValid() || !IsFinite(parameter)) {
+        return false;
+    }
+
+    const CanvasVector center = ellipse.GetCenter();
+    const CanvasVector majorAxis = ellipse.GetMajorAxis();
+    const qreal ratio = ellipse.GetMinorMajorRatio();
+    const qreal minorX = -majorAxis.GetY() * ratio;
+    const qreal minorY = majorAxis.GetX() * ratio;
+    qreal sine = 0.0;
+    qreal cosine = 0.0;
+    CalculateSinCos(parameter, &sine, &cosine);
+    const qreal offsetX = majorAxis.GetX() * cosine + minorX * sine;
+    const qreal offsetY = majorAxis.GetY() * cosine + minorY * sine;
+    const qreal pointX = center.GetX() + offsetX;
+    const qreal pointY = center.GetY() + offsetY;
+    if (!IsFinite(minorX) || !IsFinite(minorY)
+            || !IsFinite(offsetX) || !IsFinite(offsetY)
+            || !IsFinite(pointX) || !IsFinite(pointY)) {
+        return false;
+    }
+
+    *x = pointX;
+    *y = pointY;
+    return true;
+}
+
+bool IncludeEllipseExtents(const CanvasEllipse &ellipse,
+                           SafeBounds *bounds)
+{
+    if (!bounds || !ellipse.IsValid()) {
+        return false;
+    }
+
+    const CanvasVector center = ellipse.GetCenter();
+    const CanvasVector majorAxis = ellipse.GetMajorAxis();
+    const qreal ratio = ellipse.GetMinorMajorRatio();
+    const qreal xRadius = std::hypot(majorAxis.GetX(),
+                                     majorAxis.GetY() * ratio);
+    const qreal yRadius = std::hypot(majorAxis.GetY(),
+                                     majorAxis.GetX() * ratio);
+    if (!IsFinite(xRadius) || !IsFinite(yRadius)) {
+        return false;
+    }
+
+    return bounds->IncludeExtents(center.GetX() - xRadius,
+                                  center.GetY() - yRadius,
+                                  center.GetX() + xRadius,
+                                  center.GetY() + yRadius);
+}
+
+bool IncludeEllipseCriticalPoint(const CanvasEllipse &ellipse,
+                                 qreal parameter,
+                                 bool xIsExact,
+                                 bool positiveExtent,
+                                 qreal exactExtent,
+                                 SafeBounds *bounds)
+{
+    qreal x = 0.0;
+    qreal y = 0.0;
+    if (!CalculateEllipsePoint(ellipse, parameter, &x, &y)) {
+        return false;
+    }
+
+    const qreal centerCoordinate = xIsExact
+            ? ellipse.GetCenter().GetX() : ellipse.GetCenter().GetY();
+    const qreal exactCoordinate = positiveExtent
+            ? centerCoordinate + exactExtent
+            : centerCoordinate - exactExtent;
+    if (!IsFinite(exactCoordinate)) {
+        return false;
+    }
+    if (xIsExact) {
+        x = exactCoordinate;
+    } else {
+        y = exactCoordinate;
+    }
+    return bounds->IncludePoint(x, y);
+}
+
+bool IncludeEllipseArcBounds(const CanvasEllipse &ellipse, SafeBounds *bounds)
+{
+    if (!bounds || !ellipse.IsValid()) {
+        return false;
+    }
+
+    if (!ellipse.IsArc()) {
+        return IncludeEllipseExtents(ellipse, bounds);
+    }
+
+    qreal sweep = 0.0;
+    if (!CalculateDirectedSweep(ellipse.GetStartParameter(),
+                                ellipse.GetEndParameter(),
+                                ellipse.IsReversed(), &sweep)) {
+        return false;
+    }
+    if (sweep <= GEOMETRY_TOLERANCE
+            || TWO_PI - sweep <= GEOMETRY_TOLERANCE) {
+        return IncludeEllipseExtents(ellipse, bounds);
+    }
+
+    qreal startX = 0.0;
+    qreal startY = 0.0;
+    qreal endX = 0.0;
+    qreal endY = 0.0;
+    if (!CalculateEllipsePoint(ellipse, ellipse.GetStartParameter(),
+                               &startX, &startY)
+            || !CalculateEllipsePoint(ellipse, ellipse.GetEndParameter(),
+                                      &endX, &endY)
+            || !bounds->IncludePoint(startX, startY)
+            || !bounds->IncludePoint(endX, endY)) {
+        return false;
+    }
+
+    const CanvasVector majorAxis = ellipse.GetMajorAxis();
+    const qreal ratio = ellipse.GetMinorMajorRatio();
+    const qreal minorX = -majorAxis.GetY() * ratio;
+    const qreal minorY = majorAxis.GetX() * ratio;
+    const qreal xRadius = std::hypot(majorAxis.GetX(), minorX);
+    const qreal yRadius = std::hypot(majorAxis.GetY(), minorY);
+    if (!IsFinite(minorX) || !IsFinite(minorY)
+            || !IsFinite(xRadius) || !IsFinite(yRadius)) {
+        return false;
+    }
+
+    const qreal xMaximumParameter = std::atan2(minorX,
+                                                majorAxis.GetX());
+    const qreal yMaximumParameter = std::atan2(minorY,
+                                                majorAxis.GetY());
+    const qreal candidateParameters[] = {
+        xMaximumParameter,
+        xMaximumParameter + TWO_PI / 2.0,
+        yMaximumParameter,
+        yMaximumParameter + TWO_PI / 2.0
+    };
+    for (int index = 0; index < 4; ++index) {
+        const qreal parameter = candidateParameters[index];
+        if (!IsAngleOnDirectedSweep(ellipse.GetStartParameter(), sweep,
+                                    parameter, ellipse.IsReversed())) {
+            continue;
+        }
+
+        const bool xIsExact = index < 2;
+        const bool positiveExtent = index == 0 || index == 2;
+        if (!IncludeEllipseCriticalPoint(ellipse, parameter, xIsExact,
+                                         positiveExtent,
+                                         xIsExact ? xRadius : yRadius,
+                                         bounds)) {
+            return false;
+        }
+    }
+    return true;
 }
 
 } // namespace
@@ -239,6 +622,126 @@ QRectF GetGeometryBounds(const StruPolylineGeometry &geometry)
     }
 
     return QRectF(left, top, right - left, bottom - top);
+}
+
+bool TryGetGeometryBounds(const CanvasEntity &entity, QRectF *bounds)
+{
+    if (!bounds) {
+        return false;
+    }
+
+    SafeBounds accumulatedBounds;
+    QVector<const CanvasEntity *> pendingEntities;
+    pendingEntities.append(&entity);
+
+    while (!pendingEntities.isEmpty()) {
+        const CanvasEntity *current = pendingEntities.takeLast();
+        if (!current) {
+            return false;
+        }
+
+        switch (current->GetType()) {
+        case CanvasEntityType::Point: {
+            const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(current);
+            if (!point || !point->IsValid()
+                    || !accumulatedBounds.IncludePoint(point->GetPosition())) {
+                return false;
+            }
+            break;
+        }
+        case CanvasEntityType::Line: {
+            const CanvasLine *line = dynamic_cast<const CanvasLine *>(current);
+            if (!line || !line->IsValid()
+                    || !accumulatedBounds.IncludePoint(line->GetStartPoint())
+                    || !accumulatedBounds.IncludePoint(line->GetEndPoint())) {
+                return false;
+            }
+            break;
+        }
+        case CanvasEntityType::Arc: {
+            const CanvasArc *arc = dynamic_cast<const CanvasArc *>(current);
+            if (!arc || !IncludeArcBounds(*arc, &accumulatedBounds)) {
+                return false;
+            }
+            break;
+        }
+        case CanvasEntityType::Circle: {
+            const CanvasCircle *circle =
+                    dynamic_cast<const CanvasCircle *>(current);
+            if (!circle || !circle->IsValid()) {
+                return false;
+            }
+            const CanvasVector center = circle->GetCenter();
+            const qreal radius = circle->GetRadius();
+            if (!accumulatedBounds.IncludeExtents(
+                        center.GetX() - radius,
+                        center.GetY() - radius,
+                        center.GetX() + radius,
+                        center.GetY() + radius)) {
+                return false;
+            }
+            break;
+        }
+        case CanvasEntityType::Ellipse: {
+            const CanvasEllipse *ellipse =
+                    dynamic_cast<const CanvasEllipse *>(current);
+            if (!ellipse || !IncludeEllipseArcBounds(*ellipse,
+                                                      &accumulatedBounds)) {
+                return false;
+            }
+            break;
+        }
+        case CanvasEntityType::Polyline: {
+            const CanvasPolyline *polyline =
+                    dynamic_cast<const CanvasPolyline *>(current);
+            if (!polyline || !polyline->IsValid()
+                    || polyline->GetSegmentCount() <= 0) {
+                return false;
+            }
+            for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+                pendingEntities.append(polyline->GetSegment(index));
+            }
+            break;
+        }
+        case CanvasEntityType::Spline: {
+            const CanvasSpline *spline =
+                    dynamic_cast<const CanvasSpline *>(current);
+            if (!spline || !spline->IsValid()
+                    || spline->GetControlPoints().isEmpty()) {
+                return false;
+            }
+            for (int index = 0;
+                 index < spline->GetControlPoints().size(); ++index) {
+                if (!accumulatedBounds.IncludePoint(
+                            spline->GetControlPoints().at(index))) {
+                    return false;
+                }
+            }
+            break;
+        }
+        case CanvasEntityType::GroupContainer: {
+            const CanvasGroupContainer *group =
+                    dynamic_cast<const CanvasGroupContainer *>(current);
+            if (!group || group->GetChildCount() <= 0) {
+                return false;
+            }
+            for (int index = 0; index < group->GetChildCount(); ++index) {
+                pendingEntities.append(group->GetChild(index));
+            }
+            break;
+        }
+        default:
+            return false;
+        }
+    }
+
+    QRectF candidateBounds;
+    if (!accumulatedBounds.ToRect(&candidateBounds)) {
+        return false;
+    }
+
+    *bounds = candidateBounds;
+    return true;
 }
 
 QVector<CanvasVector> TessellateArc(const StruArcGeometry &geometry,

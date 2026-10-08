@@ -1,5 +1,6 @@
 #pragma once
 
+#include "CanvasEntities.h"
 #include "CanvasTypes.h"
 
 #include <QRectF>
@@ -41,6 +42,11 @@ MINIGRAPH_EXPORT QRectF GetGeometryBounds(const StruCircleGeometry &geometry);
 
 // 返回多段线几何数据的包围矩形。
 MINIGRAPH_EXPORT QRectF GetGeometryBounds(const StruPolylineGeometry &geometry);
+
+// Calculates conservative geometric bounds, merging groups and using the spline control-point hull.
+// Returns false without changing the output for invalid entities or unrepresentable bounds.
+// Stroke width and point size are not included.
+MINIGRAPH_EXPORT bool TryGetGeometryBounds(const CanvasEntity &entity, QRectF *bounds);
 
 // 将圆弧离散为点序列，结果包含起点和终点。
 MINIGRAPH_EXPORT QVector<CanvasVector> TessellateArc(

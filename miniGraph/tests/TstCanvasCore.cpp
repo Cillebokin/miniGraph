@@ -97,6 +97,9 @@ private slots:
     void GeometryArcSweepFollowsDirection();
     void GeometryBoundsCoverAllPrimitiveTypes();
     void GeometryValidatesPolylineAndBounds();
+    void EntityGeometryBoundsCoverAllEntityTypes();
+    void EntityGeometryBoundsAreConservativeForCurvesAndGroups();
+    void EntityGeometryBoundsRejectInvalidAndUnrepresentableResults();
     void GeometryTessellatesArcAndCircle();
     void CanvasRenderContextProvidesWorldHelpers();
     void CanvasRendererSupportsBackgroundLayer();
@@ -1549,6 +1552,157 @@ void CanvasCoreTest::GeometryValidatesPolylineAndBounds()
     mini_graph::StruPolylineGeometry nonFiniteGeometry = openGeometry;
     nonFiniteGeometry.vertices[0].Invalidate();
     QVERIFY(!mini_graph::IsValidGeometry(nonFiniteGeometry));
+}
+
+void CanvasCoreTest::EntityGeometryBoundsCoverAllEntityTypes()
+{
+    QRectF bounds;
+
+    const mini_graph::CanvasPoint point(mini_graph::CanvasVector(2.0, -3.0));
+    QVERIFY(mini_graph::TryGetGeometryBounds(point, &bounds));
+    QCOMPARE(bounds, QRectF(2.0, -3.0, 0.0, 0.0));
+
+    const mini_graph::CanvasLine line(mini_graph::CanvasVector(-2.0, 1.0),
+                                      mini_graph::CanvasVector(4.0, -5.0));
+    QVERIFY(mini_graph::TryGetGeometryBounds(line, &bounds));
+    QCOMPARE(bounds, QRectF(-2.0, -5.0, 6.0, 6.0));
+
+    const qreal pi = std::acos(-1.0);
+    const mini_graph::CanvasArc counterClockwiseArc(
+                mini_graph::CanvasVector(10.0, 10.0), 5.0, 0.0, pi / 2.0);
+    QVERIFY(mini_graph::TryGetGeometryBounds(counterClockwiseArc, &bounds));
+    QCOMPARE(bounds, QRectF(10.0, 10.0, 5.0, 5.0));
+
+    const mini_graph::CanvasArc unitQuarterArc(
+                mini_graph::CanvasVector(0.0, 0.0), 1.0, 0.0, pi / 2.0);
+    QVERIFY(mini_graph::TryGetGeometryBounds(unitQuarterArc, &bounds));
+    QCOMPARE(bounds, QRectF(0.0, 0.0, 1.0, 1.0));
+
+    const mini_graph::CanvasArc clockwiseArc(
+                mini_graph::CanvasVector(10.0, 10.0), 5.0,
+                0.0, 3.0 * pi / 2.0, true);
+    QVERIFY(mini_graph::TryGetGeometryBounds(clockwiseArc, &bounds));
+    QCOMPARE(bounds, QRectF(10.0, 5.0, 5.0, 5.0));
+
+    const mini_graph::CanvasCircle circle(mini_graph::CanvasVector(-3.0, -4.0),
+                                          2.0);
+    QVERIFY(mini_graph::TryGetGeometryBounds(circle, &bounds));
+    QCOMPARE(bounds, QRectF(-5.0, -6.0, 4.0, 4.0));
+
+    mini_graph::CanvasEllipse ellipse;
+    QVERIFY(ellipse.SetGeometry(mini_graph::CanvasVector(1.0, -2.0),
+                                mini_graph::CanvasVector(4.0, 0.0),
+                                0.5, false));
+    QVERIFY(mini_graph::TryGetGeometryBounds(ellipse, &bounds));
+    QCOMPARE(bounds, QRectF(-3.0, -4.0, 8.0, 4.0));
+
+    mini_graph::CanvasEllipse ellipseArc;
+    QVERIFY(ellipseArc.SetGeometry(mini_graph::CanvasVector(0.0, 0.0),
+                                   mini_graph::CanvasVector(4.0, 0.0),
+                                   0.5, true, 0.0, pi / 2.0));
+    QVERIFY(mini_graph::TryGetGeometryBounds(ellipseArc, &bounds));
+    QCOMPARE(bounds, QRectF(0.0, 0.0, 4.0, 2.0));
+
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasLine(
+                                    mini_graph::CanvasVector(0.0, 0.0),
+                                    mini_graph::CanvasVector(5.0, 0.0))));
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasArc(
+                                    mini_graph::CanvasVector(0.0, 0.0),
+                                    5.0, 0.0, pi / 2.0)));
+    QVERIFY(mini_graph::TryGetGeometryBounds(polyline, &bounds));
+    QCOMPARE(bounds, QRectF(0.0, 0.0, 5.0, 5.0));
+
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(
+                2,
+                QVector<mini_graph::CanvasVector>()
+                << mini_graph::CanvasVector(0.0, 0.0)
+                << mini_graph::CanvasVector(5.0, 10.0)
+                << mini_graph::CanvasVector(10.0, 0.0),
+                QVector<qreal>() << 0.0 << 0.0 << 0.0 << 1.0 << 1.0 << 1.0,
+                QVector<qreal>() << 1.0 << 10.0 << 1.0,
+                false, false));
+    QVERIFY(mini_graph::TryGetGeometryBounds(spline, &bounds));
+    QCOMPARE(bounds, QRectF(0.0, 0.0, 10.0, 10.0));
+}
+
+void CanvasCoreTest::EntityGeometryBoundsAreConservativeForCurvesAndGroups()
+{
+    QRectF bounds;
+    const qreal pi = std::acos(-1.0);
+
+    mini_graph::CanvasEllipse rotatedEllipse;
+    QVERIFY(rotatedEllipse.SetGeometry(mini_graph::CanvasVector(1.0, -2.0),
+                                       mini_graph::CanvasVector(4.0, 3.0),
+                                       0.5, false));
+    QVERIFY(mini_graph::TryGetGeometryBounds(rotatedEllipse, &bounds));
+    const qreal expectedXRadius = std::sqrt(18.25);
+    const qreal expectedYRadius = std::sqrt(13.0);
+    QVERIFY(qAbs(bounds.left() - (1.0 - expectedXRadius)) < 1.0e-12);
+    QVERIFY(qAbs(bounds.right() - (1.0 + expectedXRadius)) < 1.0e-12);
+    QVERIFY(qAbs(bounds.top() - (-2.0 - expectedYRadius)) < 1.0e-12);
+    QVERIFY(qAbs(bounds.bottom() - (-2.0 + expectedYRadius)) < 1.0e-12);
+
+    mini_graph::CanvasEllipse clockwiseEllipseArc;
+    QVERIFY(clockwiseEllipseArc.SetGeometry(mini_graph::CanvasVector(0.0, 0.0),
+                                            mini_graph::CanvasVector(4.0, 0.0),
+                                            0.5, true, 0.0, 3.0 * pi / 2.0));
+    clockwiseEllipseArc.SetReversed(true);
+    QVERIFY(mini_graph::TryGetGeometryBounds(clockwiseEllipseArc, &bounds));
+    QCOMPARE(bounds, QRectF(0.0, -2.0, 4.0, 2.0));
+
+    mini_graph::CanvasSpline spline;
+    QVERIFY(spline.SetData(
+                2,
+                QVector<mini_graph::CanvasVector>()
+                << mini_graph::CanvasVector(-2.0, 1.0)
+                << mini_graph::CanvasVector(5.0, 12.0)
+                << mini_graph::CanvasVector(9.0, -4.0),
+                QVector<qreal>() << 0.0 << 0.0 << 0.0 << 1.0 << 1.0 << 1.0,
+                QVector<qreal>() << 1.0 << 8.0 << 1.0,
+                false, false));
+
+    mini_graph::CanvasGroupContainer nestedGroup;
+    QVERIFY(nestedGroup.AddChild(spline));
+    QVERIFY(nestedGroup.AddChild(mini_graph::CanvasCircle(
+                                     mini_graph::CanvasVector(20.0, 0.0), 3.0)));
+
+    mini_graph::CanvasGroupContainer group;
+    QVERIFY(group.AddChild(mini_graph::CanvasPoint(
+                               mini_graph::CanvasVector(-10.0, 2.0))));
+    QVERIFY(group.AddChild(nestedGroup));
+    QVERIFY(mini_graph::TryGetGeometryBounds(group, &bounds));
+    QCOMPARE(bounds, QRectF(-10.0, -4.0, 33.0, 16.0));
+}
+
+void CanvasCoreTest::EntityGeometryBoundsRejectInvalidAndUnrepresentableResults()
+{
+    QRectF bounds(7.0, 8.0, 9.0, 10.0);
+    const QRectF originalBounds = bounds;
+
+    const mini_graph::CanvasPoint invalidPoint;
+    QVERIFY(!mini_graph::TryGetGeometryBounds(invalidPoint, &bounds));
+    QCOMPARE(bounds, originalBounds);
+    QVERIFY(!mini_graph::TryGetGeometryBounds(invalidPoint, nullptr));
+
+    const mini_graph::CanvasGroupContainer emptyGroup;
+    QVERIFY(!mini_graph::TryGetGeometryBounds(emptyGroup, &bounds));
+    QCOMPARE(bounds, originalBounds);
+
+    const qreal maximum = std::numeric_limits<qreal>::max();
+    const mini_graph::CanvasLine overflowingLine(
+                mini_graph::CanvasVector(-maximum, 0.0),
+                mini_graph::CanvasVector(maximum, 0.0));
+    QVERIFY(overflowingLine.IsValid());
+    QVERIFY(!mini_graph::TryGetGeometryBounds(overflowingLine, &bounds));
+    QCOMPARE(bounds, originalBounds);
+
+    const mini_graph::CanvasCircle overflowingCircle(
+                mini_graph::CanvasVector(maximum, 0.0), maximum / 2.0);
+    QVERIFY(overflowingCircle.IsValid());
+    QVERIFY(!mini_graph::TryGetGeometryBounds(overflowingCircle, &bounds));
+    QCOMPARE(bounds, originalBounds);
 }
 
 void CanvasCoreTest::GeometryTessellatesArcAndCircle()
