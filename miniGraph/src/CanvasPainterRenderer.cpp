@@ -1036,10 +1036,15 @@ void RenderCanvasDataCommands(QPainter &painter,
                             CanvasTransform::GetMinimumZoom());
     const qreal maximumWorldError = qMax<qreal>(1.0e-6, 0.5 / zoom);
 
+#if QT_VERSION >= QT_VERSION_CHECK(6, 0, 0)
+    const Qt::SplitBehavior splitBehavior = Qt::SkipEmptyParts;
+#else
+    const QString::SplitBehavior splitBehavior = QString::SkipEmptyParts;
+#endif
+
     painter.save();
     for (const QString &line : commands) {
-        const QStringList arguments = line.split(QLatin1Char(','),
-                                                  QString::SkipEmptyParts);
+        const QStringList arguments = line.split(QLatin1Char(','), splitBehavior);
         if (!arguments.isEmpty()) {
             DrawCanvasDataCommand(painter, context, arguments, maximumWorldError,
                                   isGlobal);

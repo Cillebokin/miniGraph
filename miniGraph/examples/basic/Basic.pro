@@ -15,12 +15,14 @@ LIBS += -L$$OUT_PWD/../../bin -lMiniGraph
 SOURCES += \
     $$PWD/Main.cpp \
     $$PWD/BasicCustomRenderer.cpp \
+    $$PWD/BasicLineCreationAction.cpp \
     $$PWD/BasicPointPlacementAction.cpp \
     $$PWD/GeometryCreateDialog.cpp \
     $$PWD/GeometryEditDialog.cpp
 
 HEADERS += \
     $$PWD/BasicCustomRenderer.h \
+    $$PWD/BasicLineCreationAction.h \
     $$PWD/BasicPointPlacementAction.h \
     $$PWD/GeometryCreateDialog.h \
     $$PWD/GeometryEditDialog.h \

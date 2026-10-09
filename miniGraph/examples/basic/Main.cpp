@@ -6,6 +6,7 @@
 
 #include "MiniGraph/MiniGraph.h"
 #include "BasicCustomRenderer.h"
+#include "BasicLineCreationAction.h"
 #include "BasicPointPlacementAction.h"
 #include "GeometryCreateDialog.h"
 #include "GeometryEditDialog.h"
@@ -137,6 +138,13 @@ int main(int argumentCount, char *argumentValues[])
                      &QAction::triggered,
                      [widCanvas]() {
         widCanvas->SetCurrentAction(new BasicPointPlacementAction);
+    });
+
+    QAction *actDrawLine = tlbCanvas->addAction(QObject::tr("Draw line"));
+    QObject::connect(actDrawLine,
+                     &QAction::triggered,
+                     [widCanvas]() {
+        widCanvas->SetCurrentAction(new BasicLineCreationAction);
     });
 
     QAction *actEditGeometry = tlbCanvas->addAction(QObject::tr("Edit selected"));

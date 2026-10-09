@@ -1594,6 +1594,11 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event)
 
 void CanvasView::mouseDoubleClickEvent(QMouseEvent *event)
 {
+    m_CurrentMousePosition = event->localPos();
+    const CanvasVector mouseWorldPosition = MapToWorld(m_CurrentMousePosition);
+    emit MouseWorldPositionChanged(mouseWorldPosition);
+    UpdateSnap(mouseWorldPosition);
+
     if (m_InteractionMode == InteractionMode::PreviewNavigation
             && event->button() == Qt::LeftButton) {
         FitAll(10.0);

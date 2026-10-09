@@ -33,6 +33,7 @@
 #include "MiniGraph/CanvasView.h"
 #include "MiniGraph/CanvasAction.h"
 #include "BasicCustomRenderer.h"
+#include "BasicLineCreationAction.h"
 #include "BasicPointPlacementAction.h"
 #include "GeometryCreateDialog.h"
 #include "GeometryEditDialog.h"
@@ -54,6 +55,25 @@ public:
     using CanvasView::DrawSelectionBox;
     using CanvasView::wheelEvent;
 };
+
+static bool HasVisiblePixelNear(const QImage &image,
+                                const QPointF &position,
+                                int radius = 2)
+{
+    const QPoint center = position.toPoint();
+    const int left = qMax(0, center.x() - radius);
+    const int right = qMin(image.width() - 1, center.x() + radius);
+    const int top = qMax(0, center.y() - radius);
+    const int bottom = qMin(image.height() - 1, center.y() + radius);
+    for (int y = top; y <= bottom; ++y) {
+        for (int x = left; x <= right; ++x) {
+            if (image.pixelColor(x, y).alpha() > 0) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
 
 class TestCanvasAction final : public mini_graph::CanvasAction
 {
@@ -288,6 +308,10 @@ private slots:
     void CanvasViewFinishedActionReturnsToBuiltinInteraction();
     void CanvasViewKeepsNavigationAvailableDuringAction();
     void BasicPointPlacementActionAddsPointAndFinishes();
+    void BasicLineCreationActionAddsLineAfterTwoPointClicks();
+    void BasicLineCreationActionCompletesOnDoubleClickEvent();
+    void BasicLineCreationActionUsesGeometrySnap();
+    void BasicLineCreationActionEscapeCancelsWithoutInsertion();
     void CanvasViewLifecycleCanBeCreatedAndDestroyed();
     void BasicExampleGeometryDialogCreatesCircle();
     void BasicExampleGeometryDialogCreatesPolyline();
@@ -6885,6 +6909,246 @@ void CanvasCoreTest::BasicPointPlacementActionAddsPointAndFinishes()
                                  Qt::NoModifier);
     view.mouseReleaseEvent(&selectionRelease);
     QVERIFY(document.IsItemSelected(itemIds.first()));
+}
+
+void CanvasCoreTest::BasicLineCreationActionAddsLineAfterTwoPointClicks()
+{
+    mini_graph::CanvasDocument document;
+    CanvasViewHarness view;
+    view.resize(320, 240);
+    view.SetDocument(&document);
+
+    BasicLineCreationAction *action = new BasicLineCreationAction;
+    QVERIFY(view.SetCurrentAction(action));
+
+    const mini_graph::CanvasVector start(-24.0, -12.0);
+    const mini_graph::CanvasVector end(36.0, 18.0);
+    const QPointF startPosition = view.MapFromWorld(start);
+    const QPointF endPosition = view.MapFromWorld(end);
+
+    QMouseEvent firstClick(QEvent::MouseButtonPress,
+                           startPosition,
+                           startPosition,
+                           startPosition,
+                           Qt::LeftButton,
+                           Qt::LeftButton,
+                           Qt::NoModifier);
+    view.mousePressEvent(&firstClick);
+
+    QCOMPARE(document.GetItemCount(), 0);
+    QCOMPARE(view.GetCurrentAction(), action);
+
+    QMouseEvent move(QEvent::MouseMove,
+                     endPosition,
+                     endPosition,
+                     endPosition,
+                     Qt::NoButton,
+                     Qt::NoButton,
+                     Qt::NoModifier);
+    view.mouseMoveEvent(&move);
+
+    const mini_graph::CanvasRenderContext context(
+                &document, view.GetTransform(), view.size());
+    QImage preview(view.size(), QImage::Format_ARGB32_Premultiplied);
+    preview.fill(Qt::transparent);
+    QPainter painter(&preview);
+    action->RenderOverlay(painter, context);
+    painter.end();
+
+    const mini_graph::CanvasVector midpoint(
+                (start.GetX() + end.GetX()) * 0.5,
+                (start.GetY() + end.GetY()) * 0.5);
+    QVERIFY(HasVisiblePixelNear(preview, context.MapFromWorld(midpoint)));
+
+    QMouseEvent secondClick(QEvent::MouseButtonPress,
+                            endPosition,
+                            endPosition,
+                            endPosition,
+                            Qt::LeftButton,
+                            Qt::LeftButton,
+                            Qt::NoModifier);
+    view.mousePressEvent(&secondClick);
+
+    QCOMPARE(document.GetItemCount(), 1);
+    QTRY_VERIFY(!view.GetCurrentAction());
+    const QVector<mini_graph::ItemId> itemIds = document.GetItemIds();
+    QCOMPARE(itemIds.size(), 1);
+    mini_graph::StruLineGeometry geometry;
+    QVERIFY(document.GetLineGeometry(itemIds.first(), &geometry));
+    QCOMPARE(geometry.startPoint, start);
+    QCOMPARE(geometry.endPoint, end);
+}
+
+void CanvasCoreTest::BasicLineCreationActionCompletesOnDoubleClickEvent()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::CanvasVector end(25.0, 15.0);
+    document.AddPoint(end);
+
+    CanvasViewHarness view;
+    view.resize(320, 240);
+    view.SetDocument(&document);
+    view.SetSnapEnabled(true);
+    view.SetGeometrySnapEnabled(true);
+    view.SetGridSnapEnabled(false);
+    QVERIFY(view.SetCurrentAction(new BasicLineCreationAction));
+
+    const mini_graph::CanvasVector start(-10.0, -5.0);
+    const QPointF startPosition = view.MapFromWorld(start);
+    const mini_graph::CanvasVector nearEnd(
+                end.GetX() + 3.0, end.GetY() + 2.0);
+    const QPointF endPosition = view.MapFromWorld(nearEnd);
+    QMouseEvent firstClick(QEvent::MouseButtonPress,
+                           startPosition,
+                           startPosition,
+                           startPosition,
+                           Qt::LeftButton,
+                           Qt::LeftButton,
+                           Qt::NoModifier);
+    view.mousePressEvent(&firstClick);
+    QCOMPARE(document.GetItemCount(), 1);
+
+    QMouseEvent secondClick(QEvent::MouseButtonDblClick,
+                            endPosition,
+                            endPosition,
+                            endPosition,
+                            Qt::LeftButton,
+                            Qt::LeftButton,
+                            Qt::NoModifier);
+    view.mouseDoubleClickEvent(&secondClick);
+
+    QCOMPARE(document.GetItemCount(), 2);
+    QTRY_VERIFY(!view.GetCurrentAction());
+    const QVector<mini_graph::ItemId> itemIds = document.GetItemIds();
+    QCOMPARE(itemIds.size(), 2);
+    mini_graph::StruLineGeometry geometry;
+    QVERIFY(document.GetLineGeometry(itemIds.last(), &geometry));
+    QCOMPARE(geometry.startPoint, start);
+    QCOMPARE(geometry.endPoint, end);
+}
+
+void CanvasCoreTest::BasicLineCreationActionUsesGeometrySnap()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::CanvasVector start(40.0, 20.0);
+    const mini_graph::CanvasVector end(120.0, -30.0);
+    document.AddPoint(start);
+    document.AddPoint(end);
+
+    CanvasViewHarness view;
+    view.resize(320, 240);
+    view.SetDocument(&document);
+    view.SetSnapEnabled(true);
+    view.SetGeometrySnapEnabled(true);
+    view.SetGridSnapEnabled(false);
+    QVERIFY(view.SetCurrentAction(new BasicLineCreationAction));
+
+    const mini_graph::CanvasVector nearStart(
+                start.GetX() + 3.0, start.GetY() + 2.0);
+    const QPointF startPosition = view.MapFromWorld(nearStart);
+    QMouseEvent firstClick(QEvent::MouseButtonPress,
+                           startPosition,
+                           startPosition,
+                           startPosition,
+                           Qt::LeftButton,
+                           Qt::LeftButton,
+                           Qt::NoModifier);
+    view.mousePressEvent(&firstClick);
+    QCOMPARE(document.GetItemCount(), 2);
+
+    const mini_graph::CanvasVector nearEnd(
+                end.GetX() - 4.0, end.GetY() + 3.0);
+    const QPointF endPosition = view.MapFromWorld(nearEnd);
+    QMouseEvent move(QEvent::MouseMove,
+                     endPosition,
+                     endPosition,
+                     endPosition,
+                     Qt::NoButton,
+                     Qt::NoButton,
+                     Qt::NoModifier);
+    view.mouseMoveEvent(&move);
+    QMouseEvent secondClick(QEvent::MouseButtonPress,
+                            endPosition,
+                            endPosition,
+                            endPosition,
+                            Qt::LeftButton,
+                            Qt::LeftButton,
+                            Qt::NoModifier);
+    view.mousePressEvent(&secondClick);
+
+    QCOMPARE(document.GetItemCount(), 3);
+    QTRY_VERIFY(!view.GetCurrentAction());
+    const QVector<mini_graph::ItemId> itemIds = document.GetItemIds();
+    QCOMPARE(itemIds.size(), 3);
+    mini_graph::StruLineGeometry geometry;
+    QVERIFY(document.GetLineGeometry(itemIds.last(), &geometry));
+    QCOMPARE(geometry.startPoint, start);
+    QCOMPARE(geometry.endPoint, end);
+}
+
+void CanvasCoreTest::BasicLineCreationActionEscapeCancelsWithoutInsertion()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId selectedId = document.AddPoint(
+                mini_graph::CanvasVector(0.0, 0.0));
+    document.SelectItem(selectedId);
+
+    CanvasViewHarness view;
+    view.resize(320, 240);
+    view.SetDocument(&document);
+    BasicLineCreationAction *action = new BasicLineCreationAction;
+    QVERIFY(view.SetCurrentAction(action));
+    QSignalSpy updateSpy(action,
+                         &mini_graph::CanvasAction::UpdateRequested);
+
+    const QPointF startPosition = view.MapFromWorld(
+                mini_graph::CanvasVector(15.0, 10.0));
+    QMouseEvent firstClick(QEvent::MouseButtonPress,
+                           startPosition,
+                           startPosition,
+                           startPosition,
+                           Qt::LeftButton,
+                           Qt::LeftButton,
+                           Qt::NoModifier);
+    view.mousePressEvent(&firstClick);
+    QCOMPARE(updateSpy.count(), 1);
+
+    const QPointF previewPosition = view.MapFromWorld(
+                mini_graph::CanvasVector(35.0, 25.0));
+    QMouseEvent move(QEvent::MouseMove,
+                     previewPosition,
+                     previewPosition,
+                     previewPosition,
+                     Qt::NoButton,
+                     Qt::NoButton,
+                     Qt::NoModifier);
+    view.mouseMoveEvent(&move);
+    QCOMPARE(updateSpy.count(), 2);
+
+    const mini_graph::CanvasRenderContext context(
+                &document, view.GetTransform(), view.size());
+    const mini_graph::CanvasVector midpoint(
+                25.0, 17.5);
+    QImage preview(view.size(), QImage::Format_ARGB32_Premultiplied);
+    preview.fill(Qt::transparent);
+    QPainter painter(&preview);
+    action->RenderOverlay(painter, context);
+    painter.end();
+    QVERIFY(HasVisiblePixelNear(preview, context.MapFromWorld(midpoint)));
+
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    view.keyPressEvent(&escape);
+
+    QVERIFY(escape.isAccepted());
+    QCOMPARE(document.GetItemCount(), 1);
+    QVERIFY(document.IsItemSelected(selectedId));
+    QTRY_VERIFY(!view.GetCurrentAction());
+
+    preview.fill(Qt::transparent);
+    QPainter cancelledPainter(&preview);
+    action->RenderOverlay(cancelledPainter, context);
+    cancelledPainter.end();
+    QVERIFY(!HasVisiblePixelNear(preview, context.MapFromWorld(midpoint)));
 }
 
 void CanvasCoreTest::CanvasViewLifecycleCanBeCreatedAndDestroyed()
