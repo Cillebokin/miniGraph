@@ -287,6 +287,9 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
         }
         for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
             const CanvasEntity *segment = polyline->GetSegment(index);
+            if (!segment || !segment->GetStyle().visible) {
+                continue;
+            }
             if (const CanvasLine *line =
                     dynamic_cast<const CanvasLine *>(segment)) {
                 AppendSelectionPath(QVector<CanvasVector>()
@@ -480,6 +483,11 @@ bool IsLineSegment(const CanvasEntity *segment)
     return dynamic_cast<const CanvasLine *>(segment) != nullptr;
 }
 
+bool IsVisibleLineSegment(const CanvasEntity *segment)
+{
+    return IsLineSegment(segment) && segment->GetStyle().visible;
+}
+
 bool IsEditablePolylineVertex(const CanvasPolyline &polyline,
                               int pointIndex)
 {
@@ -494,21 +502,30 @@ bool IsEditablePolylineVertex(const CanvasPolyline &polyline,
         }
         const int previousSegmentIndex =
                 (pointIndex + segmentCount - 1) % segmentCount;
-        return IsLineSegment(polyline.GetSegment(previousSegmentIndex))
-                && IsLineSegment(polyline.GetSegment(pointIndex));
+        const CanvasEntity *previousSegment =
+                polyline.GetSegment(previousSegmentIndex);
+        const CanvasEntity *nextSegment = polyline.GetSegment(pointIndex);
+        return IsLineSegment(previousSegment)
+                && IsLineSegment(nextSegment)
+                && (previousSegment->GetStyle().visible
+                    || nextSegment->GetStyle().visible);
     }
 
     if (pointIndex < 0 || pointIndex > segmentCount) {
         return false;
     }
     if (pointIndex == 0) {
-        return IsLineSegment(polyline.GetSegment(0));
+        return IsVisibleLineSegment(polyline.GetSegment(0));
     }
     if (pointIndex == segmentCount) {
-        return IsLineSegment(polyline.GetSegment(segmentCount - 1));
+        return IsVisibleLineSegment(polyline.GetSegment(segmentCount - 1));
     }
-    return IsLineSegment(polyline.GetSegment(pointIndex - 1))
-            && IsLineSegment(polyline.GetSegment(pointIndex));
+    const CanvasEntity *previousSegment = polyline.GetSegment(pointIndex - 1);
+    const CanvasEntity *nextSegment = polyline.GetSegment(pointIndex);
+    return IsLineSegment(previousSegment)
+            && IsLineSegment(nextSegment)
+            && (previousSegment->GetStyle().visible
+                || nextSegment->GetStyle().visible);
 }
 
 CanvasVector GetPolylineVertex(const CanvasPolyline &polyline, int pointIndex)

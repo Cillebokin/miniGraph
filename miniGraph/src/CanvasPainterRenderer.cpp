@@ -956,11 +956,12 @@ void DrawEntityGeometry(QPainter &painter,
 
         for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
             const CanvasEntity *segment = polyline->GetSegment(index);
-            if (segment) {
-                RenderCanvasData(painter, context, *segment, style, selected);
-                DrawEntityGeometry(painter, context, *segment, style,
-                                   selected, maximumError);
+            if (!segment || !segment->GetStyle().visible) {
+                continue;
             }
+            RenderCanvasData(painter, context, *segment, style, selected);
+            DrawEntityGeometry(painter, context, *segment, style,
+                               selected, maximumError);
         }
         return;
     }

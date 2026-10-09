@@ -235,6 +235,7 @@ private slots:
     void CanvasSnapperSnapsToPolylineVertices();
     void CanvasSnapperSnapsToEllipseAndSplineEntities();
     void CanvasSnapperTraversesGroupsAndArcPolylines();
+    void CanvasSnapperSkipsInvisiblePolylineSegments();
     void CanvasViewReportsCurrentSnap();
     void CanvasViewDrawsSnapMarker();
     void CanvasViewRendersDocumentWithPainter();
@@ -253,6 +254,7 @@ private slots:
     void CanvasViewRendersNurbsWithLargeFiniteWeights();
     void CanvasViewRendersNurbsWithExtremeWeightRange();
     void CanvasRendererDrawsOpenAndClosedPolylines();
+    void CanvasRendererSkipsInvisiblePolylineSegments();
     void CanvasViewWheelUsesCadLabScale();
     void CanvasViewMiddlePanUsesDeadband();
     void CanvasViewPreviewNavigationPansWithLeftAndMiddleButtons();
@@ -283,10 +285,12 @@ private slots:
     void CanvasViewSingleClickSelectsAllCanvasEntityTypes();
     void CanvasViewWindowSelectionSelectsAllCanvasEntityTypes();
     void CanvasViewCrossingSelectionUsesCanvasEntityPaths();
+    void CanvasViewSelectionSkipsInvisiblePolylineSegments();
     void CanvasViewEntityHitTestRespectsGroupVisibility();
     void CanvasViewWindowSelectionSelectsPolylines();
     void CanvasViewWindowSelectionIgnoresInvisibleGeometry();
     void CanvasViewSelectionBoxUsesCadLabStyle();
+    void CanvasViewDoesNotDrawEditHandlesForHiddenPolylineVertices();
     void CanvasViewDeleteKeyRemovesSelectedGeometry();
     void CanvasViewEscapeClearsSelection();
     void CanvasViewDragMovesSelectedGeometry();
@@ -3154,6 +3158,52 @@ void CanvasCoreTest::CanvasSnapperTraversesGroupsAndArcPolylines()
     QVERIFY(polylineResult.position == arc.GetEndPoint());
 }
 
+void CanvasCoreTest::CanvasSnapperSkipsInvisiblePolylineSegments()
+{
+    const qreal pi = std::acos(-1.0);
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasLine(
+                                    mini_graph::CanvasVector(-80.0, 0.0),
+                                    mini_graph::CanvasVector(-40.0, 0.0))));
+
+    mini_graph::CanvasLine hiddenLine(mini_graph::CanvasVector(-40.0, 0.0),
+                                      mini_graph::CanvasVector(-20.0, 0.0));
+    mini_graph::StruCanvasStyle hiddenLineStyle = hiddenLine.GetStyle();
+    hiddenLineStyle.visible = false;
+    QVERIFY(hiddenLine.SetStyle(hiddenLineStyle));
+    QVERIFY(polyline.AddSegment(hiddenLine));
+
+    mini_graph::CanvasArc hiddenArc(mini_graph::CanvasVector(-10.0, 0.0),
+                                    10.0, pi, 2.0 * pi);
+    mini_graph::StruCanvasStyle hiddenArcStyle = hiddenArc.GetStyle();
+    hiddenArcStyle.visible = false;
+    QVERIFY(hiddenArc.SetStyle(hiddenArcStyle));
+    QVERIFY(polyline.AddSegment(hiddenArc));
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId polylineId = document.AddEntity(polyline);
+    QVERIFY(polylineId != 0);
+
+    const mini_graph::CanvasSnapResult hiddenArcCenter =
+            mini_graph::CanvasSnapper::FindSnap(
+                &document, mini_graph::CanvasVector(-10.0, 0.0),
+                0.01, 1.0, true, false);
+    QVERIFY(!hiddenArcCenter.IsValid());
+
+    const mini_graph::CanvasSnapResult hiddenEndpoint =
+            mini_graph::CanvasSnapper::FindSnap(
+                &document, mini_graph::CanvasVector(0.0, 0.0),
+                0.01, 1.0, true, false);
+    QVERIFY(!hiddenEndpoint.IsValid());
+
+    const mini_graph::CanvasSnapResult visibleEndpoint =
+            mini_graph::CanvasSnapper::FindSnap(
+                &document, mini_graph::CanvasVector(-80.0, 0.0),
+                0.01, 1.0, true, false);
+    QVERIFY(visibleEndpoint.IsValid());
+    QCOMPARE(visibleEndpoint.itemId, polylineId);
+}
+
 void CanvasCoreTest::CanvasViewReportsCurrentSnap()
 {
     mini_graph::CanvasDocument document;
@@ -4066,6 +4116,75 @@ void CanvasCoreTest::CanvasRendererDrawsOpenAndClosedPolylines()
                          QColor(Qt::blue)));
     QVERIFY(hasColorNear(view.MapFromWorld(mini_graph::CanvasVector(-15.0, -30.0)),
                          QColor(Qt::green)));
+}
+
+void CanvasCoreTest::CanvasRendererSkipsInvisiblePolylineSegments()
+{
+    const qreal pi = std::acos(-1.0);
+    QStringList hiddenSegmentEvents;
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasLine(
+                                    mini_graph::CanvasVector(-80.0, 0.0),
+                                    mini_graph::CanvasVector(-40.0, 0.0))));
+
+    mini_graph::CanvasLine hiddenLine(mini_graph::CanvasVector(-40.0, 0.0),
+                                      mini_graph::CanvasVector(-20.0, 0.0));
+    mini_graph::StruCanvasStyle hiddenLineStyle = hiddenLine.GetStyle();
+    hiddenLineStyle.visible = false;
+    QVERIFY(hiddenLine.SetStyle(hiddenLineStyle));
+    hiddenLine.SetCanvasData(std::make_shared<TestCanvasData>(
+                                 &hiddenSegmentEvents));
+    QVERIFY(polyline.AddSegment(hiddenLine));
+
+    mini_graph::CanvasArc hiddenArc(mini_graph::CanvasVector(-10.0, 0.0),
+                                    10.0, pi, 2.0 * pi);
+    mini_graph::StruCanvasStyle hiddenArcStyle = hiddenArc.GetStyle();
+    hiddenArcStyle.visible = false;
+    QVERIFY(hiddenArc.SetStyle(hiddenArcStyle));
+    QVERIFY(polyline.AddSegment(hiddenArc));
+
+    mini_graph::StruCanvasStyle polylineStyle = polyline.GetStyle();
+    polylineStyle.strokeColor = QColor(Qt::red);
+    polylineStyle.strokeWidth = 5.0;
+    QVERIFY(polyline.SetStyle(polylineStyle));
+
+    mini_graph::CanvasDocument document;
+    QVERIFY(document.AddEntity(polyline) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const auto hasRedPixelNear = [&image](const QPointF &position) {
+        const int centerX = qRound(position.x());
+        const int centerY = qRound(position.y());
+        for (int y = centerY - 3; y <= centerY + 3; ++y) {
+            for (int x = centerX - 3; x <= centerX + 3; ++x) {
+                const QColor color = image.pixelColor(x, y);
+                if (color.red() > 180 && color.green() < 100
+                        && color.blue() < 100) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    QVERIFY(hasRedPixelNear(view.MapFromWorld(
+                                mini_graph::CanvasVector(-60.0, 0.0))));
+    QVERIFY(!hasRedPixelNear(view.MapFromWorld(
+                                 mini_graph::CanvasVector(-30.0, 0.0))));
+    QVERIFY(!hasRedPixelNear(view.MapFromWorld(
+                                 mini_graph::CanvasVector(-10.0, -10.0))));
+    QVERIFY(hiddenSegmentEvents.isEmpty());
 }
 
 void CanvasCoreTest::CanvasViewWheelUsesCadLabScale()
@@ -5255,6 +5374,85 @@ void CanvasCoreTest::CanvasViewSelectsPolylineByStroke()
     document.ClearSelection();
     clickAt(view.MapFromWorld(mini_graph::CanvasVector(-15.0, -30.0)));
     QVERIFY(document.IsItemSelected(closedId));
+}
+
+void CanvasCoreTest::CanvasViewSelectionSkipsInvisiblePolylineSegments()
+{
+    const qreal pi = std::acos(-1.0);
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasLine(
+                                    mini_graph::CanvasVector(-80.0, 0.0),
+                                    mini_graph::CanvasVector(-40.0, 0.0))));
+
+    mini_graph::CanvasLine hiddenLine(mini_graph::CanvasVector(-40.0, 0.0),
+                                      mini_graph::CanvasVector(-20.0, 0.0));
+    mini_graph::StruCanvasStyle hiddenLineStyle = hiddenLine.GetStyle();
+    hiddenLineStyle.visible = false;
+    QVERIFY(hiddenLine.SetStyle(hiddenLineStyle));
+    QVERIFY(polyline.AddSegment(hiddenLine));
+
+    mini_graph::CanvasArc hiddenArc(mini_graph::CanvasVector(-10.0, 0.0),
+                                    10.0, pi, 2.0 * pi);
+    mini_graph::StruCanvasStyle hiddenArcStyle = hiddenArc.GetStyle();
+    hiddenArcStyle.visible = false;
+    QVERIFY(hiddenArc.SetStyle(hiddenArcStyle));
+    QVERIFY(polyline.AddSegment(hiddenArc));
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId polylineId = document.AddEntity(polyline);
+    QVERIFY(polylineId != 0);
+
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+
+    const auto clickAt = [&view](const mini_graph::CanvasVector &worldPosition) {
+        const QPointF position = view.MapFromWorld(worldPosition);
+        QMouseEvent press(QEvent::MouseButtonPress,
+                          position, position, position,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        view.mousePressEvent(&press);
+        QMouseEvent release(QEvent::MouseButtonRelease,
+                            position, position, position,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        view.mouseReleaseEvent(&release);
+    };
+    const auto dragSelect = [&view](const mini_graph::CanvasVector &startWorld,
+                                    const mini_graph::CanvasVector &endWorld) {
+        const QPointF start = view.MapFromWorld(startWorld);
+        const QPointF end = view.MapFromWorld(endWorld);
+        QMouseEvent press(QEvent::MouseButtonPress,
+                          start, start, start,
+                          Qt::LeftButton, Qt::LeftButton, Qt::NoModifier);
+        view.mousePressEvent(&press);
+        QMouseEvent move(QEvent::MouseMove,
+                         end, end, end,
+                         Qt::NoButton, Qt::LeftButton, Qt::NoModifier);
+        view.mouseMoveEvent(&move);
+        QMouseEvent release(QEvent::MouseButtonRelease,
+                            end, end, end,
+                            Qt::LeftButton, Qt::NoButton, Qt::NoModifier);
+        view.mouseReleaseEvent(&release);
+    };
+
+    clickAt(mini_graph::CanvasVector(-30.0, 0.0));
+    QCOMPARE(document.GetSelectedItemCount(), 0);
+    clickAt(mini_graph::CanvasVector(-10.0, -10.0));
+    QCOMPARE(document.GetSelectedItemCount(), 0);
+
+    clickAt(mini_graph::CanvasVector(-60.0, 0.0));
+    QVERIFY(document.IsItemSelected(polylineId));
+
+    document.ClearSelection();
+    dragSelect(mini_graph::CanvasVector(-90.0, 5.0),
+               mini_graph::CanvasVector(-30.0, -5.0));
+    QVERIFY(document.IsItemSelected(polylineId));
+
+    document.ClearSelection();
+    dragSelect(mini_graph::CanvasVector(5.0, 5.0),
+               mini_graph::CanvasVector(-35.0, -12.0));
+    QVERIFY(!document.IsItemSelected(polylineId));
 }
 
 void CanvasCoreTest::CanvasViewHitTestIgnoresInvisibleGeometry()
@@ -6571,6 +6769,60 @@ void CanvasCoreTest::CanvasViewDrawsEditHandlesForSingleSelection()
              QColor(0, 170, 255));
     QCOMPARE(image.pixelColor(qRound(end.x()), qRound(end.y())),
              QColor(0, 170, 255));
+}
+
+void CanvasCoreTest::CanvasViewDoesNotDrawEditHandlesForHiddenPolylineVertices()
+{
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasLine(
+                                    mini_graph::CanvasVector(-80.0, 0.0),
+                                    mini_graph::CanvasVector(-40.0, 0.0))));
+
+    mini_graph::CanvasLine hiddenFirst(mini_graph::CanvasVector(-40.0, 0.0),
+                                       mini_graph::CanvasVector(-20.0, 0.0));
+    mini_graph::StruCanvasStyle hiddenFirstStyle = hiddenFirst.GetStyle();
+    hiddenFirstStyle.visible = false;
+    QVERIFY(hiddenFirst.SetStyle(hiddenFirstStyle));
+    QVERIFY(polyline.AddSegment(hiddenFirst));
+
+    mini_graph::CanvasLine hiddenSecond(mini_graph::CanvasVector(-20.0, 0.0),
+                                        mini_graph::CanvasVector(0.0, 0.0));
+    mini_graph::StruCanvasStyle hiddenSecondStyle = hiddenSecond.GetStyle();
+    hiddenSecondStyle.visible = false;
+    QVERIFY(hiddenSecond.SetStyle(hiddenSecondStyle));
+    QVERIFY(polyline.AddSegment(hiddenSecond));
+
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasLine(
+                                    mini_graph::CanvasVector(0.0, 0.0),
+                                    mini_graph::CanvasVector(40.0, 0.0))));
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId polylineId = document.AddEntity(polyline);
+    QVERIFY(polylineId != 0);
+    document.SelectItem(polylineId);
+
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    QPainter painter(&image);
+    painter.setRenderHint(QPainter::Antialiasing, false);
+    view.DrawEditHandles(painter);
+    painter.end();
+
+    const QPointF visibleBoundary = view.MapFromWorld(
+                mini_graph::CanvasVector(-40.0, 0.0));
+    const QPointF hiddenInterior = view.MapFromWorld(
+                mini_graph::CanvasVector(-20.0, 0.0));
+    QCOMPARE(image.pixelColor(qRound(visibleBoundary.x()),
+                              qRound(visibleBoundary.y())),
+             QColor(0, 170, 255));
+    QCOMPARE(image.pixelColor(qRound(hiddenInterior.x()),
+                              qRound(hiddenInterior.y())),
+             QColor(Qt::black));
 }
 
 void CanvasCoreTest::CanvasViewDrawsCadLabGroupReferencePointAndMovesWholeGroup()

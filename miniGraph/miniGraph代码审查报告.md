@@ -36,12 +36,13 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 - **建议**：在文档层直接调用 `TrySetCanvasData()`；失败时返回 `false` 且不发出 `Changed()`。增加“同一个数据实例绑定两个图元”的文档级回归测试。
 - **代码位置**：[CanvasDocument.cpp](src/CanvasDocument.cpp#L650)、[CanvasEntities.cpp](src/CanvasEntities.cpp#L227)
 
-### MG-002 · P2 · 多段线子段属性在显示、命中和捕捉中的处理不一致，契约待明确
+### MG-002 · P2 · 多段线子段属性在显示、命中和捕捉中的处理不一致【已修复】
 
-- **现象**：加入多段线的线段/圆弧会被克隆，因此子实体自身的样式和 `CanvasData` 会保留；但默认绘制和命中路径按多段线父对象的样式处理，且不检查子段可见性；捕捉遍历会跳过不可见子段。
-- **影响**：跨绘制、命中和捕捉的处理差异是确定的；是否属于缺陷取决于子段是“仅承载几何”还是“可独立控制显示”的 API 契约。若前者为设计，当前行为可能是有意的；若后者为设计，则隐藏/样式不一致会影响结果。
-- **建议**：先明确子段属性是否具有独立显示语义。若子段只承载几何，应在接口说明中明确父对象统一控制样式/可见性；若子段样式有效，则统一绘制、命中、框选和捕捉规则，并补测试。
-- **代码位置**：[CanvasPainterRenderer.cpp](src/CanvasPainterRenderer.cpp#L950)、[CanvasView.cpp](src/CanvasView.cpp#L238)、[CanvasSnap.cpp](src/CanvasSnap.cpp#L42)
+- **原现象**：加入多段线的线段/圆弧会被克隆，因此子实体自身的样式和 `CanvasData` 会保留；但默认绘制和选择路径不检查子段可见性，捕捉则会跳过不可见子段。
+- **确认契约**：多段线父对象统一控制描边样式；子段 `visible` 独立控制该段的绘制、命中、框选和捕捉；多段线仍作为一个顶层图元参与选择。隐藏子段的 `CanvasData`、标签等属性仍保留，但其绘制内容随该段隐藏。
+- **处理**：绘制器和 CanvasView 的共享命中/框选路径过滤隐藏子段；隐藏线段独占的内部顶点不再显示或响应编辑柄；捕捉路径原已过滤隐藏子段，补上了专门回归测试。
+- **验证**：Qt 5.12.10 Debug/Release 全量构建成功；全量 QtTest 两种配置均为 173 passed、0 failed。专项覆盖 `CanvasRendererSkipsInvisiblePolylineSegments`、`CanvasViewSelectionSkipsInvisiblePolylineSegments`、`CanvasViewDoesNotDrawEditHandlesForHiddenPolylineVertices` 和 `CanvasSnapperSkipsInvisiblePolylineSegments`。
+- **代码位置**：[CanvasPainterRenderer.cpp](src/CanvasPainterRenderer.cpp#L957)、[CanvasView.cpp](src/CanvasView.cpp#L282)、[CanvasSnap.cpp](src/CanvasSnap.cpp#L36)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L3161)
 
 ### MG-003 · P2 · 圆弧几何 API 与实体层对整周角差的接受范围不一致
 
@@ -213,15 +214,15 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 
 ## 10. 测试与验证情况
 
-- 最近一次已知构建/测试记录（上一轮工作区验证）：Qt 5.12.10 与 Qt 6.5.3 均构建成功，各有 163 项测试通过。
-- 本次审查是静态检查，没有重跑构建或测试；上面的结果不覆盖本报告列出的新增边界用例。
-- 建议补充：CanvasData 绑定冲突、多段线子段样式/隐藏的契约测试、整周圆弧 API 契约与极大有限角度溢出测试、NaN/无穷/巨大坐标、距离溢出、深层组；若命令格式承诺支持任意文本/路径，再补带逗号和空字段用例；以及不同实体数量下的性能基准。
+- 本次 MG-002 修复后，Qt 5.12.10 x64 Debug/Release 均完成全量构建，各有 173 项 QtTest 通过；Qt 6.5.3 的最近一次已知记录仍为上一轮 163 项通过，本次未重跑。
+- 本次验证覆盖 MG-002 的多段线绘制、点击/框选、编辑柄和捕捉；不代表报告中其他边界用例已验证。
+- 建议补充：CanvasData 绑定冲突、整周圆弧 API 契约与极大有限角度溢出、NaN/无穷/巨大坐标、距离溢出、深层组；若命令格式承诺支持任意文本/路径，再补带逗号和空字段用例；以及不同实体数量下的性能基准。
 - 目前没有足够基准数据来承诺可支持的最大图元数或帧率。
 
 ## 11. 建议处理顺序
 
 1. 修复 MG-001，确保文档 API 的返回值、数据状态和变更信号一致。
-2. 明确 MG-002 的多段线子段属性契约；只有要求子段独立显示时，才统一绘制、命中和捕捉行为。
+2. MG-002 已按“父对象统一描边样式、子段可见性独立生效”修复，绘制、选择、编辑柄和捕捉已统一过滤隐藏子段。
 3. 明确 MG-003 的整周圆弧契约；若两层应接受相同数据，再统一校验和几何行为。
 4. 为 MG-004 至 MG-006、MG-022 补齐数值范围和非有限值保护。
 5. 明确 MG-007 命令格式的兼容契约；若确需无损表达任意字符串，再定义转义/空字段规则并补测试。

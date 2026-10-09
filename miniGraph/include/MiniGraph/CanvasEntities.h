@@ -250,6 +250,7 @@ private:
 };
 
 // 由首尾相接的直线段和圆弧段组成的复合图元。
+// 父对象统一控制子段线型样式；子段的 visible 独立控制该段的绘制、命中、框选和捕捉。
 class MINIGRAPH_EXPORT CanvasPolyline final : public CanvasEntity
 {
 public:
