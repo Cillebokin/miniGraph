@@ -3,6 +3,7 @@
 #include "CanvasTypes.h"
 #include "CanvasSnap.h"
 #include "CanvasTransform.h"
+#include "CanvasAction.h"
 #include "MiniGraph_global.h"
 
 #include <QPoint>
@@ -93,6 +94,27 @@ public:
     // 设置附加的自定义渲染器，传入 nullptr 可恢复为仅使用默认渲染器。
     // CanvasView 不接管渲染器的所有权，渲染器必须在使用期间保持有效。
     void SetCustomRenderer(CanvasRenderer *renderer);
+
+    // 返回当前临时 Action；没有临时 Action 时返回 nullptr。
+    CanvasAction *GetCurrentAction() const;
+
+    // 设置临时 Action 并接管其所有权；nullptr 等价于 KillAllActions()。
+    // Action 必须未被其他 QObject 持有，或已是当前 CanvasView 的子对象。
+    // 临时 Action 活跃时独占画布编辑输入，结束后恢复默认交互。
+    bool SetCurrentAction(CanvasAction *action);
+
+    // 返回调用层设置的默认 Action；nullptr 表示使用 CanvasView 内置交互。
+    CanvasAction *GetDefaultAction() const;
+
+    // 设置调用层默认 Action 并接管其所有权；nullptr 等价于 ResetDefaultAction()。
+    // 临时 Action 优先级高于默认 Action。
+    bool SetDefaultAction(CanvasAction *action);
+
+    // 移除调用层默认 Action，恢复 CanvasView 内置交互。
+    void ResetDefaultAction();
+
+    // 取消临时 Action 并恢复默认交互。
+    void KillAllActions();
 
     // 返回网格是否可见。
     bool IsGridVisible() const;
@@ -366,6 +388,24 @@ private:
     // 回滚当前尚未结束的移动手势。
     void CancelMove();
 
+    // 返回当前生效的调用层 Action；为空时由 CanvasView 执行内置交互。
+    CanvasAction *ActiveAction() const;
+
+    // 检查 Action 可否由当前视图接管且未注册到另一个 Action 槽。
+    bool CanInstallAction(CanvasAction *action) const;
+
+    // 连接 Action 的刷新、结束及销毁通知。
+    void ConnectActionSignals(CanvasAction *action);
+
+    // 取消并延迟销毁当前临时 Action。
+    void CancelCurrentAction();
+
+    // 正常结束并延迟销毁当前临时 Action。
+    void FinishCurrentAction();
+
+    // 清理鼠标、移动和编辑的临时状态，以开始或结束 Action。
+    void ResetInteractionForAction();
+
     // 当前关联的画布文档，使用 QPointer 观察对象生命周期。
     QPointer<CanvasDocument> m_Document;
 
@@ -383,6 +423,12 @@ private:
 
     // 自定义渲染器刷新信号与当前视图之间的连接句柄。
     QMetaObject::Connection m_CustomRendererUpdateConnection;
+
+    // 当前临时 Action，由 CanvasView 接管生命周期。
+    QPointer<CanvasAction> m_CurrentAction;
+
+    // 调用层自定义默认 Action；为空时使用 CanvasView 内置交互。
+    QPointer<CanvasAction> m_DefaultAction;
 
     // 当前画布的世界坐标变换状态。
     CanvasTransform m_Transform;

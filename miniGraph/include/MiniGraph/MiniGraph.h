@@ -12,4 +12,5 @@
 #include "CanvasTransform.h"
 #include "CanvasDocument.h"
 #include "CanvasRenderer.h"
+#include "CanvasAction.h"
 #include "CanvasView.h"

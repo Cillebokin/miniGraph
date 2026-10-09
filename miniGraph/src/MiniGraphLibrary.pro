@@ -1,5 +1,8 @@
 TEMPLATE = lib
 CONFIG += dll c++11
+win32-msvc {
+    QMAKE_CXXFLAGS += /utf-8
+}
 TARGET = MiniGraph
 DESTDIR = $$OUT_PWD/../bin
 
@@ -20,6 +23,7 @@ HEADERS += \
     $$PWD/../include/MiniGraph/CanvasTransform.h \
     $$PWD/../include/MiniGraph/CanvasDocument.h \
     $$PWD/../include/MiniGraph/CanvasRenderer.h \
+    $$PWD/../include/MiniGraph/CanvasAction.h \
     $$PWD/../include/MiniGraph/CanvasView.h \
     $$PWD/../include/MiniGraph/MiniGraph.h \
     $$PWD/CanvasGeometryPrivate.h \
@@ -33,5 +37,6 @@ SOURCES += \
     $$PWD/CanvasTransform.cpp \
     $$PWD/CanvasDocument.cpp \
     $$PWD/CanvasRenderer.cpp \
+    $$PWD/CanvasAction.cpp \
     $$PWD/CanvasPainterRenderer.cpp \
     $$PWD/CanvasView.cpp

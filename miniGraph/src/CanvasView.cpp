@@ -607,6 +607,8 @@ CanvasView::CanvasView(QWidget *parent)
 
 CanvasView::~CanvasView()
 {
+    KillAllActions();
+    ResetDefaultAction();
 }
 
 void CanvasView::SetInteractionMode(InteractionMode mode)
@@ -615,6 +617,9 @@ void CanvasView::SetInteractionMode(InteractionMode mode)
         return;
     }
 
+    if (mode == InteractionMode::PreviewNavigation) {
+        KillAllActions();
+    }
     CancelEdit();
     CancelMove();
     m_PanState = PanState::Idle;
@@ -651,6 +656,7 @@ void CanvasView::SetDocument(CanvasDocument *document)
         return;
     }
 
+    KillAllActions();
     CancelEdit();
     CancelMove();
     QObject::disconnect(m_DocumentConnection);
@@ -717,6 +723,186 @@ void CanvasView::SetCustomRenderer(CanvasRenderer *renderer)
         m_CustomRendererUpdateConnection = QMetaObject::Connection();
     }
     update();
+}
+
+CanvasAction *CanvasView::GetCurrentAction() const
+{
+    return m_CurrentAction.data();
+}
+
+bool CanvasView::SetCurrentAction(CanvasAction *action)
+{
+    if (m_CurrentAction.data() == action) {
+        return true;
+    }
+    if (!action) {
+        KillAllActions();
+        return true;
+    }
+    if (m_DefaultAction.data() == action || !CanInstallAction(action)) {
+        return false;
+    }
+
+    if (m_CurrentAction) {
+        CancelCurrentAction();
+    }
+    if (m_CurrentAction) {
+        return false;
+    }
+
+    ResetInteractionForAction();
+    action->setParent(this);
+    action->SetCanvasView(this);
+    m_CurrentAction = action;
+    ConnectActionSignals(action);
+    if (isVisible()) {
+        setFocus(Qt::OtherFocusReason);
+    }
+    update();
+    return true;
+}
+
+CanvasAction *CanvasView::GetDefaultAction() const
+{
+    return m_DefaultAction.data();
+}
+
+bool CanvasView::SetDefaultAction(CanvasAction *action)
+{
+    if (m_DefaultAction.data() == action) {
+        return true;
+    }
+    if (!action) {
+        ResetDefaultAction();
+        return true;
+    }
+    if (m_CurrentAction.data() == action || !CanInstallAction(action)) {
+        return false;
+    }
+
+    if (m_DefaultAction) {
+        ResetDefaultAction();
+    }
+
+    ResetInteractionForAction();
+    action->setParent(this);
+    action->SetCanvasView(this);
+    m_DefaultAction = action;
+    ConnectActionSignals(action);
+    update();
+    return true;
+}
+
+void CanvasView::ResetDefaultAction()
+{
+    CanvasAction *action = m_DefaultAction.data();
+    if (!action) {
+        return;
+    }
+
+    m_DefaultAction = nullptr;
+    ResetInteractionForAction();
+    action->Cancel();
+    action->SetCanvasView(nullptr);
+    QObject::disconnect(action, nullptr, this, nullptr);
+    action->deleteLater();
+    update();
+}
+
+void CanvasView::KillAllActions()
+{
+    CancelCurrentAction();
+}
+
+CanvasAction *CanvasView::ActiveAction() const
+{
+    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
+        return nullptr;
+    }
+    return m_CurrentAction ? m_CurrentAction.data() : m_DefaultAction.data();
+}
+
+bool CanvasView::CanInstallAction(CanvasAction *action) const
+{
+    if (!action) {
+        return true;
+    }
+    if (action->parent() && action->parent() != this) {
+        return false;
+    }
+    const CanvasView *attachedView = action->GetCanvasView();
+    return !attachedView || attachedView == this;
+}
+
+void CanvasView::ConnectActionSignals(CanvasAction *action)
+{
+    connect(action,
+            &CanvasAction::UpdateRequested,
+            this,
+            [this]() {
+        update();
+    });
+    connect(action,
+            &CanvasAction::FinishRequested,
+            this,
+            [this, action]() {
+        if (m_CurrentAction.data() == action) {
+            FinishCurrentAction();
+        }
+    },
+    Qt::QueuedConnection);
+    connect(action,
+            &QObject::destroyed,
+            this,
+            [this]() {
+        if (!m_CurrentAction) {
+            ResetInteractionForAction();
+        }
+        update();
+    });
+}
+
+void CanvasView::CancelCurrentAction()
+{
+    CanvasAction *action = m_CurrentAction.data();
+    if (!action) {
+        return;
+    }
+
+    m_CurrentAction = nullptr;
+    ResetInteractionForAction();
+    action->Cancel();
+    action->SetCanvasView(nullptr);
+    QObject::disconnect(action, nullptr, this, nullptr);
+    action->deleteLater();
+    emit InteractionCancelled();
+    update();
+}
+
+void CanvasView::FinishCurrentAction()
+{
+    CanvasAction *action = m_CurrentAction.data();
+    if (!action) {
+        return;
+    }
+
+    m_CurrentAction = nullptr;
+    ResetInteractionForAction();
+    action->SetCanvasView(nullptr);
+    QObject::disconnect(action, nullptr, this, nullptr);
+    action->deleteLater();
+    update();
+}
+
+void CanvasView::ResetInteractionForAction()
+{
+    CancelEdit();
+    CancelMove();
+    m_PanState = PanState::Idle;
+    m_SelectionState = SelectionState::Idle;
+    m_SelectionModifiers = Qt::NoModifier;
+    m_PressedItemId = 0;
+    unsetCursor();
 }
 
 bool CanvasView::IsGridVisible() const
@@ -959,6 +1145,16 @@ void CanvasView::keyPressEvent(QKeyEvent *event)
         return;
     }
 
+    if (CanvasAction *action = ActiveAction()) {
+        action->KeyPressEvent(event);
+        if (event->key() == Qt::Key_Escape
+                && m_CurrentAction.data() == action) {
+            CancelCurrentAction();
+        }
+        event->accept();
+        return;
+    }
+
     if (event->key() == Qt::Key_Shift) {
         if (!event->isAutoRepeat()) {
             SetOrthogonalModeInternal(true);
@@ -1009,8 +1205,17 @@ void CanvasView::keyPressEvent(QKeyEvent *event)
 
 void CanvasView::keyReleaseEvent(QKeyEvent *event)
 {
-    if (m_InteractionMode == InteractionMode::PreviewNavigation
-            && event->key() == Qt::Key_Shift) {
+    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
+        if (event->key() == Qt::Key_Shift) {
+            event->accept();
+            return;
+        }
+        QWidget::keyReleaseEvent(event);
+        return;
+    }
+
+    if (CanvasAction *action = ActiveAction()) {
+        action->KeyReleaseEvent(event);
         event->accept();
         return;
     }
@@ -1071,6 +1276,15 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
         m_PanStartPosition = event->localPos();
         m_LastMousePosition = event->localPos();
         setCursor(Qt::OpenHandCursor);
+        event->accept();
+        return;
+    }
+
+    if (CanvasAction *action = ActiveAction()) {
+        if (isVisible()) {
+            setFocus(Qt::MouseFocusReason);
+        }
+        action->MousePressEvent(event);
         event->accept();
         return;
     }
@@ -1169,6 +1383,14 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
         update();
         event->accept();
         return;
+    }
+
+    if (m_PanState == PanState::Idle) {
+        if (CanvasAction *action = ActiveAction()) {
+            action->MouseMoveEvent(event);
+            event->accept();
+            return;
+        }
     }
 
     if (m_PanState == PanState::Idle) {
@@ -1307,6 +1529,17 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event)
         return;
     }
 
+    if (event->button() == Qt::MiddleButton) {
+        event->accept();
+        return;
+    }
+
+    if (CanvasAction *action = ActiveAction()) {
+        action->MouseReleaseEvent(event);
+        event->accept();
+        return;
+    }
+
     if (event->button() == Qt::RightButton) {
         emit ContextMenuRequested(MapToWorld(event->localPos()), event->pos());
         event->accept();
@@ -1366,6 +1599,13 @@ void CanvasView::mouseDoubleClickEvent(QMouseEvent *event)
         FitAll(10.0);
         event->accept();
         return;
+    }
+    if (m_InteractionMode != InteractionMode::PreviewNavigation) {
+        if (CanvasAction *action = ActiveAction()) {
+            action->MouseDoubleClickEvent(event);
+            event->accept();
+            return;
+        }
     }
     QWidget::mouseDoubleClickEvent(event);
 }
@@ -1440,6 +1680,11 @@ void CanvasView::paintEvent(QPaintEvent *event)
         if (m_CustomRenderer) {
             painter.save();
             m_CustomRenderer->RenderOverlay(painter, renderContext);
+            painter.restore();
+        }
+        if (CanvasAction *action = ActiveAction()) {
+            painter.save();
+            action->RenderOverlay(painter, renderContext);
             painter.restore();
         }
     }
