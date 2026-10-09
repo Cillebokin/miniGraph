@@ -1,5 +1,7 @@
 ﻿#include "MiniGraph/CanvasEntities.h"
 
+#include "MiniGraph/CanvasData.h"
+
 #include <cmath>
 #include <limits>
 
@@ -208,6 +210,19 @@ bool CanvasEntity::SetStyle(const StruCanvasStyle &style)
     return true;
 }
 
+const QSharedPointer<CanvasData> &CanvasEntity::GetCanvasData() const
+{
+    return m_CanvasData;
+}
+
+void CanvasEntity::SetCanvasData(const QSharedPointer<CanvasData> &data)
+{
+    m_CanvasData = data;
+    if (m_CanvasData) {
+        m_CanvasData->Update(this);
+    }
+}
+
 QString CanvasEntity::GetLayerName() const
 {
     return m_LayerName;
@@ -258,11 +273,20 @@ void CanvasEntity::CopyCommonPropertiesTo(CanvasEntity *target) const
     target->m_Tag = m_Tag;
     target->m_BusinessId = m_BusinessId;
     target->m_Reversed = m_Reversed;
+    if (m_CanvasData) {
+        target->m_CanvasData = m_CanvasData->Clone();
+        if (target->m_CanvasData) {
+            target->m_CanvasData->Update(target);
+        }
+    }
 }
 
 void CanvasEntity::SetId(ItemId id)
 {
     m_Id = id;
+    if (m_CanvasData) {
+        m_CanvasData->Update(this);
+    }
 }
 
 CanvasPoint::CanvasPoint(const CanvasVector &position)

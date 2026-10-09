@@ -12,6 +12,9 @@
 
 namespace mini_graph {
 
+class CanvasData;
+class CanvasGlobalData;
+
 // 画布图元文档。
 // CanvasDocument 负责保存和管理画布中的基础图元，并在内容发生变化时
 // 通过 Changed() 通知关联的视图或其他观察者。
@@ -129,6 +132,19 @@ public:
     // 图元不存在或样式参数非法时返回 false；样式发生变化时发出 Changed()。
     bool SetItemStyle(ItemId id, const StruCanvasStyle &style);
 
+    // 返回指定图元的附加数据；图元不存在或未设置数据时返回空指针。
+    QSharedPointer<CanvasData> GetItemCanvasData(ItemId id) const;
+
+    // 设置指定图元的附加数据；成功时发出 Changed()。
+    bool SetItemCanvasData(ItemId id,
+                           const QSharedPointer<CanvasData> &data);
+
+    // 返回当前文档的全局附加数据；未设置时返回空指针。
+    QSharedPointer<CanvasGlobalData> GetCanvasGlobalData() const;
+
+    // 设置当前文档的全局附加数据，并发出 Changed()。
+    void SetCanvasGlobalData(const QSharedPointer<CanvasGlobalData> &data);
+
     // 返回指定点图元的几何数据，图元类型不匹配或 geometry 为空时返回 false。
     bool GetPointGeometry(ItemId id, StruPointGeometry *geometry) const;
 
@@ -224,6 +240,9 @@ private:
 
     // 下一次添加图元时使用的标识值。
     ItemId m_NextId;
+
+    // 当前文档持有的全局附加数据。
+    QSharedPointer<CanvasGlobalData> m_CanvasGlobalData;
 
     // 当前被选中的图元标识集合。
     QSet<ItemId> m_SelectedIds;

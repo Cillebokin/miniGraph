@@ -8,6 +8,8 @@
 
 namespace mini_graph {
 
+class CanvasData;
+
 // 所有画布图元的公共数据和多态接口。
 class MINIGRAPH_EXPORT CanvasEntity
 {
@@ -26,6 +28,12 @@ public:
 
     // 设置显示样式；线宽和点尺寸必须是有限的非负数。
     bool SetStyle(const StruCanvasStyle &style);
+
+    // 返回图元附加数据；未设置时为空。
+    const QSharedPointer<CanvasData> &GetCanvasData() const;
+
+    // 设置图元附加数据，并将其绑定到当前图元。
+    void SetCanvasData(const QSharedPointer<CanvasData> &data);
 
     // 返回图元所属图层名称。
     QString GetLayerName() const;
@@ -76,6 +84,7 @@ private:
     QString m_Tag;
     qint64 m_BusinessId;
     bool m_Reversed;
+    QSharedPointer<CanvasData> m_CanvasData;
 };
 
 // 以世界坐标保存的点图元。

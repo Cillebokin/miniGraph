@@ -3,6 +3,7 @@
 #include "CanvasPainterRenderer.h"
 #include "MiniGraph/CanvasDocument.h"
 #include "MiniGraph/CanvasGeometry.h"
+#include "MiniGraph/CanvasGlobalData.h"
 #include "MiniGraph/CanvasRenderer.h"
 #include "MiniGraph/CanvasSnap.h"
 
@@ -344,6 +345,199 @@ bool DoEntityPathsIntersectRect(const QVector<EntitySelectionPath> &paths,
     return false;
 }
 
+CanvasVector CalculateEllipsePoint(const CanvasEllipse &ellipse,
+                                   qreal parameter)
+{
+    const CanvasVector majorAxis = ellipse.GetMajorAxis();
+    const qreal ratio = ellipse.GetMinorMajorRatio();
+    const CanvasVector minorAxis(-majorAxis.GetY() * ratio,
+                                 majorAxis.GetX() * ratio);
+    return ellipse.GetCenter()
+            + majorAxis * std::cos(static_cast<double>(parameter))
+            + minorAxis * std::sin(static_cast<double>(parameter));
+}
+
+CanvasVector GetFirstEntityReferencePoint(const CanvasEntity &entity)
+{
+    switch (entity.GetType()) {
+    case CanvasEntityType::Point: {
+        const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(&entity);
+        return point ? point->GetPosition() : CanvasVector();
+    }
+    case CanvasEntityType::Line: {
+        const CanvasLine *line = dynamic_cast<const CanvasLine *>(&entity);
+        return line ? line->GetStartPoint() : CanvasVector();
+    }
+    case CanvasEntityType::Arc: {
+        const CanvasArc *arc = dynamic_cast<const CanvasArc *>(&entity);
+        return arc ? arc->GetStartPoint() : CanvasVector();
+    }
+    case CanvasEntityType::Circle: {
+        const CanvasCircle *circle =
+                dynamic_cast<const CanvasCircle *>(&entity);
+        return circle ? circle->GetCenter() : CanvasVector();
+    }
+    case CanvasEntityType::Ellipse: {
+        const CanvasEllipse *ellipse =
+                dynamic_cast<const CanvasEllipse *>(&entity);
+        if (!ellipse) {
+            return CanvasVector();
+        }
+        return ellipse->IsArc()
+                ? CalculateEllipsePoint(*ellipse,
+                                        ellipse->GetStartParameter())
+                : ellipse->GetCenter();
+    }
+    case CanvasEntityType::Polyline: {
+        const CanvasPolyline *polyline =
+                dynamic_cast<const CanvasPolyline *>(&entity);
+        const CanvasEntity *firstSegment = polyline
+                ? polyline->GetSegment(0) : nullptr;
+        return firstSegment
+                ? GetFirstEntityReferencePoint(*firstSegment)
+                : CanvasVector();
+    }
+    case CanvasEntityType::Spline: {
+        const CanvasSpline *spline =
+                dynamic_cast<const CanvasSpline *>(&entity);
+        return spline && !spline->GetControlPoints().isEmpty()
+                ? spline->GetControlPoints().first() : CanvasVector();
+    }
+    case CanvasEntityType::GroupContainer: {
+        const CanvasGroupContainer *group =
+                dynamic_cast<const CanvasGroupContainer *>(&entity);
+        const CanvasEntity *firstChild = group
+                ? group->GetChild(0) : nullptr;
+        return firstChild
+                ? GetFirstEntityReferencePoint(*firstChild)
+                : CanvasVector();
+    }
+    case CanvasEntityType::Invalid:
+        return CanvasVector();
+    }
+
+    return CanvasVector();
+}
+
+void CopyEntityProperties(const CanvasEntity &source, CanvasEntity *target)
+{
+    if (!target) {
+        return;
+    }
+    target->SetStyle(source.GetStyle());
+    target->SetLayerName(source.GetLayerName());
+    target->SetTag(source.GetTag());
+    target->SetBusinessId(source.GetBusinessId());
+    target->SetReversed(source.IsReversed());
+}
+
+bool IsLineSegment(const CanvasEntity *segment)
+{
+    return dynamic_cast<const CanvasLine *>(segment) != nullptr;
+}
+
+bool IsEditablePolylineVertex(const CanvasPolyline &polyline,
+                              int pointIndex)
+{
+    const int segmentCount = polyline.GetSegmentCount();
+    if (segmentCount <= 0) {
+        return false;
+    }
+
+    if (polyline.IsClosed()) {
+        if (pointIndex < 0 || pointIndex >= segmentCount) {
+            return false;
+        }
+        const int previousSegmentIndex =
+                (pointIndex + segmentCount - 1) % segmentCount;
+        return IsLineSegment(polyline.GetSegment(previousSegmentIndex))
+                && IsLineSegment(polyline.GetSegment(pointIndex));
+    }
+
+    if (pointIndex < 0 || pointIndex > segmentCount) {
+        return false;
+    }
+    if (pointIndex == 0) {
+        return IsLineSegment(polyline.GetSegment(0));
+    }
+    if (pointIndex == segmentCount) {
+        return IsLineSegment(polyline.GetSegment(segmentCount - 1));
+    }
+    return IsLineSegment(polyline.GetSegment(pointIndex - 1))
+            && IsLineSegment(polyline.GetSegment(pointIndex));
+}
+
+CanvasVector GetPolylineVertex(const CanvasPolyline &polyline, int pointIndex)
+{
+    if (!IsEditablePolylineVertex(polyline, pointIndex)) {
+        return CanvasVector();
+    }
+
+    const int segmentCount = polyline.GetSegmentCount();
+    if (polyline.IsClosed() || pointIndex < segmentCount) {
+        const int nextSegmentIndex = pointIndex % segmentCount;
+        const CanvasLine *nextLine = dynamic_cast<const CanvasLine *>(
+                    polyline.GetSegment(nextSegmentIndex));
+        return nextLine ? nextLine->GetStartPoint() : CanvasVector();
+    }
+
+    const CanvasLine *previousLine = dynamic_cast<const CanvasLine *>(
+                polyline.GetSegment(segmentCount - 1));
+    return previousLine ? previousLine->GetEndPoint() : CanvasVector();
+}
+
+bool TryMovePolylineVertex(const CanvasPolyline &source,
+                           int pointIndex,
+                           const CanvasVector &position,
+                           QSharedPointer<CanvasEntity> *result)
+{
+    const int segmentCount = source.GetSegmentCount();
+    if (!result || !position.IsValid()
+            || !IsEditablePolylineVertex(source, pointIndex)) {
+        return false;
+    }
+
+    CanvasPolyline updated;
+    for (int segmentIndex = 0;
+         segmentIndex < segmentCount;
+         ++segmentIndex) {
+        const CanvasEntity *segment = source.GetSegment(segmentIndex);
+        if (const CanvasLine *line =
+                dynamic_cast<const CanvasLine *>(segment)) {
+            CanvasVector startPoint = line->GetStartPoint();
+            CanvasVector endPoint = line->GetEndPoint();
+            const int endPointIndex = source.IsClosed()
+                    ? (segmentIndex + 1) % segmentCount
+                    : segmentIndex + 1;
+            if (segmentIndex == pointIndex) {
+                startPoint = position;
+            }
+            if (endPointIndex == pointIndex) {
+                endPoint = position;
+            }
+
+            CanvasLine updatedLine(startPoint, endPoint);
+            CopyEntityProperties(*line, &updatedLine);
+            if (!updated.AddSegment(updatedLine)) {
+                return false;
+            }
+            continue;
+        }
+
+        const CanvasArc *arc = dynamic_cast<const CanvasArc *>(segment);
+        if (!arc || !updated.AddSegment(*arc)) {
+            return false;
+        }
+    }
+
+    if (!updated.SetClosed(source.IsClosed())) {
+        return false;
+    }
+    CopyEntityProperties(source, &updated);
+    *result = updated.Clone();
+    return !result->isNull();
+}
+
 } // namespace
 
 class CanvasViewPrivate
@@ -382,7 +576,7 @@ CanvasView::CanvasView(QWidget *parent)
     , m_GeometrySnapEnabled(true)
     , m_CurrentMousePosition(0.0, 0.0)
     , m_EditHandleType(EditHandleType::None)
-    , m_EditVertexIndex(-1)
+    , m_EditPointIndex(-1)
     , m_EditItemId(0)
     , m_EditEntityType(CanvasEntityType::Invalid)
     , m_EditGeometryChanged(false)
@@ -884,12 +1078,22 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
 
         if (m_Document && m_Document->GetSelectedItemCount() == 1) {
             const QVector<ItemId> selectedIds = m_Document->GetSelectedItemIds();
-            int vertexIndex = -1;
+            int pointIndex = -1;
             const EditHandleType handleType = HitTestEditHandle(event->localPos(),
-                                                                 &vertexIndex);
+                                                                 &pointIndex);
+            if (selectedIds.size() == 1
+                    && handleType == EditHandleType::GroupReferencePoint) {
+                m_SelectionState = SelectionState::Pressed;
+                m_SelectionStartPosition = event->localPos();
+                m_SelectionCurrentPosition = event->localPos();
+                m_SelectionModifiers = event->modifiers();
+                m_PressedItemId = selectedIds.first();
+                event->accept();
+                return;
+            }
             if (selectedIds.size() == 1
                     && handleType != EditHandleType::None
-                    && BeginEdit(selectedIds.first(), handleType, vertexIndex)) {
+                    && BeginEdit(selectedIds.first(), handleType, pointIndex)) {
                 m_SelectionState = SelectionState::Editing;
                 m_SelectionStartPosition = event->localPos();
                 m_SelectionCurrentPosition = event->localPos();
@@ -1186,9 +1390,22 @@ void CanvasView::paintEvent(QPaintEvent *event)
     QImage geometryLayer = createLayer();
     {
         QPainter painter(&geometryLayer);
+        const QSharedPointer<CanvasGlobalData> globalData = m_Document
+                ? m_Document->GetCanvasGlobalData()
+                : QSharedPointer<CanvasGlobalData>();
+        if (globalData) {
+            painter.save();
+            globalData->RenderBefore(painter, renderContext);
+            painter.restore();
+        }
         m_PrivateData->m_DefaultRenderer->Render(painter, renderContext);
         if (m_CustomRenderer) {
             m_CustomRenderer->Render(painter, renderContext);
+        }
+        if (globalData) {
+            painter.save();
+            globalData->RenderAfter(painter, renderContext);
+            painter.restore();
         }
     }
 
@@ -1654,7 +1871,8 @@ void CanvasView::DrawEditHandles(QPainter &painter) const
                 && m_EditItemId == itemId
                 && m_EditHandleType == handle.type
                 && (handle.type != EditHandleType::PolylineVertex
-                    || m_EditVertexIndex == handle.vertexIndex);
+                    && handle.type != EditHandleType::SplineControlPoint
+                    || m_EditPointIndex == handle.pointIndex);
         painter.setBrush(active
                          ? CADLAB_ACTIVE_EDIT_HANDLE_COLOR
                          : CADLAB_EDIT_HANDLE_COLOR);
@@ -1708,75 +1926,128 @@ QVector<CanvasView::EditHandlePosition> CanvasView::GetEditHandlePositions(
         return handles;
     }
 
-    StruCanvasStyle style;
-    if (!m_Document->GetItemStyle(id, &style) || !style.visible) {
+    const CanvasEntity *entity = m_Document->GetEntity(id);
+    if (!entity || !entity->GetStyle().visible || !entity->IsValid()) {
         return handles;
     }
 
-    const CanvasEntityType type = m_Document->GetItemType(id);
-    switch (type) {
+    switch (entity->GetType()) {
     case CanvasEntityType::Point: {
-        for (const StruPointPrimitive &point : m_Document->GetPointPrimitives()) {
-            if (point.id == id) {
-                handles.append({EditHandleType::PointCenter,
-                                point.geometry.position});
-                break;
-            }
+        const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(entity);
+        if (point) {
+            handles.append({EditHandleType::PointCenter,
+                            point->GetPosition()});
         }
         break;
     }
     case CanvasEntityType::Line: {
-        for (const StruLinePrimitive &line : m_Document->GetLinePrimitives()) {
-            if (line.id == id) {
-                handles.append({EditHandleType::LineStart,
-                                line.geometry.startPoint});
-                handles.append({EditHandleType::LineEnd,
-                                line.geometry.endPoint});
-                break;
-            }
+        const CanvasLine *line = dynamic_cast<const CanvasLine *>(entity);
+        if (line) {
+            handles.append({EditHandleType::LineStart,
+                            line->GetStartPoint()});
+            handles.append({EditHandleType::LineEnd,
+                            line->GetEndPoint()});
         }
         break;
     }
     case CanvasEntityType::Arc: {
-        for (const StruArcPrimitive &arc : m_Document->GetArcPrimitives()) {
-            if (arc.id == id) {
-                handles.append({EditHandleType::ArcCenter,
-                                arc.geometry.center});
-                handles.append({EditHandleType::ArcStart,
-                                CalculateArcPoint(arc.geometry,
-                                                  arc.geometry.startAngle)});
-                handles.append({EditHandleType::ArcEnd,
-                                CalculateArcPoint(arc.geometry,
-                                                  arc.geometry.endAngle)});
-                break;
-            }
+        const CanvasArc *arc = dynamic_cast<const CanvasArc *>(entity);
+        if (arc) {
+            handles.append({EditHandleType::ArcCenter,
+                            arc->GetCenter()});
+            handles.append({EditHandleType::ArcStart,
+                            arc->GetStartPoint()});
+            handles.append({EditHandleType::ArcEnd,
+                            arc->GetEndPoint()});
         }
         break;
     }
     case CanvasEntityType::Circle: {
-        for (const StruCirclePrimitive &circle : m_Document->GetCirclePrimitives()) {
-            if (circle.id == id) {
-                handles.append({EditHandleType::CircleCenter,
-                                circle.geometry.center});
-                handles.append({EditHandleType::CircleRadius,
-                                circle.geometry.center
-                                + CanvasVector(circle.geometry.radius, 0.0)});
-                break;
-            }
+        const CanvasCircle *circle =
+                dynamic_cast<const CanvasCircle *>(entity);
+        if (circle) {
+            handles.append({EditHandleType::CircleCenter,
+                            circle->GetCenter()});
+            handles.append({EditHandleType::CircleRadius,
+                            circle->GetCenter()
+                            + CanvasVector(circle->GetRadius(), 0.0)});
+        }
+        break;
+    }
+    case CanvasEntityType::Ellipse: {
+        const CanvasEllipse *ellipse =
+                dynamic_cast<const CanvasEllipse *>(entity);
+        if (!ellipse) {
+            break;
+        }
+
+        const CanvasVector center = ellipse->GetCenter();
+        const CanvasVector majorAxis = ellipse->GetMajorAxis();
+        const CanvasVector minorAxis(-majorAxis.GetY()
+                                     * ellipse->GetMinorMajorRatio(),
+                                     majorAxis.GetX()
+                                     * ellipse->GetMinorMajorRatio());
+        handles.append({EditHandleType::EllipseCenter, center});
+        handles.append({EditHandleType::EllipseMajorAxis,
+                        center + majorAxis});
+        handles.append({EditHandleType::EllipseMinorAxis,
+                        center + minorAxis});
+        if (ellipse->IsArc()) {
+            handles.append({EditHandleType::EllipseStart,
+                            CalculateEllipsePoint(*ellipse,
+                                                  ellipse->GetStartParameter())});
+            handles.append({EditHandleType::EllipseEnd,
+                            CalculateEllipsePoint(*ellipse,
+                                                  ellipse->GetEndParameter())});
         }
         break;
     }
     case CanvasEntityType::Polyline: {
-        for (const StruPolylinePrimitive &polyline : m_Document->GetPolylinePrimitives()) {
-            if (polyline.id != id) {
+        const CanvasPolyline *polyline =
+                dynamic_cast<const CanvasPolyline *>(entity);
+        if (!polyline) {
+            break;
+        }
+        const int vertexCount = polyline->IsClosed()
+                ? polyline->GetSegmentCount()
+                : polyline->GetSegmentCount() + 1;
+        for (int index = 0; index < vertexCount; ++index) {
+            if (!IsEditablePolylineVertex(*polyline, index)) {
                 continue;
             }
-            for (int index = 0; index < polyline.geometry.vertices.size(); ++index) {
+            const CanvasVector position = GetPolylineVertex(*polyline, index);
+            if (position.IsValid()) {
                 handles.append({EditHandleType::PolylineVertex,
-                                polyline.geometry.vertices.at(index),
+                                position,
                                 index});
             }
-            break;
+        }
+        break;
+    }
+    case CanvasEntityType::Spline: {
+        const CanvasSpline *spline =
+                dynamic_cast<const CanvasSpline *>(entity);
+        if (spline) {
+            const QVector<CanvasVector> &controlPoints =
+                    spline->GetControlPoints();
+            for (int index = 0; index < controlPoints.size(); ++index) {
+                handles.append({EditHandleType::SplineControlPoint,
+                                controlPoints.at(index),
+                                index});
+            }
+        }
+        break;
+    }
+    case CanvasEntityType::GroupContainer: {
+        const CanvasGroupContainer *group =
+                dynamic_cast<const CanvasGroupContainer *>(entity);
+        if (group) {
+            const CanvasVector referencePoint =
+                    GetFirstEntityReferencePoint(*group);
+            if (referencePoint.IsValid()) {
+                handles.append({EditHandleType::GroupReferencePoint,
+                                referencePoint});
+            }
         }
         break;
     }
@@ -1789,10 +2060,10 @@ QVector<CanvasView::EditHandlePosition> CanvasView::GetEditHandlePositions(
 
 CanvasView::EditHandleType CanvasView::HitTestEditHandle(
         const QPointF &viewportPosition,
-        int *vertexIndex) const
+        int *pointIndex) const
 {
-    if (vertexIndex) {
-        *vertexIndex = -1;
+    if (pointIndex) {
+        *pointIndex = -1;
     }
     if (!m_Document || m_Document->GetSelectedItemCount() != 1
             || size().isEmpty()) {
@@ -1810,10 +2081,11 @@ CanvasView::EditHandleType CanvasView::HitTestEditHandle(
             * EDIT_HANDLE_HIT_TOLERANCE_PIXELS;
     qreal bestDistanceSquared = std::numeric_limits<qreal>::max();
     EditHandleType hitType = EditHandleType::None;
-    int hitVertexIndex = -1;
+    int hitPointIndex = -1;
     const QSizeF viewportSize(size());
 
-    for (const EditHandlePosition &handle : handles) {
+    for (int index = handles.size() - 1; index >= 0; --index) {
+        const EditHandlePosition &handle = handles.at(index);
         const QPointF handlePosition = m_Transform.MapFromWorld(
                     handle.worldPosition,
                     viewportSize);
@@ -1823,70 +2095,92 @@ CanvasView::EditHandleType CanvasView::HitTestEditHandle(
                 && distanceSquared < bestDistanceSquared) {
             bestDistanceSquared = distanceSquared;
             hitType = handle.type;
-            hitVertexIndex = handle.vertexIndex;
+            hitPointIndex = handle.pointIndex;
         }
     }
 
-    if (vertexIndex) {
-        *vertexIndex = hitVertexIndex;
+    if (pointIndex) {
+        *pointIndex = hitPointIndex;
     }
     return hitType;
 }
 
 bool CanvasView::BeginEdit(ItemId id,
                            EditHandleType handleType,
-                           int vertexIndex)
+                           int pointIndex)
 {
     if (!m_Document || id == 0 || handleType == EditHandleType::None
             || !m_Document->IsItemSelected(id)) {
         return false;
     }
 
+    const CanvasEntity *entity = m_Document->GetEntity(id);
+    if (!entity || !entity->IsValid()) {
+        return false;
+    }
+
+    m_EditOriginalEntity = entity->Clone();
+    if (m_EditOriginalEntity.isNull()
+            || m_EditOriginalEntity->GetType() != entity->GetType()) {
+        ResetEditState();
+        return false;
+    }
+
     m_EditItemId = id;
-    m_EditEntityType = m_Document->GetItemType(id);
+    m_EditEntityType = entity->GetType();
     m_EditHandleType = handleType;
-    m_EditVertexIndex = vertexIndex;
+    m_EditPointIndex = pointIndex;
     m_EditGeometryChanged = false;
 
-    bool loaded = false;
+    bool isHandleValid = false;
     switch (m_EditEntityType) {
     case CanvasEntityType::Point:
-        loaded = handleType == EditHandleType::PointCenter
-                && m_Document->GetPointGeometry(id,
-                                                &m_EditOriginalPointGeometry);
+        isHandleValid = handleType == EditHandleType::PointCenter;
         break;
     case CanvasEntityType::Line:
-        loaded = (handleType == EditHandleType::LineStart
-                  || handleType == EditHandleType::LineEnd)
-                && m_Document->GetLineGeometry(id,
-                                               &m_EditOriginalLineGeometry);
+        isHandleValid = handleType == EditHandleType::LineStart
+                || handleType == EditHandleType::LineEnd;
         break;
     case CanvasEntityType::Arc:
-        loaded = (handleType == EditHandleType::ArcCenter
-                  || handleType == EditHandleType::ArcStart
-                  || handleType == EditHandleType::ArcEnd)
-                && m_Document->GetArcGeometry(id,
-                                              &m_EditOriginalArcGeometry);
+        isHandleValid = handleType == EditHandleType::ArcCenter
+                || handleType == EditHandleType::ArcStart
+                || handleType == EditHandleType::ArcEnd;
         break;
     case CanvasEntityType::Circle:
-        loaded = (handleType == EditHandleType::CircleCenter
-                  || handleType == EditHandleType::CircleRadius)
-                && m_Document->GetCircleGeometry(id,
-                                                 &m_EditOriginalCircleGeometry);
+        isHandleValid = handleType == EditHandleType::CircleCenter
+                || handleType == EditHandleType::CircleRadius;
         break;
-    case CanvasEntityType::Polyline:
-        loaded = handleType == EditHandleType::PolylineVertex
-                && m_Document->GetPolylineGeometry(
-                    id,
-                    &m_EditOriginalPolylineGeometry)
-                && vertexIndex >= 0
-                && vertexIndex < m_EditOriginalPolylineGeometry.vertices.size();
+    case CanvasEntityType::Ellipse:
+        isHandleValid = handleType == EditHandleType::EllipseCenter
+                || handleType == EditHandleType::EllipseMajorAxis
+                || handleType == EditHandleType::EllipseMinorAxis
+                || handleType == EditHandleType::EllipseStart
+                || handleType == EditHandleType::EllipseEnd;
         break;
+    case CanvasEntityType::Polyline: {
+        const CanvasPolyline *polyline =
+                dynamic_cast<const CanvasPolyline *>(
+                    m_EditOriginalEntity.data());
+        isHandleValid = polyline
+                && handleType == EditHandleType::PolylineVertex
+                && IsEditablePolylineVertex(*polyline, pointIndex);
+        break;
+    }
+    case CanvasEntityType::Spline: {
+        const CanvasSpline *spline =
+                dynamic_cast<const CanvasSpline *>(m_EditOriginalEntity.data());
+        isHandleValid = spline
+                && handleType == EditHandleType::SplineControlPoint
+                && pointIndex >= 0
+                && pointIndex < spline->GetControlPoints().size();
+        break;
+    }
+    case CanvasEntityType::GroupContainer:
     case CanvasEntityType::Invalid:
         break;
     }
 
-    if (!loaded) {
+    if (!isHandleValid) {
         ResetEditState();
         return false;
     }
@@ -1897,132 +2191,214 @@ bool CanvasView::BeginEdit(ItemId id,
 bool CanvasView::UpdateEdit(const CanvasVector &worldPosition)
 {
     if (!m_Document || m_EditItemId == 0
-            || m_EditHandleType == EditHandleType::None) {
+            || m_EditHandleType == EditHandleType::None
+            || m_EditOriginalEntity.isNull()
+            || !worldPosition.IsValid()) {
         return false;
     }
 
-    bool changed = false;
+    QSharedPointer<CanvasEntity> updated = m_EditOriginalEntity->Clone();
+    if (updated.isNull()) {
+        return false;
+    }
+
+    bool geometryUpdated = false;
     switch (m_EditEntityType) {
     case CanvasEntityType::Point: {
-        if (m_EditHandleType != EditHandleType::PointCenter) {
-            return false;
-        }
-
-        StruPointGeometry geometry = m_EditOriginalPointGeometry;
-        geometry.position = worldPosition;
-        changed = m_Document->SetPointGeometry(m_EditItemId, geometry);
+        CanvasPoint *point = dynamic_cast<CanvasPoint *>(updated.data());
+        geometryUpdated = point
+                && m_EditHandleType == EditHandleType::PointCenter
+                && point->SetPosition(worldPosition);
         break;
     }
     case CanvasEntityType::Line: {
-        StruLineGeometry geometry = m_EditOriginalLineGeometry;
-        if (m_EditHandleType == EditHandleType::LineStart) {
-            geometry.startPoint = worldPosition;
-        } else if (m_EditHandleType == EditHandleType::LineEnd) {
-            geometry.endPoint = worldPosition;
-        } else {
-            return false;
+        const CanvasLine *original = dynamic_cast<const CanvasLine *>(
+                    m_EditOriginalEntity.data());
+        CanvasLine *line = dynamic_cast<CanvasLine *>(updated.data());
+        if (original && line) {
+            CanvasVector startPoint = original->GetStartPoint();
+            CanvasVector endPoint = original->GetEndPoint();
+            if (m_EditHandleType == EditHandleType::LineStart) {
+                startPoint = worldPosition;
+            } else if (m_EditHandleType == EditHandleType::LineEnd) {
+                endPoint = worldPosition;
+            }
+            geometryUpdated = line->SetGeometry(startPoint, endPoint);
         }
-        changed = m_Document->SetLineGeometry(m_EditItemId, geometry);
         break;
     }
     case CanvasEntityType::Arc: {
-        StruArcGeometry geometry = m_EditOriginalArcGeometry;
-        if (m_EditHandleType == EditHandleType::ArcCenter) {
-            geometry.center = worldPosition;
-        } else {
-            const CanvasVector delta = worldPosition - geometry.center;
-            const qreal radius = delta.Length();
-            if (radius <= 0.0) {
-                return false;
+        const CanvasArc *original = dynamic_cast<const CanvasArc *>(
+                    m_EditOriginalEntity.data());
+        CanvasArc *arc = dynamic_cast<CanvasArc *>(updated.data());
+        if (original && arc) {
+            CanvasVector center = original->GetCenter();
+            qreal radius = original->GetRadius();
+            qreal startAngle = original->GetStartAngle();
+            qreal endAngle = original->GetEndAngle();
+            if (m_EditHandleType == EditHandleType::ArcCenter) {
+                center = worldPosition;
+            } else if (m_EditHandleType == EditHandleType::ArcStart
+                       || m_EditHandleType == EditHandleType::ArcEnd) {
+                const CanvasVector delta = worldPosition - center;
+                radius = delta.Length();
+                if (radius <= 0.0
+                        || !std::isfinite(static_cast<double>(radius))) {
+                    return false;
+                }
+                const qreal angle = std::atan2(delta.GetY(), delta.GetX());
+                if (m_EditHandleType == EditHandleType::ArcStart) {
+                    startAngle = angle;
+                } else {
+                    endAngle = angle;
+                }
             }
-
-            geometry.radius = radius;
-            const qreal angle = std::atan2(delta.GetY(), delta.GetX());
-            if (m_EditHandleType == EditHandleType::ArcStart) {
-                geometry.startAngle = angle;
-            } else if (m_EditHandleType == EditHandleType::ArcEnd) {
-                geometry.endAngle = angle;
-            } else {
-                return false;
-            }
+            geometryUpdated = arc->SetGeometry(center, radius,
+                                                startAngle, endAngle);
         }
-        changed = m_Document->SetArcGeometry(m_EditItemId, geometry);
         break;
     }
     case CanvasEntityType::Circle: {
-        StruCircleGeometry geometry = m_EditOriginalCircleGeometry;
-        if (m_EditHandleType == EditHandleType::CircleCenter) {
-            geometry.center = worldPosition;
-        } else if (m_EditHandleType == EditHandleType::CircleRadius) {
-            const CanvasVector delta = worldPosition - geometry.center;
-            const qreal radius = delta.Length();
-            if (radius <= 0.0) {
+        const CanvasCircle *original = dynamic_cast<const CanvasCircle *>(
+                    m_EditOriginalEntity.data());
+        CanvasCircle *circle = dynamic_cast<CanvasCircle *>(updated.data());
+        if (original && circle) {
+            CanvasVector center = original->GetCenter();
+            qreal radius = original->GetRadius();
+            if (m_EditHandleType == EditHandleType::CircleCenter) {
+                center = worldPosition;
+            } else if (m_EditHandleType == EditHandleType::CircleRadius) {
+                radius = (worldPosition - center).Length();
+                if (radius <= 0.0
+                        || !std::isfinite(static_cast<double>(radius))) {
+                    return false;
+                }
+            }
+            geometryUpdated = circle->SetGeometry(center, radius);
+        }
+        break;
+    }
+    case CanvasEntityType::Ellipse: {
+        const CanvasEllipse *original = dynamic_cast<const CanvasEllipse *>(
+                    m_EditOriginalEntity.data());
+        CanvasEllipse *ellipse = dynamic_cast<CanvasEllipse *>(updated.data());
+        if (!original || !ellipse) {
+            break;
+        }
+
+        CanvasVector center = original->GetCenter();
+        CanvasVector majorAxis = original->GetMajorAxis();
+        qreal ratio = original->GetMinorMajorRatio();
+        qreal startParameter = original->GetStartParameter();
+        qreal endParameter = original->GetEndParameter();
+        if (m_EditHandleType == EditHandleType::EllipseCenter) {
+            center = worldPosition;
+        } else if (m_EditHandleType == EditHandleType::EllipseMajorAxis) {
+            majorAxis = worldPosition - center;
+        } else if (m_EditHandleType == EditHandleType::EllipseMinorAxis) {
+            const qreal majorLength = majorAxis.Length();
+            if (majorLength <= 0.0
+                    || !std::isfinite(static_cast<double>(majorLength))) {
                 return false;
             }
-            geometry.radius = radius;
-        } else {
-            return false;
+            const CanvasVector unitMinorAxis(
+                        -majorAxis.GetY() / majorLength,
+                        majorAxis.GetX() / majorLength);
+            const qreal minorLength =
+                    (worldPosition - center).Dot(unitMinorAxis);
+            ratio = minorLength / majorLength;
+        } else if (m_EditHandleType == EditHandleType::EllipseStart
+                   || m_EditHandleType == EditHandleType::EllipseEnd) {
+            const qreal majorLengthSquared = majorAxis.SquaredLength();
+            const CanvasVector minorAxis(-majorAxis.GetY() * ratio,
+                                         majorAxis.GetX() * ratio);
+            const qreal minorLengthSquared = minorAxis.SquaredLength();
+            if (majorLengthSquared <= 0.0 || minorLengthSquared <= 0.0) {
+                return false;
+            }
+            const CanvasVector delta = worldPosition - center;
+            const qreal majorCoordinate =
+                    delta.Dot(majorAxis) / majorLengthSquared;
+            const qreal minorCoordinate =
+                    delta.Dot(minorAxis) / minorLengthSquared;
+            if (!std::isfinite(static_cast<double>(majorCoordinate))
+                    || !std::isfinite(static_cast<double>(minorCoordinate))) {
+                return false;
+            }
+            const qreal parameter = std::atan2(minorCoordinate,
+                                                majorCoordinate);
+            if (m_EditHandleType == EditHandleType::EllipseStart) {
+                startParameter = parameter;
+            } else {
+                endParameter = parameter;
+            }
         }
-        changed = m_Document->SetCircleGeometry(m_EditItemId, geometry);
+        geometryUpdated = ellipse->SetGeometry(center, majorAxis, ratio,
+                                               original->IsArc(),
+                                               startParameter,
+                                               endParameter);
         break;
     }
     case CanvasEntityType::Polyline: {
-        if (m_EditHandleType != EditHandleType::PolylineVertex
-                || m_EditVertexIndex < 0
-                || m_EditVertexIndex >= m_EditOriginalPolylineGeometry.vertices.size()) {
-            return false;
+        const CanvasPolyline *polyline = dynamic_cast<const CanvasPolyline *>(
+                    m_EditOriginalEntity.data());
+        if (polyline
+                && m_EditHandleType == EditHandleType::PolylineVertex) {
+            geometryUpdated = TryMovePolylineVertex(*polyline,
+                                                    m_EditPointIndex,
+                                                    worldPosition,
+                                                    &updated);
         }
-        StruPolylineGeometry geometry = m_EditOriginalPolylineGeometry;
-        geometry.vertices[m_EditVertexIndex] = worldPosition;
-        changed = m_Document->SetPolylineGeometry(m_EditItemId, geometry);
         break;
     }
+    case CanvasEntityType::Spline: {
+        const CanvasSpline *original = dynamic_cast<const CanvasSpline *>(
+                    m_EditOriginalEntity.data());
+        CanvasSpline *spline = dynamic_cast<CanvasSpline *>(updated.data());
+        if (original && spline
+                && m_EditHandleType == EditHandleType::SplineControlPoint
+                && m_EditPointIndex >= 0
+                && m_EditPointIndex < original->GetControlPoints().size()) {
+            QVector<CanvasVector> controlPoints = original->GetControlPoints();
+            controlPoints[m_EditPointIndex] = worldPosition;
+            geometryUpdated = spline->SetData(original->GetDegree(),
+                                              controlPoints,
+                                              original->GetKnots(),
+                                              original->GetWeights(),
+                                              original->IsClosed(),
+                                              original->IsPeriodic());
+        }
+        break;
+    }
+    case CanvasEntityType::GroupContainer:
+        return false;
     case CanvasEntityType::Invalid:
         return false;
     }
 
-    if (changed) {
-        m_EditGeometryChanged = true;
+    if (!geometryUpdated || !updated->IsValid()
+            || !m_Document->ReplaceEntity(m_EditItemId, *updated)) {
+        return false;
     }
-    return changed;
+    m_EditGeometryChanged = true;
+    return true;
 }
 
 void CanvasView::ResetEditState()
 {
     m_EditHandleType = EditHandleType::None;
-    m_EditVertexIndex = -1;
+    m_EditPointIndex = -1;
     m_EditItemId = 0;
     m_EditEntityType = CanvasEntityType::Invalid;
     m_EditGeometryChanged = false;
+    m_EditOriginalEntity.clear();
 }
 
 void CanvasView::CancelEdit()
 {
-    if (m_Document && m_EditItemId != 0 && m_EditGeometryChanged) {
-        switch (m_EditEntityType) {
-        case CanvasEntityType::Point:
-            m_Document->SetPointGeometry(m_EditItemId,
-                                         m_EditOriginalPointGeometry);
-            break;
-        case CanvasEntityType::Line:
-            m_Document->SetLineGeometry(m_EditItemId,
-                                        m_EditOriginalLineGeometry);
-            break;
-        case CanvasEntityType::Arc:
-            m_Document->SetArcGeometry(m_EditItemId,
-                                       m_EditOriginalArcGeometry);
-            break;
-        case CanvasEntityType::Circle:
-            m_Document->SetCircleGeometry(m_EditItemId,
-                                          m_EditOriginalCircleGeometry);
-            break;
-        case CanvasEntityType::Polyline:
-            m_Document->SetPolylineGeometry(m_EditItemId,
-                                            m_EditOriginalPolylineGeometry);
-            break;
-        case CanvasEntityType::Invalid:
-            break;
-        }
+    if (m_Document && m_EditItemId != 0 && m_EditGeometryChanged
+            && !m_EditOriginalEntity.isNull()) {
+        m_Document->ReplaceEntity(m_EditItemId, *m_EditOriginalEntity);
     }
 
     ResetEditState();

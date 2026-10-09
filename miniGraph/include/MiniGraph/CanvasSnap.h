@@ -17,7 +17,11 @@ enum class CanvasSnapType : quint8
     ArcEndpoint,
     ArcCenter,
     CircleCenter,
-    PolylineVertex
+    PolylineVertex,
+    EllipseCenter,
+    EllipseEndpoint,
+    EllipseAxisPoint,
+    SplineEndpoint
 };
 
 // 画布捕捉查询的结果。

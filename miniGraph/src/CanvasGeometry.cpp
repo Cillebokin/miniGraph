@@ -1,5 +1,6 @@
 #include "MiniGraph/CanvasGeometry.h"
 #include "MiniGraph/CanvasEntities.h"
+#include "CanvasGeometryPrivate.h"
 
 #include <QtGlobal>
 
@@ -485,6 +486,165 @@ bool IncludeEllipseArcBounds(const CanvasEllipse &ellipse, SafeBounds *bounds)
 }
 
 } // namespace
+
+bool detail::EvaluateSplineInSpan(const CanvasSpline &spline,
+                                  int knotSpan,
+                                  qreal parameter,
+                                  CanvasVector *point)
+{
+    if (!point || !spline.IsValid() || !IsFinite(parameter)) {
+        return false;
+    }
+
+    const int degree = spline.GetDegree();
+    const QVector<CanvasVector> &controlPoints = spline.GetControlPoints();
+    const QVector<qreal> &knots = spline.GetKnots();
+    const QVector<qreal> &weights = spline.GetWeights();
+    if (knotSpan < degree || knotSpan >= controlPoints.size()) {
+        return false;
+    }
+
+    qreal basis[4] = {0.0, 0.0, 0.0, 0.0};
+    qreal left[4] = {0.0, 0.0, 0.0, 0.0};
+    qreal right[4] = {0.0, 0.0, 0.0, 0.0};
+    basis[0] = 1.0;
+    for (int order = 1; order <= degree; ++order) {
+        left[order] = parameter - knots.at(knotSpan + 1 - order);
+        right[order] = knots.at(knotSpan + order) - parameter;
+        if (!IsFinite(left[order]) || !IsFinite(right[order])) {
+            return false;
+        }
+
+        qreal saved = 0.0;
+        for (int index = 0; index < order; ++index) {
+            const qreal denominator = right[index + 1]
+                    + left[order - index];
+            if (!IsFinite(denominator)) {
+                return false;
+            }
+            const qreal temporary = denominator > 0.0
+                    ? basis[index] / denominator : 0.0;
+            basis[index] = saved + right[index + 1] * temporary;
+            saved = left[order - index] * temporary;
+        }
+        basis[order] = saved;
+    }
+
+    qreal termMantissas[4] = {0.0, 0.0, 0.0, 0.0};
+    int termExponents[4] = {0, 0, 0, 0};
+    int maximumExponent = std::numeric_limits<int>::min();
+    for (int index = 0; index <= degree; ++index) {
+        if (!IsFinite(basis[index]) || basis[index] < 0.0) {
+            return false;
+        }
+        if (basis[index] == 0.0) {
+            continue;
+        }
+
+        const int controlIndex = knotSpan - degree + index;
+        const qreal weight = weights.isEmpty() ? 1.0
+                                               : weights.at(controlIndex);
+        if (!IsFinite(weight) || weight <= 0.0) {
+            return false;
+        }
+
+        int basisExponent = 0;
+        int weightExponent = 0;
+        const qreal basisMantissa = std::frexp(basis[index], &basisExponent);
+        const qreal weightMantissa = std::frexp(weight, &weightExponent);
+        termMantissas[index] = basisMantissa * weightMantissa;
+        termExponents[index] = basisExponent + weightExponent;
+        maximumExponent = qMax(maximumExponent, termExponents[index]);
+    }
+
+    if (maximumExponent == std::numeric_limits<int>::min()) {
+        return false;
+    }
+
+    qreal normalizedTerms[4] = {0.0, 0.0, 0.0, 0.0};
+    qreal normalizedWeightSum = 0.0;
+    for (int index = 0; index <= degree; ++index) {
+        if (termMantissas[index] == 0.0) {
+            continue;
+        }
+        normalizedTerms[index] = std::ldexp(
+                    termMantissas[index],
+                    termExponents[index] - maximumExponent);
+        normalizedWeightSum += normalizedTerms[index];
+    }
+    if (!IsFinite(normalizedWeightSum) || normalizedWeightSum <= 0.0) {
+        return false;
+    }
+
+    qreal resultX = 0.0;
+    qreal resultY = 0.0;
+    for (int index = 0; index <= degree; ++index) {
+        if (normalizedTerms[index] == 0.0) {
+            continue;
+        }
+        const int controlIndex = knotSpan - degree + index;
+        const qreal contribution = normalizedTerms[index]
+                / normalizedWeightSum;
+        resultX = std::fma(controlPoints.at(controlIndex).GetX(),
+                           contribution, resultX);
+        resultY = std::fma(controlPoints.at(controlIndex).GetY(),
+                           contribution, resultY);
+    }
+
+    const CanvasVector candidate(resultX, resultY);
+    if (!candidate.IsValid()) {
+        return false;
+    }
+    *point = candidate;
+    return true;
+}
+
+bool detail::TryGetSplineEndpoints(const CanvasSpline &spline,
+                                   CanvasVector *startPoint,
+                                   CanvasVector *endPoint)
+{
+    if (!startPoint || !endPoint || !spline.IsValid()) {
+        return false;
+    }
+
+    const QVector<CanvasVector> &controlPoints = spline.GetControlPoints();
+    const QVector<qreal> &knots = spline.GetKnots();
+    const int degree = spline.GetDegree();
+    const qreal domainStart = knots.at(degree);
+    const qreal domainEnd = knots.at(controlPoints.size());
+    if (!IsFinite(domainStart) || !IsFinite(domainEnd)
+            || domainStart >= domainEnd) {
+        return false;
+    }
+
+    int startSpan = -1;
+    int endSpan = -1;
+    for (int knotSpan = degree;
+         knotSpan < controlPoints.size();
+         ++knotSpan) {
+        if (startSpan < 0 && knots.at(knotSpan) <= domainStart
+                && domainStart < knots.at(knotSpan + 1)) {
+            startSpan = knotSpan;
+        }
+        if (knots.at(knotSpan) < domainEnd
+                && domainEnd <= knots.at(knotSpan + 1)) {
+            endSpan = knotSpan;
+        }
+    }
+    if (startSpan < 0 || endSpan < 0) {
+        return false;
+    }
+
+    CanvasVector candidateStart;
+    CanvasVector candidateEnd;
+    if (!EvaluateSplineInSpan(spline, startSpan, domainStart, &candidateStart)
+            || !EvaluateSplineInSpan(spline, endSpan, domainEnd, &candidateEnd)) {
+        return false;
+    }
+    *startPoint = candidateStart;
+    *endPoint = candidateEnd;
+    return true;
+}
 
 bool IsValidGeometry(const StruArcGeometry &geometry)
 {

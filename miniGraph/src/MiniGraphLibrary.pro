@@ -12,6 +12,8 @@ HEADERS += \
     $$PWD/../include/MiniGraph/MiniGraph_global.h \
     $$PWD/../include/MiniGraph/CanvasVector.h \
     $$PWD/../include/MiniGraph/CanvasEntities.h \
+    $$PWD/../include/MiniGraph/CanvasData.h \
+    $$PWD/../include/MiniGraph/CanvasGlobalData.h \
     $$PWD/../include/MiniGraph/CanvasTypes.h \
     $$PWD/../include/MiniGraph/CanvasGeometry.h \
     $$PWD/../include/MiniGraph/CanvasSnap.h \
@@ -20,6 +22,7 @@ HEADERS += \
     $$PWD/../include/MiniGraph/CanvasRenderer.h \
     $$PWD/../include/MiniGraph/CanvasView.h \
     $$PWD/../include/MiniGraph/MiniGraph.h \
+    $$PWD/CanvasGeometryPrivate.h \
     $$PWD/CanvasPainterRenderer.h
 
 SOURCES += \

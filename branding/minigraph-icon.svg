@@ -1,0 +1,73 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="512" height="512" viewBox="0 0 512 512" role="img" aria-labelledby="title desc">
+  <title id="title">miniGraph icon</title>
+  <desc id="desc">A brush draws a looping geometric path on a coordinate canvas.</desc>
+  <defs>
+    <linearGradient id="canvasFill" x1="0" y1="0" x2="0.2" y2="1">
+      <stop offset="0" stop-color="#172D33"/>
+      <stop offset="1" stop-color="#0F2328"/>
+    </linearGradient>
+    <linearGradient id="brushwood" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#26363D"/>
+      <stop offset="0.55" stop-color="#192A30"/>
+      <stop offset="1" stop-color="#304149"/>
+    </linearGradient>
+    <linearGradient id="bristleColor" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#F8B363"/>
+      <stop offset="1" stop-color="#D77B32"/>
+    </linearGradient>
+    <filter id="softShadow" x="-12%" y="-12%" width="124%" height="132%">
+      <feGaussianBlur in="SourceAlpha" stdDeviation="8"/>
+      <feOffset dy="6"/>
+      <feComponentTransfer>
+        <feFuncA type="linear" slope="0.34"/>
+      </feComponentTransfer>
+      <feMerge>
+        <feMergeNode/>
+        <feMergeNode in="SourceGraphic"/>
+      </feMerge>
+    </filter>
+    <clipPath id="canvasClip">
+      <rect x="16" y="16" width="480" height="480" rx="98"/>
+    </clipPath>
+  </defs>
+
+  <rect x="16" y="16" width="480" height="480" rx="98"
+        fill="url(#canvasFill)" stroke="#0C1C21" stroke-width="4" filter="url(#softShadow)"/>
+  <g clip-path="url(#canvasClip)">
+    <g fill="none" stroke="#49646B" stroke-width="3" stroke-linecap="round" opacity="0.58">
+      <path d="M70 74V438 M162 74V438 M254 74V438 M346 74V438 M438 74V438"/>
+      <path d="M70 82H440 M70 164H440 M70 246H440 M70 328H440 M70 410H440"/>
+    </g>
+
+    <path d="M68 260
+             C68 196 129 108 211 105
+             C230 105 241 226 272 260
+             L400 355
+             C337 423 195 432 111 378
+             C82 358 68 314 68 260 Z"
+          fill="none" stroke="#25CBD9" stroke-width="11"
+          stroke-linecap="round" stroke-linejoin="round"/>
+
+    <g stroke="#102127" stroke-width="5" stroke-linejoin="round">
+      <path d="M314 210 L446 64 Q463 43 479 48 Q494 53 488 69 Q485 78 474 89 L343 236 Z"
+            fill="url(#brushwood)"/>
+      <path d="M342 207 L464 70" fill="none" stroke="#AAB8BD"
+            stroke-width="8" stroke-linecap="round" opacity="0.88"/>
+      <path d="M301 211 L326 185 L359 214 L332 243 Z" fill="#D7DEE1"/>
+      <path d="M301 211 Q321 198 340 216 L359 234
+               Q337 253 272 260 Q282 238 301 211 Z"
+            fill="url(#bristleColor)"/>
+    </g>
+
+    <g>
+      <circle cx="68" cy="260" r="19" fill="#F2F5F2"/>
+      <circle cx="68" cy="260" r="12" fill="#25CBD9"/>
+      <circle cx="211" cy="105" r="19" fill="#F2F5F2"/>
+      <circle cx="211" cy="105" r="12" fill="#25CBD9"/>
+      <circle cx="400" cy="355" r="19" fill="#F2F5F2"/>
+      <circle cx="400" cy="355" r="12" fill="#25CBD9"/>
+      <circle cx="272" cy="260" r="19" fill="#F2F5F2"/>
+      <circle cx="272" cy="260" r="12" fill="#ECA04D"/>
+    </g>
+  </g>
+</svg>

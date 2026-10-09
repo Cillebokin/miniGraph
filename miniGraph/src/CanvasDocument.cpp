@@ -1,5 +1,7 @@
 #include "MiniGraph/CanvasDocument.h"
+#include "MiniGraph/CanvasData.h"
 #include "MiniGraph/CanvasGeometry.h"
+#include "MiniGraph/CanvasGlobalData.h"
 
 #include <QtGlobal>
 
@@ -623,6 +625,36 @@ bool CanvasDocument::SetItemStyle(ItemId id, const StruCanvasStyle &style)
     InvalidatePrimitiveViews();
     emit Changed();
     return true;
+}
+
+QSharedPointer<CanvasData> CanvasDocument::GetItemCanvasData(ItemId id) const
+{
+    const CanvasEntity *entity = FindEntity(id);
+    return entity ? entity->GetCanvasData() : QSharedPointer<CanvasData>();
+}
+
+bool CanvasDocument::SetItemCanvasData(
+        ItemId id, const QSharedPointer<CanvasData> &data)
+{
+    CanvasEntity *entity = FindEntity(id);
+    if (!entity) {
+        return false;
+    }
+    entity->SetCanvasData(data);
+    emit Changed();
+    return true;
+}
+
+QSharedPointer<CanvasGlobalData> CanvasDocument::GetCanvasGlobalData() const
+{
+    return m_CanvasGlobalData;
+}
+
+void CanvasDocument::SetCanvasGlobalData(
+        const QSharedPointer<CanvasGlobalData> &data)
+{
+    m_CanvasGlobalData = data;
+    emit Changed();
 }
 
 bool CanvasDocument::GetPointGeometry(ItemId id,

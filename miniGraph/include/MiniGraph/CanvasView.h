@@ -8,6 +8,7 @@
 #include <QPoint>
 #include <QPointer>
 #include <QRectF>
+#include <QSharedPointer>
 #include <QWidget>
 #include <QVector>
 
@@ -23,6 +24,7 @@ class QWheelEvent;
 namespace mini_graph {
 
 class CanvasDocument;
+class CanvasEntity;
 class CanvasRenderer;
 class CanvasViewPrivate;
 
@@ -304,14 +306,21 @@ private:
         ArcEnd,
         CircleCenter,
         CircleRadius,
-        PolylineVertex
+        EllipseCenter,
+        EllipseMajorAxis,
+        EllipseMinorAxis,
+        EllipseStart,
+        EllipseEnd,
+        PolylineVertex,
+        SplineControlPoint,
+        GroupReferencePoint
     };
 
     // 一个控制柄及其世界坐标位置。
     struct EditHandlePosition {
         EditHandleType type = EditHandleType::None;
         CanvasVector worldPosition;
-        int vertexIndex = -1;
+        int pointIndex = -1;
     };
 
     // 在指定视口位置查找距离最近的图元。
@@ -329,7 +338,7 @@ private:
 
     // 查找当前单选图元上距离最近的控制柄。
     EditHandleType HitTestEditHandle(const QPointF &viewportPosition,
-                                     int *vertexIndex = nullptr) const;
+                                     int *pointIndex = nullptr) const;
 
     // 返回指定图元的控制柄世界坐标。
     QVector<EditHandlePosition> GetEditHandlePositions(ItemId id) const;
@@ -337,7 +346,7 @@ private:
     // 开始一次控制柄编辑并保存原始几何数据。
     bool BeginEdit(ItemId id,
                    EditHandleType handleType,
-                   int vertexIndex = -1);
+                   int pointIndex = -1);
 
     // 根据鼠标世界坐标更新当前控制柄编辑。
     bool UpdateEdit(const CanvasVector &worldPosition);
@@ -451,8 +460,8 @@ private:
     // 当前控制柄编辑状态。
     EditHandleType m_EditHandleType;
 
-    // 当前正在编辑的折线顶点下标。
-    int m_EditVertexIndex;
+    // 当前正在编辑的多段线顶点或样条控制点下标。
+    int m_EditPointIndex;
 
     // 当前控制柄编辑图元标识。
     ItemId m_EditItemId;
@@ -463,12 +472,8 @@ private:
     // 当前编辑是否已经写入过新的有效几何数据。
     bool m_EditGeometryChanged;
 
-    // 控制柄编辑开始前的原始几何数据。
-    StruPointGeometry m_EditOriginalPointGeometry;
-    StruLineGeometry m_EditOriginalLineGeometry;
-    StruArcGeometry m_EditOriginalArcGeometry;
-    StruCircleGeometry m_EditOriginalCircleGeometry;
-    StruPolylineGeometry m_EditOriginalPolylineGeometry;
+    // 控制柄编辑开始前的实体副本，用于几何更新和取消恢复。
+    QSharedPointer<CanvasEntity> m_EditOriginalEntity;
 
     // 内置 QPainter 渲染器等私有资源。
     std::unique_ptr<CanvasViewPrivate> m_PrivateData;

@@ -4,6 +4,8 @@
 #include "MiniGraph_global.h"
 #include "CanvasVector.h"
 #include "CanvasEntities.h"
+#include "CanvasData.h"
+#include "CanvasGlobalData.h"
 #include "CanvasTypes.h"
 #include "CanvasGeometry.h"
 #include "CanvasSnap.h"

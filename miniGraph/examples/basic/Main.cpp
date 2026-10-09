@@ -1,5 +1,6 @@
 #include <QAction>
 #include <QApplication>
+#include <QIcon>
 #include <QMainWindow>
 #include <QToolBar>
 
@@ -11,6 +12,7 @@
 int main(int argumentCount, char *argumentValues[])
 {
     QApplication app(argumentCount, argumentValues);
+    app.setWindowIcon(QIcon(QStringLiteral(":/branding/minigraph-icon.png")));
 
     mini_graph::CanvasDocument canvasDocument;
     canvasDocument.AddPoint(mini_graph::CanvasVector(0.0, 0.0));
