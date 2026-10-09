@@ -141,11 +141,19 @@ public:
     bool SetItemCanvasData(ItemId id,
                            const std::shared_ptr<CanvasData> &data);
 
+    // 调用方原地修改图元附加数据后，通知文档刷新关联视图。
+    // 图元不存在或未设置 CanvasData 时返回 false。
+    bool NotifyItemCanvasDataChanged(ItemId id);
+
     // 返回当前文档的全局附加数据；未设置时返回空指针。
     std::shared_ptr<CanvasGlobalData> GetCanvasGlobalData() const;
 
     // 设置当前文档的全局附加数据，并发出 Changed()。
     void SetCanvasGlobalData(const std::shared_ptr<CanvasGlobalData> &data);
+
+    // 调用方原地修改全局附加数据后，通知文档刷新关联视图。
+    // 当前未设置 CanvasGlobalData 时返回 false。
+    bool NotifyCanvasGlobalDataChanged();
 
     // 返回指定点图元的几何数据，图元类型不匹配或 geometry 为空时返回 false。
     bool GetPointGeometry(ItemId id, StruPointGeometry *geometry) const;

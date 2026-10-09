@@ -72,16 +72,24 @@ bool IsUsableDocumentEntity(const CanvasEntity &entity)
             && std::isfinite(static_cast<double>(bounds.height()));
 }
 
-void CopyCommonProperties(const CanvasEntity &source, CanvasEntity *target)
+bool CopyCommonProperties(const CanvasEntity &source, CanvasEntity *target)
 {
     if (!target) {
-        return;
+        return false;
     }
     target->SetStyle(source.GetStyle());
     target->SetLayerName(source.GetLayerName());
     target->SetTag(source.GetTag());
     target->SetBusinessId(source.GetBusinessId());
     target->SetReversed(source.IsReversed());
+    const std::shared_ptr<CanvasData> &sourceData = source.GetCanvasData();
+    const std::shared_ptr<CanvasData> copiedData =
+            sourceData ? sourceData->Clone() : std::shared_ptr<CanvasData>();
+    if (sourceData
+            && (!copiedData || copiedData.get() == sourceData.get())) {
+        return false;
+    }
+    return target->TrySetCanvasData(copiedData);
 }
 
 bool AreSameArcGeometry(const StruArcGeometry &left,
@@ -240,7 +248,9 @@ bool TranslateEntity(const CanvasEntity &source,
                     dynamic_cast<const CanvasLine *>(segment)) {
                 CanvasLine translatedLine(line->GetStartPoint() + delta,
                                           line->GetEndPoint() + delta);
-                CopyCommonProperties(*line, &translatedLine);
+                if (!CopyCommonProperties(*line, &translatedLine)) {
+                    return false;
+                }
                 if (!updated->AddSegment(translatedLine)) {
                     return false;
                 }
@@ -251,7 +261,9 @@ bool TranslateEntity(const CanvasEntity &source,
                                         arc->GetStartAngle(),
                                         arc->GetEndAngle(),
                                         arc->IsReversed());
-                CopyCommonProperties(*arc, &translatedArc);
+                if (!CopyCommonProperties(*arc, &translatedArc)) {
+                    return false;
+                }
                 if (!updated->AddSegment(translatedArc)) {
                     return false;
                 }
@@ -262,7 +274,9 @@ bool TranslateEntity(const CanvasEntity &source,
         if (!updated->SetClosed(original->IsClosed())) {
             return false;
         }
-        CopyCommonProperties(source, updated.data());
+        if (!CopyCommonProperties(source, updated.data())) {
+            return false;
+        }
         candidate = updated;
         break;
     }
@@ -645,6 +659,16 @@ bool CanvasDocument::SetItemCanvasData(
     return true;
 }
 
+bool CanvasDocument::NotifyItemCanvasDataChanged(ItemId id)
+{
+    const CanvasEntity *entity = FindEntity(id);
+    if (!entity || !entity->GetCanvasData()) {
+        return false;
+    }
+    emit Changed();
+    return true;
+}
+
 std::shared_ptr<CanvasGlobalData> CanvasDocument::GetCanvasGlobalData() const
 {
     return m_CanvasGlobalData;
@@ -655,6 +679,15 @@ void CanvasDocument::SetCanvasGlobalData(
 {
     m_CanvasGlobalData = data;
     emit Changed();
+}
+
+bool CanvasDocument::NotifyCanvasGlobalDataChanged()
+{
+    if (!m_CanvasGlobalData) {
+        return false;
+    }
+    emit Changed();
+    return true;
 }
 
 bool CanvasDocument::GetPointGeometry(ItemId id,
@@ -818,7 +851,27 @@ bool CanvasDocument::SetPolylineGeometry(ItemId id,
     if (!BuildPolylineEntity(geometry, &updated)) {
         return false;
     }
-    CopyCommonProperties(*current, &updated);
+    const int segmentsToPreserve = qMin(current->GetSegmentCount(),
+                                        updated.GetSegmentCount());
+    for (int index = 0; index < segmentsToPreserve; ++index) {
+        const CanvasLine *currentSegment = dynamic_cast<const CanvasLine *>(
+                    current->GetSegment(index));
+        const CanvasLine *updatedSegment = dynamic_cast<const CanvasLine *>(
+                    updated.GetSegment(index));
+        if (!currentSegment || !updatedSegment) {
+            return false;
+        }
+
+        CanvasLine segmentWithProperties(updatedSegment->GetStartPoint(),
+                                         updatedSegment->GetEndPoint());
+        if (!CopyCommonProperties(*currentSegment, &segmentWithProperties)
+                || !updated.SetSegment(index, segmentWithProperties)) {
+            return false;
+        }
+    }
+    if (!CopyCommonProperties(*current, &updated)) {
+        return false;
+    }
     return ReplaceEntity(id, updated);
 }
 

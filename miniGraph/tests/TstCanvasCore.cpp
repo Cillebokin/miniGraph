@@ -69,6 +69,9 @@ private slots:
     void CanvasVectorSeparatesExactAndToleranceEquality();
     void CanvasEntityCommonPropertiesAndStableTypes();
     void CanvasEntityDataClonesAndRebindsWithEntity();
+    void CanvasEntityUnbindsCanvasDataWhenReplacedOrDestroyed();
+    void CanvasEntityPreventsCanvasDataBindingToMultipleEntities();
+    void CanvasEntityRejectsFailedCanvasDataClone();
     void CanvasEntitiesRequireCloneInsteadOfCopy();
     void CanvasPointAndLineValidateAndClone();
     void CanvasArcAndCircleValidateAndClone();
@@ -90,6 +93,8 @@ private slots:
     void DocumentCalculatesSelectedBounds();
     void DocumentChangesEmitSignals();
     void DocumentOwnsCanvasDataAndGlobalData();
+    void DocumentDetachesCanvasDataWhenEntitiesAreRemoved();
+    void DocumentNotifiesCanvasDataMutations();
     void DocumentStoresMixedGeometryPools();
     void DocumentMixedGeometryBoundsAndOrder();
     void DocumentOwnsCanvasEntityClonesAndBoundsAllTypes();
@@ -100,6 +105,9 @@ private slots:
     void DocumentStoresPolylineAndPreservesOrder();
     void DocumentRejectsInvalidPolylineGeometry();
     void DocumentBoundsAndTranslatesPolyline();
+    void DocumentPreservesCanvasDataWhenTranslatingPolyline();
+    void DocumentPreservesCanvasDataWhenUpdatingPolylineGeometry();
+    void DocumentPreservesPolylineSegmentPropertiesWhenUpdatingGeometry();
     void DocumentSupportsParameterizedCreation();
     void CanvasStyleHasStableDefaultsAndValueSemantics();
     void DocumentStoresAndUpdatesItemStyle();
@@ -129,6 +137,8 @@ private slots:
     void CanvasViewRendersCanvasDataInLayerOrder();
     void CanvasViewRendersCanvasDataBeforeEntityGeometry();
     void CanvasViewRendersGlobalDataAroundEntityGeometry();
+    void CanvasViewIsolatesCustomRendererPainterState();
+    void CanvasViewAntialiasesGlobalCanvasData();
     void CanvasDataInheritsOwningEntityPenWhenUnspecified();
     void CanvasViewDrawsAllCadLabCanvasDataCommands();
     void CanvasDataBrushHatchFillsClosedShapes();
@@ -271,6 +281,11 @@ public:
         return m_Commands;
     }
 
+    void SetCommands(const QStringList &commands)
+    {
+        m_Commands = commands;
+    }
+
     mini_graph::CanvasEntity *BoundEntity() const
     {
         return m_BoundEntity;
@@ -292,6 +307,33 @@ private:
     mini_graph::CanvasEntity *m_BoundEntity;
     mini_graph::ItemId m_BoundId;
     int m_UpdateCount;
+};
+
+class NullCloneCanvasData : public mini_graph::CanvasData
+{
+public:
+    std::shared_ptr<mini_graph::CanvasData> Clone() override
+    {
+        return std::shared_ptr<mini_graph::CanvasData>();
+    }
+
+    QStringList CalculateToQStringList() override
+    {
+        return QStringList();
+    }
+
+    void Update(mini_graph::CanvasEntity *entity) override
+    {
+        m_BoundEntity = entity;
+    }
+
+    mini_graph::CanvasEntity *BoundEntity() const
+    {
+        return m_BoundEntity;
+    }
+
+private:
+    mini_graph::CanvasEntity *m_BoundEntity = nullptr;
 };
 
 class TestCanvasGlobalData : public mini_graph::CanvasGlobalData
@@ -327,6 +369,16 @@ public:
         return m_PostCommands;
     }
 
+    void SetPreCommands(const QStringList &commands)
+    {
+        m_PreCommands = commands;
+    }
+
+    void SetPostCommands(const QStringList &commands)
+    {
+        m_PostCommands = commands;
+    }
+
 private:
     QStringList *m_Events;
     QStringList m_PreCommands;
@@ -351,6 +403,27 @@ public:
 
 private:
     QStringList *m_Events;
+};
+
+class PainterStateMutatingRenderer : public mini_graph::CanvasRenderer
+{
+public:
+    void RenderBackground(
+            QPainter &painter,
+            const mini_graph::CanvasRenderContext &context) override
+    {
+        Q_UNUSED(context)
+        painter.setClipRect(QRect(0, 0, 1, 1));
+        painter.translate(40.0, 0.0);
+    }
+
+    void Render(QPainter &painter,
+                const mini_graph::CanvasRenderContext &context) override
+    {
+        Q_UNUSED(context)
+        painter.setClipRect(QRect(0, 0, 1, 1));
+        painter.translate(40.0, 0.0);
+    }
 };
 
 void CanvasCoreTest::CanvasVectorDefaultAndFiniteConstruction()
@@ -577,6 +650,79 @@ void CanvasCoreTest::CanvasEntityDataClonesAndRebindsWithEntity()
             dynamic_cast<const TestCanvasData *>(clone->GetCanvasData().get());
     QVERIFY(clonedData);
     QCOMPARE(clonedData->BoundEntity(), clone.data());
+    QCOMPARE(data->BoundEntity(), static_cast<mini_graph::CanvasEntity *>(&source));
+}
+
+void CanvasCoreTest::CanvasEntityUnbindsCanvasDataWhenReplacedOrDestroyed()
+{
+    const std::shared_ptr<TestCanvasData> firstData =
+            std::make_shared<TestCanvasData>();
+    const std::shared_ptr<TestCanvasData> replacementData =
+            std::make_shared<TestCanvasData>();
+    const std::shared_ptr<TestCanvasData> destroyedEntityData =
+            std::make_shared<TestCanvasData>();
+
+    {
+        mini_graph::CanvasLine entity(mini_graph::CanvasVector(0.0, 0.0),
+                                      mini_graph::CanvasVector(1.0, 0.0));
+        entity.SetCanvasData(firstData);
+        QCOMPARE(firstData->BoundEntity(),
+                 static_cast<mini_graph::CanvasEntity *>(&entity));
+
+        entity.SetCanvasData(replacementData);
+        QVERIFY(!firstData->BoundEntity());
+        QCOMPARE(replacementData->BoundEntity(),
+                 static_cast<mini_graph::CanvasEntity *>(&entity));
+
+        entity.SetCanvasData(nullptr);
+        QVERIFY(!replacementData->BoundEntity());
+
+        entity.SetCanvasData(destroyedEntityData);
+        QCOMPARE(destroyedEntityData->BoundEntity(),
+                 static_cast<mini_graph::CanvasEntity *>(&entity));
+    }
+
+    QVERIFY(!destroyedEntityData->BoundEntity());
+}
+
+void CanvasCoreTest::CanvasEntityPreventsCanvasDataBindingToMultipleEntities()
+{
+    mini_graph::CanvasLine firstEntity(mini_graph::CanvasVector(0.0, 0.0),
+                                       mini_graph::CanvasVector(1.0, 0.0));
+    mini_graph::CanvasLine secondEntity(mini_graph::CanvasVector(0.0, 1.0),
+                                        mini_graph::CanvasVector(1.0, 1.0));
+    const std::shared_ptr<TestCanvasData> data =
+            std::make_shared<TestCanvasData>();
+
+    QVERIFY(firstEntity.TrySetCanvasData(data));
+    QVERIFY(!secondEntity.TrySetCanvasData(data));
+    QCOMPARE(firstEntity.GetCanvasData().get(),
+             static_cast<mini_graph::CanvasData *>(data.get()));
+    QVERIFY(!secondEntity.GetCanvasData());
+    QCOMPARE(data->BoundEntity(),
+             static_cast<mini_graph::CanvasEntity *>(&firstEntity));
+
+    QVERIFY(firstEntity.TrySetCanvasData(nullptr));
+    QVERIFY(!data->BoundEntity());
+    QVERIFY(secondEntity.TrySetCanvasData(data));
+    QCOMPARE(data->BoundEntity(),
+             static_cast<mini_graph::CanvasEntity *>(&secondEntity));
+}
+
+void CanvasCoreTest::CanvasEntityRejectsFailedCanvasDataClone()
+{
+    mini_graph::CanvasLine source(mini_graph::CanvasVector(0.0, 0.0),
+                                  mini_graph::CanvasVector(1.0, 0.0));
+    const std::shared_ptr<NullCloneCanvasData> data =
+            std::make_shared<NullCloneCanvasData>();
+    source.SetCanvasData(data);
+
+    QVERIFY(source.Clone().isNull());
+    QCOMPARE(data->BoundEntity(), static_cast<mini_graph::CanvasEntity *>(&source));
+
+    mini_graph::CanvasDocument document;
+    QCOMPARE(document.AddEntity(source), mini_graph::ItemId(0));
+    QCOMPARE(document.GetItemCount(), 0);
     QCOMPARE(data->BoundEntity(), static_cast<mini_graph::CanvasEntity *>(&source));
 }
 
@@ -1443,6 +1589,76 @@ void CanvasCoreTest::DocumentOwnsCanvasDataAndGlobalData()
     QCOMPARE(changedSpy.count(), 3);
 }
 
+void CanvasCoreTest::DocumentDetachesCanvasDataWhenEntitiesAreRemoved()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId replacedId = document.AddLine(
+                mini_graph::CanvasVector(0.0, 0.0),
+                mini_graph::CanvasVector(1.0, 0.0));
+    const std::shared_ptr<TestCanvasData> replacedData =
+            std::make_shared<TestCanvasData>();
+    QVERIFY(document.SetItemCanvasData(replacedId, replacedData));
+
+    const mini_graph::CanvasLine replacement(
+                mini_graph::CanvasVector(0.0, 1.0),
+                mini_graph::CanvasVector(1.0, 1.0));
+    QVERIFY(document.ReplaceEntity(replacedId, replacement));
+    QVERIFY(!replacedData->BoundEntity());
+
+    const mini_graph::ItemId removedId = document.AddLine(
+                mini_graph::CanvasVector(0.0, 2.0),
+                mini_graph::CanvasVector(1.0, 2.0));
+    const std::shared_ptr<TestCanvasData> removedData =
+            std::make_shared<TestCanvasData>();
+    QVERIFY(document.SetItemCanvasData(removedId, removedData));
+    QVERIFY(document.RemoveItem(removedId));
+    QVERIFY(!removedData->BoundEntity());
+
+    const mini_graph::ItemId clearedId = document.AddLine(
+                mini_graph::CanvasVector(0.0, 3.0),
+                mini_graph::CanvasVector(1.0, 3.0));
+    const std::shared_ptr<TestCanvasData> clearedData =
+            std::make_shared<TestCanvasData>();
+    QVERIFY(document.SetItemCanvasData(clearedId, clearedData));
+    document.Clear();
+    QVERIFY(!clearedData->BoundEntity());
+}
+
+void CanvasCoreTest::DocumentNotifiesCanvasDataMutations()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId id = document.AddLine(
+                mini_graph::CanvasVector(0.0, 0.0),
+                mini_graph::CanvasVector(10.0, 0.0));
+    QVERIFY(id != 0);
+
+    const std::shared_ptr<TestCanvasData> entityData =
+            std::make_shared<TestCanvasData>();
+    QVERIFY(document.SetItemCanvasData(id, entityData));
+
+    QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
+    entityData->SetCommands(QStringList()
+                            << QStringLiteral("Point,1,2"));
+    QVERIFY(document.NotifyItemCanvasDataChanged(id));
+    QCOMPARE(changedSpy.count(), 1);
+    QVERIFY(!document.NotifyItemCanvasDataChanged(id + 100));
+    QCOMPARE(changedSpy.count(), 1);
+
+    const std::shared_ptr<TestCanvasGlobalData> globalData =
+            std::make_shared<TestCanvasGlobalData>();
+    document.SetCanvasGlobalData(globalData);
+    QCOMPARE(changedSpy.count(), 2);
+    globalData->SetPostCommands(QStringList()
+                                << QStringLiteral("Point,3,4"));
+    QVERIFY(document.NotifyCanvasGlobalDataChanged());
+    QCOMPARE(changedSpy.count(), 3);
+
+    document.SetCanvasGlobalData(std::shared_ptr<mini_graph::CanvasGlobalData>());
+    QCOMPARE(changedSpy.count(), 4);
+    QVERIFY(!document.NotifyCanvasGlobalDataChanged());
+    QCOMPARE(changedSpy.count(), 4);
+}
+
 void CanvasCoreTest::DocumentOwnsCanvasEntityClonesAndBoundsAllTypes()
 {
     mini_graph::CanvasDocument document;
@@ -1778,6 +1994,209 @@ void CanvasCoreTest::DocumentBoundsAndTranslatesPolyline()
              << mini_graph::CanvasVector(13.0, 1.0));
     QVERIFY(translatedGeometry.closed);
     QCOMPARE(document.GetBounds(), QRectF(1.0, -7.0, 12.0, 8.0));
+}
+
+void CanvasCoreTest::DocumentPreservesCanvasDataWhenTranslatingPolyline()
+{
+    mini_graph::CanvasPolyline polyline;
+    mini_graph::CanvasLine firstSegment(mini_graph::CanvasVector(0.0, 0.0),
+                                        mini_graph::CanvasVector(10.0, 0.0));
+    mini_graph::CanvasLine secondSegment(mini_graph::CanvasVector(10.0, 0.0),
+                                         mini_graph::CanvasVector(10.0, 10.0));
+    firstSegment.SetCanvasData(std::make_shared<TestCanvasData>(
+                                   nullptr,
+                                   QStringList() << QStringLiteral("Point,1,1")));
+    secondSegment.SetCanvasData(std::make_shared<TestCanvasData>(
+                                    nullptr,
+                                    QStringList() << QStringLiteral("Point,2,2")));
+    QVERIFY(polyline.AddSegment(firstSegment));
+    QVERIFY(polyline.AddSegment(secondSegment));
+    polyline.SetCanvasData(std::make_shared<TestCanvasData>(
+                               nullptr,
+                               QStringList() << QStringLiteral("Point,3,3")));
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId id = document.AddEntity(polyline);
+    QVERIFY(id != 0);
+    QVERIFY(document.TranslateItems(QVector<mini_graph::ItemId>() << id,
+                                    mini_graph::CanvasVector(5.0, 7.0)));
+
+    const mini_graph::CanvasPolyline *translated =
+            dynamic_cast<const mini_graph::CanvasPolyline *>(document.GetEntity(id));
+    QVERIFY(translated);
+    QVERIFY(translated->GetCanvasData());
+    QCOMPARE(translated->GetCanvasData()->CalculateToQStringList(),
+             QStringList() << QStringLiteral("Point,3,3"));
+    const TestCanvasData *parentData =
+            dynamic_cast<const TestCanvasData *>(translated->GetCanvasData().get());
+    QVERIFY(parentData);
+    QCOMPARE(parentData->BoundEntity(),
+             const_cast<mini_graph::CanvasPolyline *>(translated));
+
+    for (int index = 0; index < translated->GetSegmentCount(); ++index) {
+        const mini_graph::CanvasEntity *segment = translated->GetSegment(index);
+        QVERIFY(segment);
+        QVERIFY(segment->GetCanvasData());
+        const TestCanvasData *segmentData =
+                dynamic_cast<const TestCanvasData *>(segment->GetCanvasData().get());
+        QVERIFY(segmentData);
+        QCOMPARE(segmentData->BoundEntity(),
+                 const_cast<mini_graph::CanvasEntity *>(segment));
+    }
+}
+
+void CanvasCoreTest::DocumentPreservesCanvasDataWhenUpdatingPolylineGeometry()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId id = document.AddPolyline(
+                QVector<mini_graph::CanvasVector>()
+                << mini_graph::CanvasVector(0.0, 0.0)
+                << mini_graph::CanvasVector(10.0, 0.0)
+                << mini_graph::CanvasVector(10.0, 10.0));
+    QVERIFY(id != 0);
+
+    QVERIFY(document.SetItemCanvasData(
+                id, std::make_shared<TestCanvasData>(
+                    nullptr, QStringList() << QStringLiteral("Point,4,5"))));
+
+    mini_graph::StruPolylineGeometry geometry;
+    geometry.vertices << mini_graph::CanvasVector(2.0, 3.0)
+                      << mini_graph::CanvasVector(12.0, 3.0)
+                      << mini_graph::CanvasVector(12.0, 13.0);
+    QVERIFY(document.SetPolylineGeometry(id, geometry));
+
+    const mini_graph::CanvasEntity *updated = document.GetEntity(id);
+    QVERIFY(updated);
+    QVERIFY(updated->GetCanvasData());
+    QCOMPARE(updated->GetCanvasData()->CalculateToQStringList(),
+             QStringList() << QStringLiteral("Point,4,5"));
+    const TestCanvasData *data =
+            dynamic_cast<const TestCanvasData *>(updated->GetCanvasData().get());
+    QVERIFY(data);
+    QCOMPARE(data->BoundEntity(), const_cast<mini_graph::CanvasEntity *>(updated));
+}
+
+void CanvasCoreTest::DocumentPreservesPolylineSegmentPropertiesWhenUpdatingGeometry()
+{
+    mini_graph::CanvasPolyline polyline;
+    mini_graph::CanvasLine firstSegment(mini_graph::CanvasVector(0.0, 0.0),
+                                        mini_graph::CanvasVector(10.0, 0.0));
+    mini_graph::CanvasLine secondSegment(mini_graph::CanvasVector(10.0, 0.0),
+                                         mini_graph::CanvasVector(10.0, 10.0));
+    mini_graph::StruCanvasStyle style = firstSegment.GetStyle();
+    style.strokeColor = QColor(12, 34, 56);
+    QVERIFY(firstSegment.SetStyle(style));
+    firstSegment.SetTag(QStringLiteral("first-edge"));
+    firstSegment.SetCanvasData(std::make_shared<TestCanvasData>(
+                                   nullptr,
+                                   QStringList() << QStringLiteral("Point,6,7")));
+    QVERIFY(polyline.AddSegment(firstSegment));
+    QVERIFY(polyline.AddSegment(secondSegment));
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId id = document.AddEntity(polyline);
+    QVERIFY(id != 0);
+    mini_graph::StruPolylineGeometry geometry;
+    geometry.vertices << mini_graph::CanvasVector(1.0, 2.0)
+                      << mini_graph::CanvasVector(11.0, 2.0)
+                      << mini_graph::CanvasVector(11.0, 12.0);
+    QVERIFY(document.SetPolylineGeometry(id, geometry));
+
+    const mini_graph::CanvasPolyline *updated =
+            dynamic_cast<const mini_graph::CanvasPolyline *>(document.GetEntity(id));
+    QVERIFY(updated);
+    const mini_graph::CanvasEntity *updatedFirstSegment = updated->GetSegment(0);
+    QVERIFY(updatedFirstSegment);
+    QCOMPARE(updatedFirstSegment->GetStyle().strokeColor, QColor(12, 34, 56));
+    QCOMPARE(updatedFirstSegment->GetTag(), QStringLiteral("first-edge"));
+    QVERIFY(updatedFirstSegment->GetCanvasData());
+    QCOMPARE(updatedFirstSegment->GetCanvasData()->CalculateToQStringList(),
+             QStringList() << QStringLiteral("Point,6,7"));
+    const TestCanvasData *data = dynamic_cast<const TestCanvasData *>(
+                updatedFirstSegment->GetCanvasData().get());
+    QVERIFY(data);
+    QCOMPARE(data->BoundEntity(),
+             const_cast<mini_graph::CanvasEntity *>(updatedFirstSegment));
+}
+
+void CanvasCoreTest::CanvasViewIsolatesCustomRendererPainterState()
+{
+    mini_graph::CanvasDocument document;
+    document.SetCanvasGlobalData(std::make_shared<TestCanvasGlobalData>(
+                                     nullptr,
+                                     QStringList(),
+                                     QStringList()
+                                     << QStringLiteral("Pen,0,255,0,255,10,1")
+                                     << QStringLiteral("Point,0,0")));
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+    PainterStateMutatingRenderer renderer;
+    view.SetCustomRenderer(&renderer);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const QColor gridPixel = image.pixelColor(100, 50);
+    QVERIFY(gridPixel.red() > 30);
+
+    const QColor globalPostPixel = image.pixelColor(100, 100);
+    QVERIFY(globalPostPixel.green() > 180);
+    QVERIFY(globalPostPixel.red() < 80);
+}
+
+void CanvasCoreTest::CanvasViewAntialiasesGlobalCanvasData()
+{
+    const QStringList preCommands = QStringList()
+            << QStringLiteral("Pen,255,0,0,255,1,1")
+            << QStringLiteral("Line,-45.5,-19.5,45.5,19.5");
+    const QStringList postCommands = QStringList()
+            << QStringLiteral("Pen,0,255,0,255,1,1")
+            << QStringLiteral("Line,-45.5,19.5,45.5,-19.5");
+    mini_graph::CanvasDocument document;
+    document.SetCanvasGlobalData(std::make_shared<TestCanvasGlobalData>(
+                                     nullptr, preCommands, postCommands));
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    bool foundRed = false;
+    bool foundGreen = false;
+    bool foundPartialRed = false;
+    bool foundPartialGreen = false;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor color = image.pixelColor(x, y);
+            foundRed = foundRed
+                    || (color.red() > 0 && color.green() < 10 && color.blue() < 10);
+            foundGreen = foundGreen
+                    || (color.green() > 0 && color.red() < 10 && color.blue() < 10);
+            foundPartialRed = foundPartialRed
+                    || (color.red() > 0 && color.red() < 255
+                        && color.green() < 10 && color.blue() < 10);
+            foundPartialGreen = foundPartialGreen
+                    || (color.green() > 0 && color.green() < 255
+                        && color.red() < 10 && color.blue() < 10);
+        }
+    }
+    QVERIFY(foundRed);
+    QVERIFY(foundGreen);
+    QVERIFY(foundPartialRed);
+    QVERIFY(foundPartialGreen);
 }
 
 void CanvasCoreTest::DocumentSupportsParameterizedCreation()

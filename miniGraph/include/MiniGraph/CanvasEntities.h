@@ -34,8 +34,12 @@ public:
     // 返回图元附加数据；未设置时为空。
     const std::shared_ptr<CanvasData> &GetCanvasData() const;
 
-    // 设置图元附加数据，并将其绑定到当前图元。
+    // 设置图元附加数据；如果数据已绑定到其他图元，本操作会被忽略。
     void SetCanvasData(const std::shared_ptr<CanvasData> &data);
+
+    // 尝试设置图元附加数据；已绑定到其他图元时返回 false 且不改变当前状态。
+    // 替换或移除时会先以 nullptr 解绑旧数据；传入对象由调用方和图元共享持有。
+    bool TrySetCanvasData(const std::shared_ptr<CanvasData> &data);
 
     // 返回图元所属图层名称。
     QString GetLayerName() const;
@@ -74,7 +78,7 @@ protected:
     CanvasEntity();
 
     // 将公共属性复制到目标对象，但不复制图元标识。
-    void CopyCommonPropertiesTo(CanvasEntity *target) const;
+    bool CopyCommonPropertiesTo(CanvasEntity *target) const;
 
 private:
     friend class CanvasDocument;

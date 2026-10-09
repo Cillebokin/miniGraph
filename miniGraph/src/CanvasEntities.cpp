@@ -188,6 +188,10 @@ CanvasEntity::CanvasEntity()
 
 CanvasEntity::~CanvasEntity()
 {
+    if (m_CanvasData && m_CanvasData->m_BoundEntity == this) {
+        m_CanvasData->m_BoundEntity = nullptr;
+        m_CanvasData->Update(nullptr);
+    }
 }
 
 ItemId CanvasEntity::GetId() const
@@ -217,10 +221,29 @@ const std::shared_ptr<CanvasData> &CanvasEntity::GetCanvasData() const
 
 void CanvasEntity::SetCanvasData(const std::shared_ptr<CanvasData> &data)
 {
+    TrySetCanvasData(data);
+}
+
+bool CanvasEntity::TrySetCanvasData(const std::shared_ptr<CanvasData> &data)
+{
+    if (m_CanvasData == data) {
+        return true;
+    }
+    if (data && data->m_BoundEntity && data->m_BoundEntity != this) {
+        return false;
+    }
+    if (m_CanvasData) {
+        if (m_CanvasData->m_BoundEntity == this) {
+            m_CanvasData->m_BoundEntity = nullptr;
+        }
+        m_CanvasData->Update(nullptr);
+    }
     m_CanvasData = data;
     if (m_CanvasData) {
+        m_CanvasData->m_BoundEntity = this;
         m_CanvasData->Update(this);
     }
+    return true;
 }
 
 QString CanvasEntity::GetLayerName() const
@@ -263,10 +286,10 @@ void CanvasEntity::SetReversed(bool reversed)
     m_Reversed = reversed;
 }
 
-void CanvasEntity::CopyCommonPropertiesTo(CanvasEntity *target) const
+bool CanvasEntity::CopyCommonPropertiesTo(CanvasEntity *target) const
 {
     if (!target) {
-        return;
+        return false;
     }
     target->m_Style = m_Style;
     target->m_LayerName = m_LayerName;
@@ -274,11 +297,15 @@ void CanvasEntity::CopyCommonPropertiesTo(CanvasEntity *target) const
     target->m_BusinessId = m_BusinessId;
     target->m_Reversed = m_Reversed;
     if (m_CanvasData) {
-        target->m_CanvasData = m_CanvasData->Clone();
-        if (target->m_CanvasData) {
-            target->m_CanvasData->Update(target);
+        const std::shared_ptr<CanvasData> clonedData = m_CanvasData->Clone();
+        if (!clonedData || clonedData.get() == m_CanvasData.get()) {
+            return false;
+        }
+        if (!target->TrySetCanvasData(clonedData)) {
+            return false;
         }
     }
+    return true;
 }
 
 void CanvasEntity::SetId(ItemId id)
@@ -322,7 +349,9 @@ bool CanvasPoint::IsValid() const
 QSharedPointer<CanvasEntity> CanvasPoint::Clone() const
 {
     QSharedPointer<CanvasPoint> clone(new CanvasPoint(m_Position));
-    CopyCommonPropertiesTo(clone.data());
+    if (!CopyCommonPropertiesTo(clone.data())) {
+        return QSharedPointer<CanvasEntity>();
+    }
     return clone;
 }
 
@@ -369,7 +398,9 @@ QSharedPointer<CanvasEntity> CanvasLine::Clone() const
 {
     QSharedPointer<CanvasLine> clone(
                 new CanvasLine(m_StartPoint, m_EndPoint));
-    CopyCommonPropertiesTo(clone.data());
+    if (!CopyCommonPropertiesTo(clone.data())) {
+        return QSharedPointer<CanvasEntity>();
+    }
     return clone;
 }
 
@@ -450,7 +481,9 @@ QSharedPointer<CanvasEntity> CanvasArc::Clone() const
     clone->m_Radius = m_Radius;
     clone->m_StartAngle = m_StartAngle;
     clone->m_EndAngle = m_EndAngle;
-    CopyCommonPropertiesTo(clone.data());
+    if (!CopyCommonPropertiesTo(clone.data())) {
+        return QSharedPointer<CanvasEntity>();
+    }
     return clone;
 }
 
@@ -496,7 +529,9 @@ QSharedPointer<CanvasEntity> CanvasCircle::Clone() const
     QSharedPointer<CanvasCircle> clone(new CanvasCircle);
     clone->m_Center = m_Center;
     clone->m_Radius = m_Radius;
-    CopyCommonPropertiesTo(clone.data());
+    if (!CopyCommonPropertiesTo(clone.data())) {
+        return QSharedPointer<CanvasEntity>();
+    }
     return clone;
 }
 
@@ -582,7 +617,9 @@ QSharedPointer<CanvasEntity> CanvasEllipse::Clone() const
     clone->m_IsArc = m_IsArc;
     clone->m_StartParameter = m_StartParameter;
     clone->m_EndParameter = m_EndParameter;
-    CopyCommonPropertiesTo(clone.data());
+    if (!CopyCommonPropertiesTo(clone.data())) {
+        return QSharedPointer<CanvasEntity>();
+    }
     return clone;
 }
 
@@ -705,10 +742,18 @@ QSharedPointer<CanvasEntity> CanvasPolyline::Clone() const
     clone->m_Closed = m_Closed;
     for (int index = 0; index < m_Segments.size(); ++index) {
         const QSharedPointer<CanvasEntity> &segment = m_Segments.at(index);
-        clone->m_Segments.append(segment ? segment->Clone()
-                                         : QSharedPointer<CanvasEntity>());
+        if (!segment) {
+            return QSharedPointer<CanvasEntity>();
+        }
+        const QSharedPointer<CanvasEntity> segmentClone = segment->Clone();
+        if (!segmentClone) {
+            return QSharedPointer<CanvasEntity>();
+        }
+        clone->m_Segments.append(segmentClone);
     }
-    CopyCommonPropertiesTo(clone.data());
+    if (!CopyCommonPropertiesTo(clone.data())) {
+        return QSharedPointer<CanvasEntity>();
+    }
     return clone;
 }
 
@@ -787,7 +832,9 @@ QSharedPointer<CanvasEntity> CanvasSpline::Clone() const
     clone->m_Weights = m_Weights;
     clone->m_Closed = m_Closed;
     clone->m_Periodic = m_Periodic;
-    CopyCommonPropertiesTo(clone.data());
+    if (!CopyCommonPropertiesTo(clone.data())) {
+        return QSharedPointer<CanvasEntity>();
+    }
     return clone;
 }
 
@@ -878,10 +925,18 @@ QSharedPointer<CanvasEntity> CanvasGroupContainer::Clone() const
     clone->m_AllowExplode = m_AllowExplode;
     for (int index = 0; index < m_Children.size(); ++index) {
         const QSharedPointer<CanvasEntity> &child = m_Children.at(index);
-        clone->m_Children.append(child ? child->Clone()
-                                       : QSharedPointer<CanvasEntity>());
+        if (!child) {
+            return QSharedPointer<CanvasEntity>();
+        }
+        const QSharedPointer<CanvasEntity> childClone = child->Clone();
+        if (!childClone) {
+            return QSharedPointer<CanvasEntity>();
+        }
+        clone->m_Children.append(childClone);
     }
-    CopyCommonPropertiesTo(clone.data());
+    if (!CopyCommonPropertiesTo(clone.data())) {
+        return QSharedPointer<CanvasEntity>();
+    }
     return clone;
 }
 

@@ -538,6 +538,21 @@ bool TryMovePolylineVertex(const CanvasPolyline &source,
     return !result->isNull();
 }
 
+void PrepareLayer(QImage *layer, const QSize &pixelSize, qreal devicePixelRatio)
+{
+    if (!layer) {
+        return;
+    }
+
+    if (layer->size() != pixelSize
+            || layer->format() != QImage::Format_ARGB32_Premultiplied
+            || !qFuzzyCompare(layer->devicePixelRatio(), devicePixelRatio)) {
+        *layer = QImage(pixelSize, QImage::Format_ARGB32_Premultiplied);
+        layer->setDevicePixelRatio(devicePixelRatio);
+    }
+    layer->fill(Qt::transparent);
+}
+
 } // namespace
 
 class CanvasViewPrivate
@@ -548,6 +563,9 @@ public:
     {
     }
 
+    QImage m_BackgroundLayer;
+    QImage m_GeometryLayer;
+    QImage m_OverlayLayer;
     std::unique_ptr<CanvasPainterRenderer> m_DefaultRenderer;
 };
 
@@ -1365,19 +1383,15 @@ void CanvasView::paintEvent(QPaintEvent *event)
     const qreal devicePixelRatio = devicePixelRatioF();
     const QSize layerSize(qMax(1, qRound(width() * devicePixelRatio)),
                           qMax(1, qRound(height() * devicePixelRatio)));
-    const auto createLayer = [layerSize, devicePixelRatio]() {
-        QImage layer(layerSize, QImage::Format_ARGB32_Premultiplied);
-        layer.setDevicePixelRatio(devicePixelRatio);
-        layer.fill(Qt::transparent);
-        return layer;
-    };
-
-    QImage backgroundLayer = createLayer();
+    PrepareLayer(&m_PrivateData->m_BackgroundLayer, layerSize,
+                 devicePixelRatio);
     {
-        QPainter painter(&backgroundLayer);
+        QPainter painter(&m_PrivateData->m_BackgroundLayer);
         painter.setRenderHint(QPainter::Antialiasing, true);
         if (m_CustomRenderer) {
+            painter.save();
             m_CustomRenderer->RenderBackground(painter, renderContext);
+            painter.restore();
         }
         if (m_GridVisible) {
             painter.save();
@@ -1387,31 +1401,40 @@ void CanvasView::paintEvent(QPaintEvent *event)
         }
     }
 
-    QImage geometryLayer = createLayer();
+    PrepareLayer(&m_PrivateData->m_GeometryLayer, layerSize,
+                 devicePixelRatio);
     {
-        QPainter painter(&geometryLayer);
+        QPainter painter(&m_PrivateData->m_GeometryLayer);
+        painter.setRenderHint(QPainter::Antialiasing, true);
         const std::shared_ptr<CanvasGlobalData> globalData = m_Document
                 ? m_Document->GetCanvasGlobalData()
                 : std::shared_ptr<CanvasGlobalData>();
         if (globalData) {
+            painter.save();
             detail::RenderCanvasDataCommands(
                         painter, renderContext,
                         globalData->CalToQStringListPre(), true);
+            painter.restore();
         }
         m_PrivateData->m_DefaultRenderer->Render(painter, renderContext);
         if (m_CustomRenderer) {
+            painter.save();
             m_CustomRenderer->Render(painter, renderContext);
+            painter.restore();
         }
         if (globalData) {
+            painter.save();
             detail::RenderCanvasDataCommands(
                         painter, renderContext,
                         globalData->CalToQStringListPost(), true);
+            painter.restore();
         }
     }
 
-    QImage overlayLayer = createLayer();
+    PrepareLayer(&m_PrivateData->m_OverlayLayer, layerSize,
+                 devicePixelRatio);
     {
-        QPainter painter(&overlayLayer);
+        QPainter painter(&m_PrivateData->m_OverlayLayer);
         painter.setRenderHint(QPainter::Antialiasing, true);
         DrawOverlayLayer(painter);
         if (m_CustomRenderer) {
@@ -1423,9 +1446,9 @@ void CanvasView::paintEvent(QPaintEvent *event)
 
     QPainter painter(this);
     painter.fillRect(rect(), Qt::black);
-    painter.drawImage(QPoint(0, 0), backgroundLayer);
-    painter.drawImage(QPoint(0, 0), geometryLayer);
-    painter.drawImage(QPoint(0, 0), overlayLayer);
+    painter.drawImage(QPoint(0, 0), m_PrivateData->m_BackgroundLayer);
+    painter.drawImage(QPoint(0, 0), m_PrivateData->m_GeometryLayer);
+    painter.drawImage(QPoint(0, 0), m_PrivateData->m_OverlayLayer);
 }
 
 void CanvasView::wheelEvent(QWheelEvent *event)
