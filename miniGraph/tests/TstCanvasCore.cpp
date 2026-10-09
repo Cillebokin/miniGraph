@@ -12,6 +12,7 @@
 #include <QLineEdit>
 #include <QPlainTextEdit>
 #include <QPainter>
+#include <QPicture>
 #include <QPushButton>
 #include <QTemporaryDir>
 #include <QTest>
@@ -170,6 +171,7 @@ private slots:
     void CanvasEntityDataClonesAndRebindsWithEntity();
     void CanvasEntityUnbindsCanvasDataWhenReplacedOrDestroyed();
     void CanvasEntityPreventsCanvasDataBindingToMultipleEntities();
+    void DocumentRejectsCanvasDataBindingConflictAtomically();
     void CanvasEntityRejectsFailedCanvasDataClone();
     void CanvasEntitiesRequireCloneInsteadOfCopy();
     void CanvasPointAndLineValidateAndClone();
@@ -185,6 +187,7 @@ private slots:
     void MinimumZoomSupportsMicroScale();
     void ZoomAtKeepsTheWorldPointUnderTheCursor();
     void PanByMovesWorldPointWithViewportDelta();
+    void CanvasTransformRejectsNonFiniteInputsWithoutMutation();
     void FitRectCentersAndFitsViewport();
     void FitRectRejectsInvalidViewport();
     void DocumentTracksLinesAndBounds();
@@ -213,6 +216,7 @@ private slots:
     void DocumentNormalizesLineStyleCompatibilityFields();
     void DocumentRejectsNonFiniteLineWidths();
     void GeometryArcSweepFollowsDirection();
+    void GeometryRejectsOverflowingArcAngleDifference();
     void GeometryBoundsCoverAllPrimitiveTypes();
     void GeometryValidatesPolylineAndBounds();
     void EntityGeometryBoundsCoverAllEntityTypes();
@@ -226,6 +230,7 @@ private slots:
     void CanvasRendererRequestUpdateEmitsSignal();
     void BasicCustomRendererDrawsPainterLayers();
     void CanvasSnapperPrefersVisibleGeometry();
+    void CanvasSnapperRejectsNonFiniteDistances();
     void CanvasSnapperSnapsToGrid();
     void CanvasSnapperSnapsToPolylineVertices();
     void CanvasSnapperSnapsToEllipseAndSplineEntities();
@@ -261,6 +266,7 @@ private slots:
     void CanvasViewFitCommandsRejectEmptyDocument();
     void CanvasViewCenterOnWorldMovesViewportCenter();
     void CanvasViewZoomInShowsFinerGridUnits();
+    void CanvasViewGridAndRulerHandleLargeFiniteCoordinates();
     void CanvasViewRendersCadLabOverlays();
     void CanvasViewAxesStayAttachedToWorldAfterPan();
     void CanvasViewAxisDirectionsFollowFlipState();
@@ -270,6 +276,7 @@ private slots:
     void CanvasViewSelectsPolylineByStroke();
     void CanvasViewHitTestIgnoresInvisibleGeometry();
     void CanvasViewHitTestUsesPointDisplaySize();
+    void CanvasViewHitTestRejectsNonFiniteDistances();
     void CanvasViewHitTestUsesLineDisplayWidth();
     void CanvasViewWindowSelectionUsesDragDirection();
     void CanvasViewWindowSelectionSelectsAllGeometryTypes();
@@ -1393,6 +1400,65 @@ void CanvasCoreTest::PanByMovesWorldPointWithViewportDelta()
     QVERIFY(qAbs((viewportAfter.y() - viewportBefore.y()) - viewportDelta.y()) < 0.000001);
 }
 
+void CanvasCoreTest::CanvasTransformRejectsNonFiniteInputsWithoutMutation()
+{
+    mini_graph::CanvasTransform transform;
+    const mini_graph::CanvasVector originalCenter(12.0, -8.0);
+    transform.SetCenter(originalCenter);
+    transform.SetZoom(2.0);
+
+    const qreal invalidValues[] = {
+        std::numeric_limits<qreal>::quiet_NaN(),
+        std::numeric_limits<qreal>::infinity(),
+        -std::numeric_limits<qreal>::infinity(),
+        0.0,
+        -1.0
+    };
+    for (qreal value : invalidValues) {
+        transform.SetZoom(value);
+        QCOMPARE(transform.GetZoom(), 2.0);
+    }
+
+    const QPointF cursor(600.0, 200.0);
+    const QSizeF viewport(800.0, 600.0);
+    for (qreal value : invalidValues) {
+        transform.ZoomAt(cursor, viewport, value);
+        QCOMPARE(transform.GetZoom(), 2.0);
+        QVERIFY(transform.GetCenter() == originalCenter);
+    }
+    transform.ZoomAt(cursor,
+                     viewport,
+                     std::numeric_limits<qreal>::max());
+    QCOMPARE(transform.GetZoom(), 2.0);
+    QVERIFY(transform.GetCenter() == originalCenter);
+
+    const qreal nan = std::numeric_limits<qreal>::quiet_NaN();
+    const qreal infinity = std::numeric_limits<qreal>::infinity();
+    transform.ZoomAt(QPointF(nan, 0.0), viewport, 2.0);
+    transform.ZoomAt(cursor, QSizeF(infinity, 600.0), 2.0);
+    QCOMPARE(transform.GetZoom(), 2.0);
+    QVERIFY(transform.GetCenter() == originalCenter);
+
+    transform.PanBy(QPointF(nan, 0.0));
+    transform.PanBy(QPointF(infinity, 0.0));
+    QCOMPARE(transform.GetZoom(), 2.0);
+    QVERIFY(transform.GetCenter() == originalCenter);
+
+    transform.SetZoom(mini_graph::CanvasTransform::GetMinimumZoom());
+    transform.PanBy(QPointF(std::numeric_limits<qreal>::max(), 0.0));
+    QVERIFY(transform.GetCenter() == originalCenter);
+
+    mini_graph::CanvasTransform largeCoordinateTransform;
+    const mini_graph::CanvasVector largeCenter(
+                std::numeric_limits<qreal>::max() * 0.75, 0.0);
+    largeCoordinateTransform.SetCenter(largeCenter);
+    largeCoordinateTransform.SetZoom(2.0);
+    largeCoordinateTransform.ZoomAt(cursor, viewport, 2.0);
+    QCOMPARE(largeCoordinateTransform.GetZoom(), 4.0);
+    QCOMPARE(largeCoordinateTransform.GetCenter().GetX(), largeCenter.GetX());
+    QVERIFY(qAbs(largeCoordinateTransform.GetCenter().GetY() - 25.0) < 1.0e-12);
+}
+
 void CanvasCoreTest::FitRectCentersAndFitsViewport()
 {
     mini_graph::CanvasTransform transform;
@@ -1696,6 +1762,30 @@ void CanvasCoreTest::DocumentOwnsCanvasDataAndGlobalData()
              static_cast<mini_graph::CanvasGlobalData *>(globalData.get()));
     document.SetCanvasGlobalData(globalData);
     QCOMPARE(changedSpy.count(), 3);
+}
+
+void CanvasCoreTest::DocumentRejectsCanvasDataBindingConflictAtomically()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId firstId = document.AddPoint(
+                mini_graph::CanvasVector(0.0, 0.0));
+    const mini_graph::ItemId secondId = document.AddPoint(
+                mini_graph::CanvasVector(10.0, 0.0));
+    const std::shared_ptr<TestCanvasData> data =
+            std::make_shared<TestCanvasData>();
+
+    QVERIFY(firstId != 0);
+    QVERIFY(secondId != 0);
+    QVERIFY(document.SetItemCanvasData(firstId, data));
+    QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
+
+    QVERIFY(!document.SetItemCanvasData(secondId, data));
+    QCOMPARE(changedSpy.count(), 0);
+    QCOMPARE(document.GetItemCanvasData(firstId).get(),
+             static_cast<mini_graph::CanvasData *>(data.get()));
+    QVERIFY(!document.GetItemCanvasData(secondId));
+    QCOMPARE(data->BoundEntity(),
+             const_cast<mini_graph::CanvasEntity *>(document.GetEntity(firstId)));
 }
 
 void CanvasCoreTest::DocumentDetachesCanvasDataWhenEntitiesAreRemoved()
@@ -2457,6 +2547,19 @@ void CanvasCoreTest::GeometryArcSweepFollowsDirection()
     QVERIFY(mini_graph::IsValidGeometry(clockwiseArc));
 }
 
+void CanvasCoreTest::GeometryRejectsOverflowingArcAngleDifference()
+{
+    mini_graph::StruArcGeometry arc;
+    arc.center = mini_graph::CanvasVector(0.0, 0.0);
+    arc.radius = 1.0;
+    arc.startAngle = -std::numeric_limits<qreal>::max();
+    arc.endAngle = std::numeric_limits<qreal>::max();
+
+    QVERIFY(!mini_graph::IsValidGeometry(arc));
+    QCOMPARE(mini_graph::GetArcSweep(arc), 0.0);
+    QVERIFY(mini_graph::TessellateArc(arc, 0.1).isEmpty());
+}
+
 void CanvasCoreTest::GeometryBoundsCoverAllPrimitiveTypes()
 {
     mini_graph::StruPointGeometry point;
@@ -2819,6 +2922,23 @@ void CanvasCoreTest::CanvasSnapperPrefersVisibleGeometry()
                 true,
                 false);
     QCOMPARE(static_cast<int>(hiddenResult.type),
+             static_cast<int>(mini_graph::CanvasSnapType::None));
+}
+
+void CanvasCoreTest::CanvasSnapperRejectsNonFiniteDistances()
+{
+    mini_graph::CanvasDocument document;
+    const qreal maximum = std::numeric_limits<qreal>::max();
+    QVERIFY(document.AddPoint(mini_graph::CanvasVector(maximum, 0.0)) != 0);
+
+    const mini_graph::CanvasSnapResult result = mini_graph::CanvasSnapper::FindSnap(
+                &document,
+                mini_graph::CanvasVector(-maximum, 0.0),
+                1.0,
+                10.0,
+                true,
+                false);
+    QCOMPARE(static_cast<int>(result.type),
              static_cast<int>(mini_graph::CanvasSnapType::None));
 }
 
@@ -4439,6 +4559,37 @@ void CanvasCoreTest::CanvasViewZoomInShowsFinerGridUnits()
              "Zooming in must expose the finer 10-world-unit meta-grid line.");
 }
 
+void CanvasCoreTest::CanvasViewGridAndRulerHandleLargeFiniteCoordinates()
+{
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.CenterOnWorld(mini_graph::CanvasVector(1.0e15, 1.0e15));
+
+    QImage gridImage(view.size(), QImage::Format_ARGB32_Premultiplied);
+    gridImage.fill(Qt::black);
+    QPainter gridPainter(&gridImage);
+    gridPainter.setRenderHint(QPainter::Antialiasing, false);
+    view.DrawGrid(gridPainter);
+    gridPainter.end();
+
+    int verticalGridPixelCount = 0;
+    for (int y = 0; y < gridImage.height(); ++y) {
+        if (gridImage.pixelColor(400, y) == QColor(64, 64, 64)) {
+            ++verticalGridPixelCount;
+        }
+    }
+    QVERIFY2(verticalGridPixelCount > 20,
+             "The grid must draw visible ticks when world indices exceed int range.");
+
+    QPicture rulerPicture;
+    QPainter rulerPainter(&rulerPicture);
+    view.DrawRulerLabels(rulerPainter);
+    rulerPainter.end();
+    QVERIFY2(rulerPicture.size() > 0,
+             "The ruler must record labels for world coordinates beyond int range.");
+}
+
 void CanvasCoreTest::CanvasViewRendersCadLabOverlays()
 {
     CanvasViewHarness view;
@@ -5178,6 +5329,41 @@ void CanvasCoreTest::CanvasViewHitTestUsesPointDisplaySize()
     view.mouseReleaseEvent(&release);
 
     QVERIFY(document.IsItemSelected(pointId));
+}
+
+void CanvasCoreTest::CanvasViewHitTestRejectsNonFiniteDistances()
+{
+    mini_graph::CanvasDocument document;
+    const qreal maximum = std::numeric_limits<qreal>::max();
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(maximum, 0.0));
+    QVERIFY(pointId != 0);
+
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.CenterOnWorld(mini_graph::CanvasVector(-maximum, 0.0));
+    view.SetDocument(&document);
+
+    const QPointF clickPosition(400.0, 300.0);
+    QMouseEvent press(QEvent::MouseButtonPress,
+                      clickPosition,
+                      clickPosition,
+                      clickPosition,
+                      Qt::LeftButton,
+                      Qt::LeftButton,
+                      Qt::NoModifier);
+    view.mousePressEvent(&press);
+    QMouseEvent release(QEvent::MouseButtonRelease,
+                        clickPosition,
+                        clickPosition,
+                        clickPosition,
+                        Qt::LeftButton,
+                        Qt::NoButton,
+                        Qt::NoModifier);
+    view.mouseReleaseEvent(&release);
+
+    QVERIFY(!document.IsItemSelected(pointId));
 }
 
 void CanvasCoreTest::CanvasViewHitTestUsesLineDisplayWidth()

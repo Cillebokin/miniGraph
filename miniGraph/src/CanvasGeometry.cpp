@@ -36,7 +36,14 @@ qreal CalculateDirectedSweep(const StruArcGeometry &geometry)
     const qreal directedDelta = geometry.reversed
             ? geometry.startAngle - geometry.endAngle
             : geometry.endAngle - geometry.startAngle;
+    if (!IsFinite(directedDelta)) {
+        return std::numeric_limits<qreal>::quiet_NaN();
+    }
+
     qreal sweep = std::fmod(directedDelta, TWO_PI);
+    if (!IsFinite(sweep)) {
+        return std::numeric_limits<qreal>::quiet_NaN();
+    }
     if (sweep < 0.0) {
         sweep += TWO_PI;
     }
@@ -648,13 +655,17 @@ bool detail::TryGetSplineEndpoints(const CanvasSpline &spline,
 
 bool IsValidGeometry(const StruArcGeometry &geometry)
 {
-    return geometry.center.IsValid()
-            && IsFinite(geometry.radius)
-            && geometry.radius > 0.0
-            && IsFinite(geometry.startAngle)
-            && IsFinite(geometry.endAngle)
-            && qAbs(geometry.endAngle - geometry.startAngle)
-            > GEOMETRY_TOLERANCE;
+    if (!geometry.center.IsValid()
+            || !IsFinite(geometry.radius)
+            || geometry.radius <= 0.0
+            || !IsFinite(geometry.startAngle)
+            || !IsFinite(geometry.endAngle)) {
+        return false;
+    }
+
+    const qreal angleDifference = geometry.endAngle - geometry.startAngle;
+    return IsFinite(angleDifference)
+            && qAbs(angleDifference) > GEOMETRY_TOLERANCE;
 }
 
 bool IsValidGeometry(const StruCircleGeometry &geometry)

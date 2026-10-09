@@ -31,6 +31,8 @@ const qreal SELECTION_DRAG_THRESHOLD = 7.0;
 const qreal SELECTION_HIT_TOLERANCE_PIXELS = 6.0;
 const qreal EDIT_HANDLE_SIZE_PIXELS = 7.0;
 const qreal EDIT_HANDLE_HIT_TOLERANCE_PIXELS = 9.0;
+const qreal MAX_SAFE_TICK_INDEX = 9007199254740990.0;
+const qreal MAX_VISIBLE_TICK_COUNT = 10000.0;
 
 const QColor CADLAB_WINDOW_SELECTION_COLOR(9, 9, 255, 60);
 const QColor CADLAB_CROSSING_SELECTION_COLOR(9, 255, 9, 60);
@@ -71,6 +73,48 @@ qreal CalculateCadLabGridSpacing(qreal baseSpacing, qreal zoom)
         spacing /= 10.0;
     }
     return spacing;
+}
+
+bool CalculateVisibleTickRange(qreal minimum,
+                               qreal maximum,
+                               qreal spacing,
+                               qint64 *firstTick,
+                               qint64 *lastTick)
+{
+    if (!firstTick || !lastTick
+            || !std::isfinite(static_cast<double>(minimum))
+            || !std::isfinite(static_cast<double>(maximum))
+            || !std::isfinite(static_cast<double>(spacing))
+            || spacing <= 0.0) {
+        return false;
+    }
+
+    const qreal firstIndex = std::floor(minimum / spacing);
+    const qreal lastIndex = std::ceil(maximum / spacing);
+    if (!std::isfinite(static_cast<double>(firstIndex))
+            || !std::isfinite(static_cast<double>(lastIndex))
+            || firstIndex < -MAX_SAFE_TICK_INDEX + 1.0
+            || lastIndex > MAX_SAFE_TICK_INDEX - 1.0) {
+        return false;
+    }
+
+    const qreal firstWithMargin = firstIndex - 1.0;
+    const qreal lastWithMargin = lastIndex + 1.0;
+    if (lastWithMargin < firstWithMargin
+            || lastWithMargin - firstWithMargin + 1.0
+                    > MAX_VISIBLE_TICK_COUNT) {
+        return false;
+    }
+
+    *firstTick = static_cast<qint64>(firstWithMargin);
+    *lastTick = static_cast<qint64>(lastWithMargin);
+    return true;
+}
+
+bool IsFinitePoint(const QPointF &point)
+{
+    return std::isfinite(static_cast<double>(point.x()))
+            && std::isfinite(static_cast<double>(point.y()));
 }
 
 qreal DistanceSquaredToSegment(const CanvasVector &point,
@@ -1891,6 +1935,9 @@ void CanvasView::DrawGrid(QPainter &painter) const
     const QSizeF viewportSize(size());
     const CanvasVector first = m_Transform.MapToWorld(QPointF(0.0, 0.0), viewportSize);
     const CanvasVector last = m_Transform.MapToWorld(QPointF(width(), height()), viewportSize);
+    if (!first.IsValid() || !last.IsValid()) {
+        return;
+    }
     const qreal left = qMin(first.GetX(), last.GetX());
     const qreal right = qMax(first.GetX(), last.GetX());
     const qreal bottom = qMin(first.GetY(), last.GetY());
@@ -1899,21 +1946,54 @@ void CanvasView::DrawGrid(QPainter &painter) const
     const qreal spacing = CalculateCadLabGridSpacing(m_GridSpacing,
                                                       m_Transform.GetZoom());
     const qreal metaSpacing = spacing * 10.0;
-    const int firstX = static_cast<int>(std::floor(left / metaSpacing)) - 1;
-    const int lastX = static_cast<int>(std::ceil(right / metaSpacing)) + 1;
-    const int firstY = static_cast<int>(std::floor(bottom / metaSpacing)) - 1;
-    const int lastY = static_cast<int>(std::ceil(top / metaSpacing)) + 1;
+    qint64 firstX = 0;
+    qint64 lastX = -1;
+    qint64 firstY = 0;
+    qint64 lastY = -1;
+    const bool hasXRange = CalculateVisibleTickRange(left,
+                                                     right,
+                                                     metaSpacing,
+                                                     &firstX,
+                                                     &lastX);
+    const bool hasYRange = CalculateVisibleTickRange(bottom,
+                                                     top,
+                                                     metaSpacing,
+                                                     &firstY,
+                                                     &lastY);
+    if (!hasXRange && !hasYRange) {
+        return;
+    }
 
     painter.setPen(QPen(QColor(64, 64, 64), 1.0, Qt::DashLine));
-    for (int x = firstX; x <= lastX; ++x) {
-        const qreal worldX = x * metaSpacing;
-        painter.drawLine(QLineF(m_Transform.MapFromWorld(CanvasVector(worldX, bottom), viewportSize),
-                                m_Transform.MapFromWorld(CanvasVector(worldX, top), viewportSize)));
+    if (hasXRange) {
+        for (qint64 x = firstX; x <= lastX; ++x) {
+            const qreal worldX = static_cast<qreal>(x) * metaSpacing;
+            if (!std::isfinite(static_cast<double>(worldX))) {
+                continue;
+            }
+            const QPointF start = m_Transform.MapFromWorld(
+                        CanvasVector(worldX, bottom), viewportSize);
+            const QPointF end = m_Transform.MapFromWorld(
+                        CanvasVector(worldX, top), viewportSize);
+            if (IsFinitePoint(start) && IsFinitePoint(end)) {
+                painter.drawLine(QLineF(start, end));
+            }
+        }
     }
-    for (int y = firstY; y <= lastY; ++y) {
-        const qreal worldY = y * metaSpacing;
-        painter.drawLine(QLineF(m_Transform.MapFromWorld(CanvasVector(left, worldY), viewportSize),
-                                m_Transform.MapFromWorld(CanvasVector(right, worldY), viewportSize)));
+    if (hasYRange) {
+        for (qint64 y = firstY; y <= lastY; ++y) {
+            const qreal worldY = static_cast<qreal>(y) * metaSpacing;
+            if (!std::isfinite(static_cast<double>(worldY))) {
+                continue;
+            }
+            const QPointF start = m_Transform.MapFromWorld(
+                        CanvasVector(left, worldY), viewportSize);
+            const QPointF end = m_Transform.MapFromWorld(
+                        CanvasVector(right, worldY), viewportSize);
+            if (IsFinitePoint(start) && IsFinitePoint(end)) {
+                painter.drawLine(QLineF(start, end));
+            }
+        }
     }
 }
 
@@ -2068,6 +2148,9 @@ void CanvasView::DrawRulerLabels(QPainter &painter) const
     const QSizeF viewportSize(size());
     const CanvasVector first = m_Transform.MapToWorld(QPointF(0.0, 0.0), viewportSize);
     const CanvasVector last = m_Transform.MapToWorld(QPointF(width(), height()), viewportSize);
+    if (!first.IsValid() || !last.IsValid()) {
+        return;
+    }
     const qreal left = qMin(first.GetX(), last.GetX());
     const qreal right = qMax(first.GetX(), last.GetX());
     const qreal bottom = qMin(first.GetY(), last.GetY());
@@ -2076,37 +2159,66 @@ void CanvasView::DrawRulerLabels(QPainter &painter) const
     const qreal spacing = CalculateCadLabGridSpacing(m_GridSpacing,
                                                       m_Transform.GetZoom());
     const qreal rulerSpacing = spacing * 10.0;
-    const int firstX = static_cast<int>(std::floor(left / rulerSpacing)) - 1;
-    const int lastX = static_cast<int>(std::ceil(right / rulerSpacing)) + 1;
-    const int firstY = static_cast<int>(std::floor(bottom / rulerSpacing)) - 1;
-    const int lastY = static_cast<int>(std::ceil(top / rulerSpacing)) + 1;
+    qint64 firstX = 0;
+    qint64 lastX = -1;
+    qint64 firstY = 0;
+    qint64 lastY = -1;
+    const bool hasXRange = CalculateVisibleTickRange(left,
+                                                     right,
+                                                     rulerSpacing,
+                                                     &firstX,
+                                                     &lastX);
+    const bool hasYRange = CalculateVisibleTickRange(bottom,
+                                                     top,
+                                                     rulerSpacing,
+                                                     &firstY,
+                                                     &lastY);
+    if (!hasXRange && !hasYRange) {
+        return;
+    }
 
     painter.save();
     painter.setPen(QColor(255, 255, 0));
     painter.setFont(QFont(QStringLiteral("Microsoft YaHei"), 14));
 
-    for (int x = firstX; x <= lastX; ++x) {
-        const qreal worldX = x * rulerSpacing;
-        const qreal viewportX = m_Transform.MapFromWorld(CanvasVector(worldX, 0.0),
-                                                          viewportSize).x();
-        painter.drawText(QRectF(viewportX - 50.0,
-                                static_cast<qreal>(height() - 20),
-                                100.0,
-                                20.0),
-                         Qt::AlignHCenter | Qt::AlignVCenter,
-                         QString::number(worldX));
+    if (hasXRange) {
+        for (qint64 x = firstX; x <= lastX; ++x) {
+            const qreal worldX = static_cast<qreal>(x) * rulerSpacing;
+            if (!std::isfinite(static_cast<double>(worldX))) {
+                continue;
+            }
+            const qreal viewportX = m_Transform.MapFromWorld(
+                        CanvasVector(worldX, 0.0), viewportSize).x();
+            if (!std::isfinite(static_cast<double>(viewportX))) {
+                continue;
+            }
+            painter.drawText(QRectF(viewportX - 50.0,
+                                    static_cast<qreal>(height() - 20),
+                                    100.0,
+                                    20.0),
+                             Qt::AlignHCenter | Qt::AlignVCenter,
+                             QString::number(worldX));
+        }
     }
 
-    for (int y = firstY; y <= lastY; ++y) {
-        const qreal worldY = y * rulerSpacing;
-        const qreal viewportY = m_Transform.MapFromWorld(CanvasVector(0.0, worldY),
-                                                          viewportSize).y();
-        painter.drawText(QRectF(0.0,
-                                viewportY - 10.0,
-                                100.0,
-                                20.0),
-                         Qt::AlignLeft | Qt::AlignVCenter,
-                         QString::number(worldY));
+    if (hasYRange) {
+        for (qint64 y = firstY; y <= lastY; ++y) {
+            const qreal worldY = static_cast<qreal>(y) * rulerSpacing;
+            if (!std::isfinite(static_cast<double>(worldY))) {
+                continue;
+            }
+            const qreal viewportY = m_Transform.MapFromWorld(
+                        CanvasVector(0.0, worldY), viewportSize).y();
+            if (!std::isfinite(static_cast<double>(viewportY))) {
+                continue;
+            }
+            painter.drawText(QRectF(0.0,
+                                    viewportY - 10.0,
+                                    100.0,
+                                    20.0),
+                             Qt::AlignLeft | Qt::AlignVCenter,
+                             QString::number(worldY));
+        }
     }
 
     painter.restore();
@@ -2693,7 +2805,8 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
     const auto considerHit = [&bestDistanceSquared, &hitId](ItemId id,
                                                              qreal distanceSquared,
                                                              qreal toleranceSquared) {
-        if (distanceSquared > toleranceSquared) {
+        if (!std::isfinite(static_cast<double>(distanceSquared))
+                || distanceSquared > toleranceSquared) {
             return;
         }
 

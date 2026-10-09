@@ -274,7 +274,8 @@ CanvasSnapResult CanvasSnapper::FindSnap(const CanvasDocument *document,
                                              CanvasSnapType type,
                                              const CanvasVector &position) {
         const qreal distanceSquared = DistanceSquared(worldPosition, position);
-        if (distanceSquared > toleranceSquared) {
+        if (!std::isfinite(static_cast<double>(distanceSquared))
+                || distanceSquared > toleranceSquared) {
             return;
         }
 

@@ -654,7 +654,9 @@ bool CanvasDocument::SetItemCanvasData(
     if (!entity) {
         return false;
     }
-    entity->SetCanvasData(data);
+    if (!entity->TrySetCanvasData(data)) {
+        return false;
+    }
     emit Changed();
     return true;
 }
