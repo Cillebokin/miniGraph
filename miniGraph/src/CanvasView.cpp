@@ -1390,22 +1390,22 @@ void CanvasView::paintEvent(QPaintEvent *event)
     QImage geometryLayer = createLayer();
     {
         QPainter painter(&geometryLayer);
-        const QSharedPointer<CanvasGlobalData> globalData = m_Document
+        const std::shared_ptr<CanvasGlobalData> globalData = m_Document
                 ? m_Document->GetCanvasGlobalData()
-                : QSharedPointer<CanvasGlobalData>();
+                : std::shared_ptr<CanvasGlobalData>();
         if (globalData) {
-            painter.save();
-            globalData->RenderBefore(painter, renderContext);
-            painter.restore();
+            detail::RenderCanvasDataCommands(
+                        painter, renderContext,
+                        globalData->CalToQStringListPre(), true);
         }
         m_PrivateData->m_DefaultRenderer->Render(painter, renderContext);
         if (m_CustomRenderer) {
             m_CustomRenderer->Render(painter, renderContext);
         }
         if (globalData) {
-            painter.save();
-            globalData->RenderAfter(painter, renderContext);
-            painter.restore();
+            detail::RenderCanvasDataCommands(
+                        painter, renderContext,
+                        globalData->CalToQStringListPost(), true);
         }
     }
 

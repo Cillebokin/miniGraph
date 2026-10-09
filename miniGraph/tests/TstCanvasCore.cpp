@@ -13,10 +13,12 @@
 #include <QPlainTextEdit>
 #include <QPainter>
 #include <QPushButton>
+#include <QTemporaryDir>
 #include <QTest>
 
 #include <limits>
 #include <cmath>
+#include <memory>
 #include <type_traits>
 
 #include "MiniGraph/MiniGraph.h"
@@ -125,6 +127,11 @@ private slots:
     void CanvasViewDrawsSnapMarker();
     void CanvasViewRendersDocumentWithPainter();
     void CanvasViewRendersCanvasDataInLayerOrder();
+    void CanvasViewRendersCanvasDataBeforeEntityGeometry();
+    void CanvasViewRendersGlobalDataAroundEntityGeometry();
+    void CanvasDataInheritsOwningEntityPenWhenUnspecified();
+    void CanvasViewDrawsAllCadLabCanvasDataCommands();
+    void CanvasDataBrushHatchFillsClosedShapes();
     void CanvasViewRendersAllCanvasEntityTypes();
     void CanvasViewRendersCompleteSplineAtTessellationLimit();
     void CanvasViewDoesNotCloseEachDiscontinuousSplinePath();
@@ -234,17 +241,19 @@ public:
 class TestCanvasData : public mini_graph::CanvasData
 {
 public:
-    explicit TestCanvasData(QStringList *events = nullptr)
+    explicit TestCanvasData(QStringList *events = nullptr,
+                            const QStringList &commands = QStringList())
         : m_Events(events)
+        , m_Commands(commands)
         , m_BoundEntity(nullptr)
         , m_BoundId(0)
         , m_UpdateCount(0)
     {
     }
 
-    QSharedPointer<mini_graph::CanvasData> Clone() const override
+    std::shared_ptr<mini_graph::CanvasData> Clone() override
     {
-        return QSharedPointer<mini_graph::CanvasData>(new TestCanvasData(*this));
+        return std::make_shared<TestCanvasData>(*this);
     }
 
     void Update(mini_graph::CanvasEntity *entity) override
@@ -254,14 +263,12 @@ public:
         ++m_UpdateCount;
     }
 
-    void Render(QPainter &painter,
-                const mini_graph::CanvasRenderContext &context) override
+    QStringList CalculateToQStringList() override
     {
-        Q_UNUSED(painter)
-        Q_UNUSED(context)
         if (m_Events) {
             m_Events->append(QStringLiteral("entity-data"));
         }
+        return m_Commands;
     }
 
     mini_graph::CanvasEntity *BoundEntity() const
@@ -281,6 +288,7 @@ public:
 
 private:
     QStringList *m_Events;
+    QStringList m_Commands;
     mini_graph::CanvasEntity *m_BoundEntity;
     mini_graph::ItemId m_BoundId;
     int m_UpdateCount;
@@ -289,39 +297,40 @@ private:
 class TestCanvasGlobalData : public mini_graph::CanvasGlobalData
 {
 public:
-    explicit TestCanvasGlobalData(QStringList *events = nullptr)
+    explicit TestCanvasGlobalData(QStringList *events = nullptr,
+                                  const QStringList &preCommands = QStringList(),
+                                  const QStringList &postCommands = QStringList())
         : m_Events(events)
+        , m_PreCommands(preCommands)
+        , m_PostCommands(postCommands)
     {
     }
 
-    QSharedPointer<mini_graph::CanvasGlobalData> Clone() const override
+    std::shared_ptr<mini_graph::CanvasGlobalData> Clone() override
     {
-        return QSharedPointer<mini_graph::CanvasGlobalData>(
-                    new TestCanvasGlobalData(*this));
+        return std::make_shared<TestCanvasGlobalData>(*this);
     }
 
-    void RenderBefore(QPainter &painter,
-                      const mini_graph::CanvasRenderContext &context) override
+    QStringList CalToQStringListPre() override
     {
-        Q_UNUSED(painter)
-        Q_UNUSED(context)
         if (m_Events) {
             m_Events->append(QStringLiteral("global-before"));
         }
+        return m_PreCommands;
     }
 
-    void RenderAfter(QPainter &painter,
-                     const mini_graph::CanvasRenderContext &context) override
+    QStringList CalToQStringListPost() override
     {
-        Q_UNUSED(painter)
-        Q_UNUSED(context)
         if (m_Events) {
             m_Events->append(QStringLiteral("global-after"));
         }
+        return m_PostCommands;
     }
 
 private:
     QStringList *m_Events;
+    QStringList m_PreCommands;
+    QStringList m_PostCommands;
 };
 
 class OrderedCanvasRenderer : public mini_graph::CanvasRenderer
@@ -552,20 +561,20 @@ void CanvasCoreTest::CanvasEntityDataClonesAndRebindsWithEntity()
 {
     mini_graph::CanvasLine source(mini_graph::CanvasVector(0.0, 0.0),
                                   mini_graph::CanvasVector(10.0, 0.0));
-    QSharedPointer<TestCanvasData> data(new TestCanvasData);
+    const std::shared_ptr<TestCanvasData> data = std::make_shared<TestCanvasData>();
     source.SetCanvasData(data);
 
     QCOMPARE(data->BoundEntity(), static_cast<mini_graph::CanvasEntity *>(&source));
-    QCOMPARE(source.GetCanvasData().data(),
-             static_cast<mini_graph::CanvasData *>(data.data()));
+    QCOMPARE(source.GetCanvasData().get(),
+             static_cast<mini_graph::CanvasData *>(data.get()));
 
     const QSharedPointer<mini_graph::CanvasEntity> clone = source.Clone();
     QVERIFY(clone);
     QVERIFY(clone->GetCanvasData());
-    QVERIFY(clone->GetCanvasData().data() != source.GetCanvasData().data());
+    QVERIFY(clone->GetCanvasData().get() != source.GetCanvasData().get());
 
     const TestCanvasData *clonedData =
-            dynamic_cast<const TestCanvasData *>(clone->GetCanvasData().data());
+            dynamic_cast<const TestCanvasData *>(clone->GetCanvasData().get());
     QVERIFY(clonedData);
     QCOMPARE(clonedData->BoundEntity(), clone.data());
     QCOMPARE(data->BoundEntity(), static_cast<mini_graph::CanvasEntity *>(&source));
@@ -1396,7 +1405,8 @@ void CanvasCoreTest::DocumentOwnsCanvasDataAndGlobalData()
     mini_graph::CanvasDocument document;
     mini_graph::CanvasLine source(mini_graph::CanvasVector(0.0, 0.0),
                                   mini_graph::CanvasVector(10.0, 0.0));
-    QSharedPointer<TestCanvasData> sourceData(new TestCanvasData);
+    const std::shared_ptr<TestCanvasData> sourceData =
+            std::make_shared<TestCanvasData>();
     source.SetCanvasData(sourceData);
     const mini_graph::ItemId id = document.AddEntity(source);
     QVERIFY(id != 0);
@@ -1404,29 +1414,31 @@ void CanvasCoreTest::DocumentOwnsCanvasDataAndGlobalData()
     const mini_graph::CanvasEntity *storedEntity = document.GetEntity(id);
     QVERIFY(storedEntity);
     QVERIFY(storedEntity->GetCanvasData());
-    QVERIFY(storedEntity->GetCanvasData().data() != sourceData.data());
+    QVERIFY(storedEntity->GetCanvasData().get() != sourceData.get());
     const TestCanvasData *storedData =
-            dynamic_cast<const TestCanvasData *>(storedEntity->GetCanvasData().data());
+            dynamic_cast<const TestCanvasData *>(storedEntity->GetCanvasData().get());
     QVERIFY(storedData);
     QCOMPARE(storedData->BoundEntity(),
              const_cast<mini_graph::CanvasEntity *>(storedEntity));
     QCOMPARE(storedData->BoundId(), id);
 
     QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
-    QSharedPointer<TestCanvasData> replacementData(new TestCanvasData);
+    const std::shared_ptr<TestCanvasData> replacementData =
+            std::make_shared<TestCanvasData>();
     QVERIFY(document.SetItemCanvasData(id, replacementData));
     QCOMPARE(changedSpy.count(), 1);
     QCOMPARE(replacementData->BoundEntity(),
              const_cast<mini_graph::CanvasEntity *>(storedEntity));
     QCOMPARE(replacementData->BoundId(), id);
-    QCOMPARE(document.GetItemCanvasData(id).data(),
-             static_cast<mini_graph::CanvasData *>(replacementData.data()));
+    QCOMPARE(document.GetItemCanvasData(id).get(),
+             static_cast<mini_graph::CanvasData *>(replacementData.get()));
 
-    QSharedPointer<TestCanvasGlobalData> globalData(new TestCanvasGlobalData);
+    const std::shared_ptr<TestCanvasGlobalData> globalData =
+            std::make_shared<TestCanvasGlobalData>();
     document.SetCanvasGlobalData(globalData);
     QCOMPARE(changedSpy.count(), 2);
-    QCOMPARE(document.GetCanvasGlobalData().data(),
-             static_cast<mini_graph::CanvasGlobalData *>(globalData.data()));
+    QCOMPARE(document.GetCanvasGlobalData().get(),
+             static_cast<mini_graph::CanvasGlobalData *>(globalData.get()));
     document.SetCanvasGlobalData(globalData);
     QCOMPARE(changedSpy.count(), 3);
 }
@@ -2613,12 +2625,12 @@ void CanvasCoreTest::CanvasViewRendersCanvasDataInLayerOrder()
     mini_graph::CanvasDocument document;
     mini_graph::CanvasLine line(mini_graph::CanvasVector(-20.0, 0.0),
                                 mini_graph::CanvasVector(20.0, 0.0));
-    QSharedPointer<TestCanvasData> entityData(new TestCanvasData(&events));
+    const std::shared_ptr<TestCanvasData> entityData =
+            std::make_shared<TestCanvasData>(&events);
     line.SetCanvasData(entityData);
     QVERIFY(document.AddEntity(line) != 0);
     document.SetCanvasGlobalData(
-                QSharedPointer<TestCanvasGlobalData>(
-                    new TestCanvasGlobalData(&events)));
+                std::make_shared<TestCanvasGlobalData>(&events));
 
     CanvasViewHarness view;
     view.resize(200, 200);
@@ -2638,6 +2650,232 @@ void CanvasCoreTest::CanvasViewRendersCanvasDataInLayerOrder()
                                    << QStringLiteral("entity-data")
                                    << QStringLiteral("custom-renderer")
                                    << QStringLiteral("global-after"));
+}
+
+void CanvasCoreTest::CanvasViewRendersCanvasDataBeforeEntityGeometry()
+{
+    const QStringList commands = QStringList()
+            << QStringLiteral("Pen,255,0,0,255,2,1")
+            << QStringLiteral("Line,-30,0,30,0");
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasPoint point(mini_graph::CanvasVector(0.0, 0.0));
+    mini_graph::StruCanvasStyle pointStyle = point.GetStyle();
+    pointStyle.strokeColor = QColor(0, 80, 255);
+    pointStyle.selectedStrokeColor = pointStyle.strokeColor;
+    pointStyle.pointSize = 16.0;
+    QVERIFY(point.SetStyle(pointStyle));
+    point.SetCanvasData(std::make_shared<TestCanvasData>(nullptr, commands));
+    QVERIFY(document.AddEntity(point) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const QColor center = image.pixelColor(100, 100);
+    QVERIFY(center.blue() > 180);
+    QVERIFY(center.red() < 100);
+
+    const QColor outsidePoint = image.pixelColor(88, 100);
+    QVERIFY(outsidePoint.red() > 180);
+    QVERIFY(outsidePoint.green() < 100);
+}
+
+void CanvasCoreTest::CanvasViewRendersGlobalDataAroundEntityGeometry()
+{
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasLine line(mini_graph::CanvasVector(-30.0, 0.0),
+                                mini_graph::CanvasVector(30.0, 0.0));
+    mini_graph::StruCanvasStyle lineStyle = line.GetStyle();
+    lineStyle.strokeColor = QColor(0, 80, 255);
+    lineStyle.selectedStrokeColor = lineStyle.strokeColor;
+    lineStyle.strokeWidth = 2.0;
+    QVERIFY(line.SetStyle(lineStyle));
+    QVERIFY(document.AddEntity(line) != 0);
+
+    const QStringList preCommands = QStringList()
+            << QStringLiteral("Pen,255,0,0,255,8,1")
+            << QStringLiteral("Line,-30,0,30,0");
+    const QStringList postCommands = QStringList()
+            << QStringLiteral("Pen,0,255,0,255,1,1")
+            << QStringLiteral("Point,0,0");
+    document.SetCanvasGlobalData(std::make_shared<TestCanvasGlobalData>(
+                                     nullptr, preCommands, postCommands));
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const QColor preLayer = image.pixelColor(90, 97);
+    QVERIFY(preLayer.red() > 150);
+    QVERIFY(preLayer.green() < 100);
+
+    const QColor postLayer = image.pixelColor(100, 100);
+    QVERIFY(postLayer.green() > 150);
+    QVERIFY(postLayer.red() < 100);
+}
+
+void CanvasCoreTest::CanvasDataInheritsOwningEntityPenWhenUnspecified()
+{
+    const QStringList commands = QStringList()
+            << QStringLiteral("Line,-30,20,30,20");
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasLine line(mini_graph::CanvasVector(-10.0, 0.0),
+                                mini_graph::CanvasVector(10.0, 0.0));
+    mini_graph::StruCanvasStyle lineStyle = line.GetStyle();
+    lineStyle.strokeColor = QColor(0, 80, 255);
+    lineStyle.selectedStrokeColor = lineStyle.strokeColor;
+    lineStyle.strokeWidth = 3.0;
+    QVERIFY(line.SetStyle(lineStyle));
+    line.SetCanvasData(std::make_shared<TestCanvasData>(nullptr, commands));
+    QVERIFY(document.AddEntity(line) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const QColor inheritedPenPixel = image.pixelColor(90, 80);
+    QVERIFY(inheritedPenPixel.blue() > 180);
+    QVERIFY(inheritedPenPixel.red() < 100);
+}
+
+void CanvasCoreTest::CanvasViewDrawsAllCadLabCanvasDataCommands()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+
+    QImage stamp(4, 4, QImage::Format_ARGB32_Premultiplied);
+    stamp.fill(QColor(255, 0, 255));
+    const QString imagePath = temporaryDirectory.filePath(QStringLiteral("stamp.png"));
+    QVERIFY(stamp.save(imagePath));
+
+    const QStringList commands = QStringList()
+            << QStringLiteral("Pen,255,0,0,255,2,1")
+            << QStringLiteral("Brush,0,0,0,0,0")
+            << QStringLiteral("Point,-160,160")
+            << QStringLiteral("Line,-140,150,-120,150")
+            << QStringLiteral("Arc,-95,150,12,0,1.5707963267948966,1")
+            << QStringLiteral("Ellipse,-60,150,10,6")
+            << QStringLiteral("Polyline,-25,140,-15,160,-5,140")
+            << QStringLiteral("Polygon,10,140,30,140,20,160")
+            << QStringLiteral("Rect,50,150,20,20")
+            << QStringLiteral("Cubic,0,80,140,90,160,100,160,110,140")
+            << QStringLiteral("Quad,0,120,140,130,160,140,140")
+            << QStringLiteral("Font,Arial,12,1,0")
+            << QStringLiteral("Text,miniGraph,150,140,5,0")
+            << QStringLiteral("Image,%1,150,100,0,1,1,0").arg(imagePath);
+
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasPoint point(mini_graph::CanvasVector(0.0, 0.0));
+    point.SetCanvasData(std::make_shared<TestCanvasData>(nullptr, commands));
+    QVERIFY(document.AddEntity(point) != 0);
+
+    CanvasViewHarness view;
+    view.resize(400, 400);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const auto hasRedPixel = [&image](int left, int top, int width, int height) {
+        for (int y = top; y < top + height; ++y) {
+            for (int x = left; x < left + width; ++x) {
+                const QColor color = image.pixelColor(x, y);
+                if (color.red() > 180 && color.green() < 100 && color.blue() < 100) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    QVERIFY(hasRedPixel(35, 35, 12, 12));
+    QVERIFY(hasRedPixel(55, 45, 32, 12));
+    QVERIFY(hasRedPixel(78, 33, 35, 35));
+    QVERIFY(hasRedPixel(128, 37, 25, 25));
+    QVERIFY(hasRedPixel(168, 33, 36, 36));
+    QVERIFY(hasRedPixel(205, 33, 30, 35));
+    QVERIFY(hasRedPixel(245, 25, 32, 32));
+    QVERIFY(hasRedPixel(275, 30, 42, 42));
+    QVERIFY(hasRedPixel(315, 30, 42, 42));
+    QVERIFY(hasRedPixel(332, 45, 38, 24));
+
+    bool foundMagentaPixel = false;
+    for (int y = 95; y < 110 && !foundMagentaPixel; ++y) {
+        for (int x = 345; x < 365; ++x) {
+            const QColor color = image.pixelColor(x, y);
+            if (color.red() > 180 && color.blue() > 180 && color.green() < 100) {
+                foundMagentaPixel = true;
+                break;
+            }
+        }
+    }
+    QVERIFY(foundMagentaPixel);
+}
+
+void CanvasCoreTest::CanvasDataBrushHatchFillsClosedShapes()
+{
+    const QStringList commands = QStringList()
+            << QStringLiteral("Brush,0,255,0,255,11")
+            << QStringLiteral("Pen,0,0,0,0,0,0")
+            << QStringLiteral("Polygon,-20,-20,20,-20,20,20,-20,20");
+
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasPoint point(mini_graph::CanvasVector(0.0, 0.0));
+    point.SetCanvasData(std::make_shared<TestCanvasData>(nullptr, commands));
+    QVERIFY(document.AddEntity(point) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    int greenPixels = 0;
+    for (int y = 85; y < 115; ++y) {
+        for (int x = 85; x < 115; ++x) {
+            const QColor color = image.pixelColor(x, y);
+            if (color.green() > 180 && color.red() < 100 && color.blue() < 100) {
+                ++greenPixels;
+            }
+        }
+    }
+    QVERIFY(greenPixels > 0);
+    QVERIFY(greenPixels < 450);
 }
 
 void CanvasCoreTest::CanvasViewRendersAllCanvasEntityTypes()

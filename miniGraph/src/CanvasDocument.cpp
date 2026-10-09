@@ -627,14 +627,14 @@ bool CanvasDocument::SetItemStyle(ItemId id, const StruCanvasStyle &style)
     return true;
 }
 
-QSharedPointer<CanvasData> CanvasDocument::GetItemCanvasData(ItemId id) const
+std::shared_ptr<CanvasData> CanvasDocument::GetItemCanvasData(ItemId id) const
 {
     const CanvasEntity *entity = FindEntity(id);
-    return entity ? entity->GetCanvasData() : QSharedPointer<CanvasData>();
+    return entity ? entity->GetCanvasData() : std::shared_ptr<CanvasData>();
 }
 
 bool CanvasDocument::SetItemCanvasData(
-        ItemId id, const QSharedPointer<CanvasData> &data)
+        ItemId id, const std::shared_ptr<CanvasData> &data)
 {
     CanvasEntity *entity = FindEntity(id);
     if (!entity) {
@@ -645,13 +645,13 @@ bool CanvasDocument::SetItemCanvasData(
     return true;
 }
 
-QSharedPointer<CanvasGlobalData> CanvasDocument::GetCanvasGlobalData() const
+std::shared_ptr<CanvasGlobalData> CanvasDocument::GetCanvasGlobalData() const
 {
     return m_CanvasGlobalData;
 }
 
 void CanvasDocument::SetCanvasGlobalData(
-        const QSharedPointer<CanvasGlobalData> &data)
+        const std::shared_ptr<CanvasGlobalData> &data)
 {
     m_CanvasGlobalData = data;
     emit Changed();

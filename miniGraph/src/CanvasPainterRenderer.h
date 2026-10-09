@@ -3,6 +3,7 @@
 #include "MiniGraph/CanvasEntities.h"
 #include "MiniGraph/CanvasRenderer.h"
 
+#include <QStringList>
 #include <QVector>
 
 class QPainter;
@@ -10,6 +11,11 @@ class QPainter;
 namespace mini_graph {
 
 namespace detail {
+
+void RenderCanvasDataCommands(QPainter &painter,
+                              const CanvasRenderContext &context,
+                              const QStringList &commands,
+                              bool isGlobal = false);
 
 // Share the built-in renderer's curve flattening with view hit testing.
 QVector<CanvasVector> TessellateEllipseForSelection(

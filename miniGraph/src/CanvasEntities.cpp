@@ -210,12 +210,12 @@ bool CanvasEntity::SetStyle(const StruCanvasStyle &style)
     return true;
 }
 
-const QSharedPointer<CanvasData> &CanvasEntity::GetCanvasData() const
+const std::shared_ptr<CanvasData> &CanvasEntity::GetCanvasData() const
 {
     return m_CanvasData;
 }
 
-void CanvasEntity::SetCanvasData(const QSharedPointer<CanvasData> &data)
+void CanvasEntity::SetCanvasData(const std::shared_ptr<CanvasData> &data)
 {
     m_CanvasData = data;
     if (m_CanvasData) {

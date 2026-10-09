@@ -10,6 +10,8 @@
 #include <QSet>
 #include <QVector>
 
+#include <memory>
+
 namespace mini_graph {
 
 class CanvasData;
@@ -133,17 +135,17 @@ public:
     bool SetItemStyle(ItemId id, const StruCanvasStyle &style);
 
     // 返回指定图元的附加数据；图元不存在或未设置数据时返回空指针。
-    QSharedPointer<CanvasData> GetItemCanvasData(ItemId id) const;
+    std::shared_ptr<CanvasData> GetItemCanvasData(ItemId id) const;
 
     // 设置指定图元的附加数据；成功时发出 Changed()。
     bool SetItemCanvasData(ItemId id,
-                           const QSharedPointer<CanvasData> &data);
+                           const std::shared_ptr<CanvasData> &data);
 
     // 返回当前文档的全局附加数据；未设置时返回空指针。
-    QSharedPointer<CanvasGlobalData> GetCanvasGlobalData() const;
+    std::shared_ptr<CanvasGlobalData> GetCanvasGlobalData() const;
 
     // 设置当前文档的全局附加数据，并发出 Changed()。
-    void SetCanvasGlobalData(const QSharedPointer<CanvasGlobalData> &data);
+    void SetCanvasGlobalData(const std::shared_ptr<CanvasGlobalData> &data);
 
     // 返回指定点图元的几何数据，图元类型不匹配或 geometry 为空时返回 false。
     bool GetPointGeometry(ItemId id, StruPointGeometry *geometry) const;
@@ -242,7 +244,7 @@ private:
     ItemId m_NextId;
 
     // 当前文档持有的全局附加数据。
-    QSharedPointer<CanvasGlobalData> m_CanvasGlobalData;
+    std::shared_ptr<CanvasGlobalData> m_CanvasGlobalData;
 
     // 当前被选中的图元标识集合。
     QSet<ItemId> m_SelectedIds;

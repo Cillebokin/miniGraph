@@ -6,6 +6,8 @@
 #include <QString>
 #include <QVector>
 
+#include <memory>
+
 namespace mini_graph {
 
 class CanvasData;
@@ -30,10 +32,10 @@ public:
     bool SetStyle(const StruCanvasStyle &style);
 
     // 返回图元附加数据；未设置时为空。
-    const QSharedPointer<CanvasData> &GetCanvasData() const;
+    const std::shared_ptr<CanvasData> &GetCanvasData() const;
 
     // 设置图元附加数据，并将其绑定到当前图元。
-    void SetCanvasData(const QSharedPointer<CanvasData> &data);
+    void SetCanvasData(const std::shared_ptr<CanvasData> &data);
 
     // 返回图元所属图层名称。
     QString GetLayerName() const;
@@ -84,7 +86,7 @@ private:
     QString m_Tag;
     qint64 m_BusinessId;
     bool m_Reversed;
-    QSharedPointer<CanvasData> m_CanvasData;
+    std::shared_ptr<CanvasData> m_CanvasData;
 };
 
 // 以世界坐标保存的点图元。

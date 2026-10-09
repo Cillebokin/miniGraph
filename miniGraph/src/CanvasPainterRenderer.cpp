@@ -5,10 +5,16 @@
 #include "MiniGraph/CanvasGeometry.h"
 #include "CanvasGeometryPrivate.h"
 
+#include <QBrush>
 #include <QColor>
+#include <QFontMetricsF>
+#include <QImageReader>
 #include <QPainter>
+#include <QPainterPath>
 #include <QPen>
 #include <QPolygonF>
+#include <QTransform>
+#include <QtMath>
 
 #include <cmath>
 #include <limits>
@@ -407,17 +413,462 @@ QVector<QVector<CanvasVector>> TessellateSpline(const CanvasSpline &spline,
     return paths;
 }
 
+bool ParseCommandReal(const QStringList &arguments, int index, qreal *value)
+{
+    if (!value || index < 0 || index >= arguments.size()) {
+        return false;
+    }
+
+    bool ok = false;
+    const qreal parsed = arguments.at(index).toDouble(&ok);
+    if (!ok || !IsFinite(parsed)) {
+        return false;
+    }
+    *value = parsed;
+    return true;
+}
+
+bool ParseCommandInteger(const QStringList &arguments, int index, int *value)
+{
+    if (!value || index < 0 || index >= arguments.size()) {
+        return false;
+    }
+
+    bool ok = false;
+    const int parsed = arguments.at(index).toInt(&ok);
+    if (!ok) {
+        return false;
+    }
+    *value = parsed;
+    return true;
+}
+
+QVector<CanvasVector> ParseCommandPoints(const QStringList &arguments,
+                                         int firstValueIndex)
+{
+    QVector<CanvasVector> points;
+    if (firstValueIndex < 0 || firstValueIndex > arguments.size()) {
+        return points;
+    }
+
+    const int valueCount = arguments.size() - firstValueIndex;
+    if (valueCount < 4 || valueCount % 2 != 0) {
+        return points;
+    }
+
+    points.reserve(valueCount / 2);
+    for (int index = firstValueIndex; index < arguments.size(); index += 2) {
+        qreal x = 0.0;
+        qreal y = 0.0;
+        if (!ParseCommandReal(arguments, index, &x)
+                || !ParseCommandReal(arguments, index + 1, &y)) {
+            return QVector<CanvasVector>();
+        }
+        points.append(CanvasVector(x, y));
+    }
+    return points;
+}
+
+bool IsSupportedBrushStyle(int style)
+{
+    return (style >= 0 && style <= 17) || style == 24;
+}
+
+void DrawCanvasDataCommand(QPainter &painter,
+                           const CanvasRenderContext &context,
+                           const QStringList &arguments,
+                           qreal maximumWorldError,
+                           bool isGlobal)
+{
+    if (arguments.isEmpty()) {
+        return;
+    }
+
+    const QString command = arguments.first().toLower();
+    if (command == QStringLiteral("pen")) {
+        int red = 0;
+        int green = 0;
+        int blue = 0;
+        int alpha = 0;
+        int style = 0;
+        qreal width = 0.0;
+        if (arguments.size() < 7
+                || !ParseCommandInteger(arguments, 1, &red)
+                || !ParseCommandInteger(arguments, 2, &green)
+                || !ParseCommandInteger(arguments, 3, &blue)
+                || !ParseCommandInteger(arguments, 4, &alpha)
+                || !ParseCommandReal(arguments, 5, &width)
+                || !ParseCommandInteger(arguments, 6, &style)
+                || red < 0 || red > 255 || green < 0 || green > 255
+                || blue < 0 || blue > 255 || alpha < 0 || alpha > 255
+                || width < 0.0 || style < 0 || style > 6) {
+            return;
+        }
+        QPen pen(QColor(red, green, blue, alpha));
+        pen.setWidthF(width);
+        pen.setStyle(static_cast<Qt::PenStyle>(style));
+        painter.setPen(pen);
+        return;
+    }
+
+    if (command == QStringLiteral("brush")) {
+        int red = 0;
+        int green = 0;
+        int blue = 0;
+        int alpha = 0;
+        int style = 0;
+        if (arguments.size() < 6
+                || !ParseCommandInteger(arguments, 1, &red)
+                || !ParseCommandInteger(arguments, 2, &green)
+                || !ParseCommandInteger(arguments, 3, &blue)
+                || !ParseCommandInteger(arguments, 4, &alpha)
+                || !ParseCommandInteger(arguments, 5, &style)
+                || red < 0 || red > 255 || green < 0 || green > 255
+                || blue < 0 || blue > 255 || alpha < 0 || alpha > 255
+                || !IsSupportedBrushStyle(style)) {
+            return;
+        }
+        painter.setBrush(QBrush(QColor(red, green, blue, alpha),
+                                static_cast<Qt::BrushStyle>(style)));
+        return;
+    }
+
+    if (command == QStringLiteral("font")) {
+        int pointSize = 0;
+        int bold = 0;
+        int italic = 0;
+        if (arguments.size() < 5
+                || !ParseCommandInteger(arguments, 2, &pointSize)
+                || !ParseCommandInteger(arguments, 3, &bold)
+                || !ParseCommandInteger(arguments, 4, &italic)
+                || pointSize <= 0) {
+            return;
+        }
+        QFont font;
+        font.setFamily(arguments.at(1).simplified());
+        font.setPointSize(pointSize);
+        font.setBold(bold != 0);
+        font.setItalic(italic != 0);
+        painter.setFont(font);
+        return;
+    }
+
+    if (command == QStringLiteral("point")) {
+        qreal x = 0.0;
+        qreal y = 0.0;
+        if (arguments.size() >= 3
+                && ParseCommandReal(arguments, 1, &x)
+                && ParseCommandReal(arguments, 2, &y)) {
+            painter.drawPoint(context.MapFromWorld(CanvasVector(x, y)));
+        }
+        return;
+    }
+
+    if (command == QStringLiteral("line")) {
+        qreal x1 = 0.0;
+        qreal y1 = 0.0;
+        qreal x2 = 0.0;
+        qreal y2 = 0.0;
+        if (arguments.size() >= 5
+                && ParseCommandReal(arguments, 1, &x1)
+                && ParseCommandReal(arguments, 2, &y1)
+                && ParseCommandReal(arguments, 3, &x2)
+                && ParseCommandReal(arguments, 4, &y2)) {
+            painter.drawLine(context.MapFromWorld(CanvasVector(x1, y1)),
+                             context.MapFromWorld(CanvasVector(x2, y2)));
+        }
+        return;
+    }
+
+    if (command == QStringLiteral("arc")) {
+        qreal centerX = 0.0;
+        qreal centerY = 0.0;
+        qreal radius = 0.0;
+        qreal startAngle = 0.0;
+        qreal endAngle = 0.0;
+        int counterClockwise = 0;
+        if (arguments.size() < 7
+                || !ParseCommandReal(arguments, 1, &centerX)
+                || !ParseCommandReal(arguments, 2, &centerY)
+                || !ParseCommandReal(arguments, 3, &radius)
+                || !ParseCommandReal(arguments, 4, &startAngle)
+                || !ParseCommandReal(arguments, 5, &endAngle)
+                || !ParseCommandInteger(arguments, 6, &counterClockwise)
+                || radius <= 0.0
+                || (counterClockwise != 0 && counterClockwise != 1)) {
+            return;
+        }
+        StruArcGeometry geometry;
+        geometry.center = CanvasVector(centerX, centerY);
+        geometry.radius = radius;
+        geometry.startAngle = startAngle;
+        geometry.endAngle = endAngle;
+        geometry.reversed = counterClockwise == 0;
+        const QVector<CanvasVector> worldPoints = TessellateArc(
+                    geometry, maximumWorldError);
+        if (worldPoints.size() >= 2) {
+            painter.drawPolyline(MapPolyline(worldPoints, context));
+        }
+        return;
+    }
+
+    if (command == QStringLiteral("ellipse")) {
+        qreal centerX = 0.0;
+        qreal centerY = 0.0;
+        qreal radiusX = 0.0;
+        qreal radiusY = 0.0;
+        if (arguments.size() < 5
+                || !ParseCommandReal(arguments, 1, &centerX)
+                || !ParseCommandReal(arguments, 2, &centerY)
+                || !ParseCommandReal(arguments, 3, &radiusX)
+                || !ParseCommandReal(arguments, 4, &radiusY)
+                || radiusX <= 0.0 || radiusY <= 0.0) {
+            return;
+        }
+        const CanvasVector center(centerX, centerY);
+        const QPointF viewportCenter = context.MapFromWorld(center);
+        const QPointF viewportX = context.MapFromWorld(
+                    CanvasVector(centerX + radiusX, centerY));
+        const QPointF viewportY = context.MapFromWorld(
+                    CanvasVector(centerX, centerY + radiusY));
+        painter.drawEllipse(viewportCenter,
+                            qAbs(viewportX.x() - viewportCenter.x()),
+                            qAbs(viewportY.y() - viewportCenter.y()));
+        return;
+    }
+
+    if (command == QStringLiteral("polyline")
+            || command == QStringLiteral("polygon")) {
+        const QVector<CanvasVector> worldPoints = ParseCommandPoints(arguments, 1);
+        if ((command == QStringLiteral("polyline") && worldPoints.size() >= 2)
+                || (command == QStringLiteral("polygon") && worldPoints.size() >= 3)) {
+            const QPolygonF viewportPoints = MapPolyline(worldPoints, context);
+            if (command == QStringLiteral("polygon")) {
+                painter.drawPolygon(viewportPoints);
+            } else {
+                painter.drawPolyline(viewportPoints);
+            }
+        }
+        return;
+    }
+
+    if (command == QStringLiteral("rect")) {
+        qreal left = 0.0;
+        qreal top = 0.0;
+        qreal width = 0.0;
+        qreal height = 0.0;
+        if (arguments.size() < 5
+                || !ParseCommandReal(arguments, 1, &left)
+                || !ParseCommandReal(arguments, 2, &top)
+                || !ParseCommandReal(arguments, 3, &width)
+                || !ParseCommandReal(arguments, 4, &height)) {
+            return;
+        }
+        const QVector<CanvasVector> corners = QVector<CanvasVector>()
+                << CanvasVector(left, top)
+                << CanvasVector(left + width, top)
+                << CanvasVector(left + width, top - height)
+                << CanvasVector(left, top - height);
+        painter.drawPolygon(MapPolyline(corners, context));
+        return;
+    }
+
+    if (command == QStringLiteral("cubic")
+            || command == QStringLiteral("quad")) {
+        int closed = 0;
+        if (arguments.size() < 4
+                || !ParseCommandInteger(arguments, 1, &closed)
+                || (closed != 0 && closed != 1)) {
+            return;
+        }
+
+        const int valuesPerSegment = command == QStringLiteral("cubic") ? 6 : 4;
+        const int coordinateCount = arguments.size() - 4;
+        if (coordinateCount < valuesPerSegment
+                || coordinateCount % valuesPerSegment != 0) {
+            return;
+        }
+
+        qreal startX = 0.0;
+        qreal startY = 0.0;
+        if (!ParseCommandReal(arguments, 2, &startX)
+                || !ParseCommandReal(arguments, 3, &startY)) {
+            return;
+        }
+        QPainterPath path(context.MapFromWorld(CanvasVector(startX, startY)));
+        for (int index = 4; index < arguments.size();
+             index += valuesPerSegment) {
+            qreal firstX = 0.0;
+            qreal firstY = 0.0;
+            qreal secondX = 0.0;
+            qreal secondY = 0.0;
+            qreal endX = 0.0;
+            qreal endY = 0.0;
+            if (command == QStringLiteral("cubic")) {
+                if (!ParseCommandReal(arguments, index, &firstX)
+                        || !ParseCommandReal(arguments, index + 1, &firstY)
+                        || !ParseCommandReal(arguments, index + 2, &secondX)
+                        || !ParseCommandReal(arguments, index + 3, &secondY)
+                        || !ParseCommandReal(arguments, index + 4, &endX)
+                        || !ParseCommandReal(arguments, index + 5, &endY)) {
+                    return;
+                }
+                path.cubicTo(context.MapFromWorld(CanvasVector(firstX, firstY)),
+                             context.MapFromWorld(CanvasVector(secondX, secondY)),
+                             context.MapFromWorld(CanvasVector(endX, endY)));
+            } else {
+                if (!ParseCommandReal(arguments, index, &firstX)
+                        || !ParseCommandReal(arguments, index + 1, &firstY)
+                        || !ParseCommandReal(arguments, index + 2, &endX)
+                        || !ParseCommandReal(arguments, index + 3, &endY)) {
+                    return;
+                }
+                path.quadTo(context.MapFromWorld(CanvasVector(firstX, firstY)),
+                            context.MapFromWorld(CanvasVector(endX, endY)));
+            }
+        }
+        if (closed == 1) {
+            path.closeSubpath();
+        }
+        painter.drawPath(path);
+        return;
+    }
+
+    if (command == QStringLiteral("text")) {
+        qreal x = 0.0;
+        qreal y = 0.0;
+        qreal radians = 0.0;
+        int alignment = 0;
+        if (arguments.size() < 6
+                || !ParseCommandReal(arguments, 2, &x)
+                || !ParseCommandReal(arguments, 3, &y)
+                || !ParseCommandInteger(arguments, 4, &alignment)
+                || !ParseCommandReal(arguments, 5, &radians)) {
+            return;
+        }
+
+        const QString text = arguments.at(1);
+        const QFontMetricsF metrics(painter.font());
+        const qreal descent = metrics.descent();
+        const qreal textWidth = metrics.horizontalAdvance(text);
+        const qreal textHeight = metrics.height();
+        qreal baselineX = 0.0;
+        qreal baselineY = 0.0;
+        switch (alignment) {
+        case 1:
+            baselineY = textHeight - descent;
+            break;
+        case 2:
+            baselineY = textHeight - descent;
+            baselineX = -textWidth / 2.0;
+            break;
+        case 3:
+            baselineY = textHeight - descent;
+            baselineX = -textWidth;
+            break;
+        case 4:
+            baselineY = textHeight / 2.0 - descent;
+            break;
+        case 5:
+            baselineY = textHeight / 2.0 - descent;
+            baselineX = -textWidth / 2.0;
+            break;
+        case 6:
+            baselineY = textHeight / 2.0 - descent;
+            baselineX = -textWidth;
+            break;
+        case 7:
+            baselineY = -descent;
+            break;
+        case 8:
+            baselineY = -descent;
+            baselineX = -textWidth / 2.0;
+            break;
+        case 9:
+            baselineY = -descent;
+            baselineX = -textWidth;
+            break;
+        default:
+            break;
+        }
+
+        Q_UNUSED(isGlobal)
+        painter.save();
+        painter.translate(context.MapFromWorld(CanvasVector(x, y)));
+        painter.rotate(qRadiansToDegrees(radians));
+        painter.drawText(QPointF(baselineX, baselineY), text);
+        painter.restore();
+        return;
+    }
+
+    if (command == QStringLiteral("image")) {
+        qreal x = 0.0;
+        qreal y = 0.0;
+        qreal radians = 0.0;
+        qreal scaleX = 1.0;
+        qreal scaleY = 1.0;
+        int followScale = 0;
+        if (arguments.size() < 8
+                || !ParseCommandReal(arguments, 2, &x)
+                || !ParseCommandReal(arguments, 3, &y)
+                || !ParseCommandReal(arguments, 4, &radians)
+                || !ParseCommandReal(arguments, 5, &scaleX)
+                || !ParseCommandReal(arguments, 6, &scaleY)
+                || !ParseCommandInteger(arguments, 7, &followScale)) {
+            return;
+        }
+        if (scaleX <= 0.0) {
+            scaleX = 1.0;
+        }
+        if (scaleY <= 0.0) {
+            scaleY = 1.0;
+        }
+        if (followScale == 1) {
+            const qreal zoom = context.transform.GetZoom();
+            scaleX *= zoom;
+            scaleY *= zoom;
+        } else {
+            scaleX = 1.0;
+            scaleY = 1.0;
+        }
+
+        QImageReader reader(arguments.at(1));
+        reader.setDecideFormatFromContent(true);
+        const QImage image = reader.read();
+        if (image.isNull()) {
+            return;
+        }
+
+        painter.save();
+        const QPointF viewportPosition =
+                context.MapFromWorld(CanvasVector(x, y));
+        QTransform transform;
+        transform.translate(viewportPosition.x(), viewportPosition.y());
+        transform.scale(scaleX, scaleY);
+        transform.rotate(-qRadiansToDegrees(radians));
+        painter.setWorldTransform(transform);
+        painter.drawImage(QPointF(0.0, 0.0), image);
+        painter.restore();
+    }
+}
+
 void RenderCanvasData(QPainter &painter,
                       const CanvasRenderContext &context,
-                      const CanvasEntity &entity)
+                      const CanvasEntity &entity,
+                      const StruCanvasStyle &style,
+                      bool selected)
 {
-    const QSharedPointer<CanvasData> &data = entity.GetCanvasData();
+    const std::shared_ptr<CanvasData> &data = entity.GetCanvasData();
     if (!data) {
         return;
     }
 
     painter.save();
-    data->Render(painter, context);
+    painter.setPen(QPen(GetDisplayColor(style, selected),
+                        qMax<qreal>(1.0, style.strokeWidth)));
+    painter.setBrush(Qt::NoBrush);
+    detail::RenderCanvasDataCommands(painter, context,
+                                     data->CalculateToQStringList());
     painter.restore();
 }
 
@@ -506,9 +957,9 @@ void DrawEntityGeometry(QPainter &painter,
         for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
             const CanvasEntity *segment = polyline->GetSegment(index);
             if (segment) {
+                RenderCanvasData(painter, context, *segment, style, selected);
                 DrawEntityGeometry(painter, context, *segment, style,
                                    selected, maximumError);
-                RenderCanvasData(painter, context, *segment);
             }
         }
         return;
@@ -555,22 +1006,47 @@ void RenderEntity(QPainter &painter,
         if (!group) {
             return;
         }
+        RenderCanvasData(painter, context, *entity, entity->GetStyle(), selected);
         for (int index = 0; index < group->GetChildCount(); ++index) {
             RenderEntity(painter, context, document, group->GetChild(index),
                          selected, maximumError);
         }
-        RenderCanvasData(painter, context, *entity);
         return;
     }
 
+    RenderCanvasData(painter, context, *entity, entity->GetStyle(), selected);
     DrawEntityGeometry(painter, context, *entity, entity->GetStyle(),
                        selected, maximumError);
-    RenderCanvasData(painter, context, *entity);
 }
 
 } // namespace
 
 namespace detail {
+
+void RenderCanvasDataCommands(QPainter &painter,
+                              const CanvasRenderContext &context,
+                              const QStringList &commands,
+                              bool isGlobal)
+{
+    if (commands.isEmpty()) {
+        return;
+    }
+
+    const qreal zoom = qMax(context.transform.GetZoom(),
+                            CanvasTransform::GetMinimumZoom());
+    const qreal maximumWorldError = qMax<qreal>(1.0e-6, 0.5 / zoom);
+
+    painter.save();
+    for (const QString &line : commands) {
+        const QStringList arguments = line.split(QLatin1Char(','),
+                                                  QString::SkipEmptyParts);
+        if (!arguments.isEmpty()) {
+            DrawCanvasDataCommand(painter, context, arguments, maximumWorldError,
+                                  isGlobal);
+        }
+    }
+    painter.restore();
+}
 
 QVector<CanvasVector> TessellateEllipseForSelection(
         const CanvasEllipse &ellipse, qreal maximumError, bool *closed)
