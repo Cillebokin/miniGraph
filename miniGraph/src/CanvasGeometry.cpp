@@ -494,6 +494,22 @@ bool IncludeEllipseArcBounds(const CanvasEllipse &ellipse, SafeBounds *bounds)
 
 } // namespace
 
+bool detail::IsValidArcSweep(qreal startAngle, qreal endAngle)
+{
+    if (!IsFinite(startAngle) || !IsFinite(endAngle)) {
+        return false;
+    }
+
+    const qreal angleDifference = endAngle - startAngle;
+    if (!IsFinite(angleDifference)) {
+        return false;
+    }
+
+    const qreal normalizedDifference = std::remainder(angleDifference, TWO_PI);
+    return IsFinite(normalizedDifference)
+            && qAbs(normalizedDifference) > GEOMETRY_TOLERANCE;
+}
+
 bool detail::EvaluateSplineInSpan(const CanvasSpline &spline,
                                   int knotSpan,
                                   qreal parameter,
@@ -663,9 +679,7 @@ bool IsValidGeometry(const StruArcGeometry &geometry)
         return false;
     }
 
-    const qreal angleDifference = geometry.endAngle - geometry.startAngle;
-    return IsFinite(angleDifference)
-            && qAbs(angleDifference) > GEOMETRY_TOLERANCE;
+    return detail::IsValidArcSweep(geometry.startAngle, geometry.endAngle);
 }
 
 bool IsValidGeometry(const StruCircleGeometry &geometry)

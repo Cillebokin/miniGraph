@@ -159,7 +159,7 @@ public:
     // 返回圆弧终止角，单位为弧度。
     qreal GetEndAngle() const;
 
-    // 设置圆弧几何数据；无效半径或零扫掠角会被拒绝。
+    // 设置圆弧几何数据；角差对 2π 取余后绝对值不大于 1e-12 弧度时拒绝。
     bool SetGeometry(const CanvasVector &center, qreal radius,
                      qreal startAngle, qreal endAngle);
 

@@ -8,7 +8,8 @@
 
 namespace mini_graph {
 
-// 判断圆弧几何数据是否有效。
+// 判断圆弧数据是否有效；角差对 2π 取余后绝对值不大于 1e-12 弧度时无效。
+// 完整圆周应使用圆几何数据。
 MINIGRAPH_EXPORT bool IsValidGeometry(const StruArcGeometry &geometry);
 
 // 判断圆几何数据是否有效。

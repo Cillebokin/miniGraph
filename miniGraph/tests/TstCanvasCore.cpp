@@ -216,6 +216,7 @@ private slots:
     void DocumentNormalizesLineStyleCompatibilityFields();
     void DocumentRejectsNonFiniteLineWidths();
     void GeometryArcSweepFollowsDirection();
+    void GeometryAndCanvasArcUseConsistentSweepTolerance();
     void GeometryRejectsOverflowingArcAngleDifference();
     void GeometryBoundsCoverAllPrimitiveTypes();
     void GeometryValidatesPolylineAndBounds();
@@ -2551,6 +2552,80 @@ void CanvasCoreTest::GeometryArcSweepFollowsDirection()
     QVERIFY(mini_graph::IsValidGeometry(clockwiseArc));
 }
 
+void CanvasCoreTest::GeometryAndCanvasArcUseConsistentSweepTolerance()
+{
+    const qreal pi = std::acos(-1.0);
+    const qreal fullTurn = 2.0 * pi;
+    const qreal tolerance = 1.0e-12;
+    const qreal startAngle = 0.25;
+    const qreal invalidSweeps[] = {
+        0.0,
+        fullTurn,
+        -fullTurn,
+        2.0 * fullTurn,
+        -2.0 * fullTurn,
+        fullTurn + 0.5 * tolerance,
+        fullTurn - 0.5 * tolerance,
+        -fullTurn + 0.5 * tolerance,
+        -fullTurn - 0.5 * tolerance,
+        0.5 * tolerance,
+        -0.5 * tolerance
+    };
+    const bool directions[] = { false, true };
+
+    for (qreal sweep : invalidSweeps) {
+        mini_graph::CanvasArc entity;
+        QVERIFY(!entity.SetGeometry(mini_graph::CanvasVector(0.0, 0.0),
+                                    1.0, startAngle, startAngle + sweep));
+        QVERIFY(!entity.IsValid());
+
+        for (bool reversed : directions) {
+            mini_graph::StruArcGeometry geometry;
+            geometry.center = mini_graph::CanvasVector(0.0, 0.0);
+            geometry.radius = 1.0;
+            geometry.startAngle = startAngle;
+            geometry.endAngle = startAngle + sweep;
+            geometry.reversed = reversed;
+
+            QVERIFY(!mini_graph::IsValidGeometry(geometry));
+            QCOMPARE(mini_graph::GetArcSweep(geometry), 0.0);
+            QVERIFY(mini_graph::TessellateArc(geometry, 0.01).isEmpty());
+        }
+    }
+
+    const qreal validSweeps[] = {
+        0.25,
+        2.0 * tolerance,
+        -2.0 * tolerance,
+        fullTurn + 4.0 * tolerance,
+        fullTurn - 4.0 * tolerance,
+        -fullTurn + 4.0 * tolerance,
+        -fullTurn - 4.0 * tolerance
+    };
+
+    for (qreal sweep : validSweeps) {
+        mini_graph::CanvasArc entity;
+        QVERIFY(entity.SetGeometry(mini_graph::CanvasVector(0.0, 0.0),
+                                   1.0, startAngle, startAngle + sweep));
+        QVERIFY(entity.IsValid());
+
+        for (bool reversed : directions) {
+            mini_graph::StruArcGeometry geometry;
+            geometry.center = mini_graph::CanvasVector(0.0, 0.0);
+            geometry.radius = 1.0;
+            geometry.startAngle = startAngle;
+            geometry.endAngle = startAngle + sweep;
+            geometry.reversed = reversed;
+
+            QVERIFY(mini_graph::IsValidGeometry(geometry));
+            const qreal directedSweep = mini_graph::GetArcSweep(geometry);
+            QVERIFY(directedSweep > tolerance);
+            QVERIFY(directedSweep < fullTurn - tolerance);
+            QVERIFY(!mini_graph::TessellateArc(geometry, 0.01).isEmpty());
+        }
+    }
+}
+
 void CanvasCoreTest::GeometryRejectsOverflowingArcAngleDifference()
 {
     mini_graph::StruArcGeometry arc;
@@ -2562,6 +2637,11 @@ void CanvasCoreTest::GeometryRejectsOverflowingArcAngleDifference()
     QVERIFY(!mini_graph::IsValidGeometry(arc));
     QCOMPARE(mini_graph::GetArcSweep(arc), 0.0);
     QVERIFY(mini_graph::TessellateArc(arc, 0.1).isEmpty());
+
+    mini_graph::CanvasArc entity;
+    QVERIFY(!entity.SetGeometry(mini_graph::CanvasVector(0.0, 0.0),
+                                1.0, arc.startAngle, arc.endAngle));
+    QVERIFY(!entity.IsValid());
 }
 
 void CanvasCoreTest::GeometryBoundsCoverAllPrimitiveTypes()

@@ -2,6 +2,8 @@
 
 #include "MiniGraph/CanvasData.h"
 
+#include "CanvasGeometryPrivate.h"
+
 #include <cmath>
 #include <limits>
 
@@ -48,7 +50,7 @@ bool IsValidArcData(const CanvasVector &center, qreal radius,
                     qreal startAngle, qreal endAngle)
 {
     if (!center.IsValid() || !IsFinite(radius) || radius <= 0.0
-            || !HasNonzeroSweep(startAngle, endAngle)) {
+            || !detail::IsValidArcSweep(startAngle, endAngle)) {
         return false;
     }
 

@@ -44,12 +44,13 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 - **验证**：Qt 5.12.10 Debug/Release 全量构建成功；全量 QtTest 两种配置均为 173 passed、0 failed。专项覆盖 `CanvasRendererSkipsInvisiblePolylineSegments`、`CanvasViewSelectionSkipsInvisiblePolylineSegments`、`CanvasViewDoesNotDrawEditHandlesForHiddenPolylineVertices` 和 `CanvasSnapperSkipsInvisiblePolylineSegments`。
 - **代码位置**：[CanvasPainterRenderer.cpp](src/CanvasPainterRenderer.cpp#L957)、[CanvasView.cpp](src/CanvasView.cpp#L282)、[CanvasSnap.cpp](src/CanvasSnap.cpp#L36)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L3161)
 
-### MG-003 · P2 · 圆弧几何 API 与实体层对整周角差的接受范围不一致
+### MG-003 · P2 · 圆弧几何 API 与实体层对整周角差的接受范围不一致【已修复】
 
-- **现象**：公开的 `IsValidGeometry(StruArcGeometry)` 接受起止角差为 `2π` 的数据；`CalculateDirectedSweep()` 会将该整周差处理为完整的 `2π` 扫掠。实体层 `CanvasArc` 则通过取整周余数拒绝同一输入。
-- **影响**：几何 API 将该数据按完整一周处理，实体 API 却不允许构造对应圆弧；这是合法性契约不一致，不是“几何算法得到零扫掠角”。
-- **建议**：先明确整周圆弧应作为 `CanvasArc` 还是 `CanvasCircle` 表达，再决定统一校验规则或明确两层的不同契约；测试同角、正负整周差、接近整周差、顺逆方向和极小有效扫掠。
-- **代码位置**：[CanvasGeometry.cpp](src/CanvasGeometry.cpp#L649)、[CanvasEntities.cpp](src/CanvasEntities.cpp#L47)
+- **原现象**：公开的 `IsValidGeometry(StruArcGeometry)` 接受起止角差为 `2π` 的数据；`CalculateDirectedSweep()` 会将该整周差处理为完整的 `2π` 扫掠。实体层 `CanvasArc` 则拒绝同一输入。
+- **统一契约**：`CanvasArc` 表示非整周圆弧，完整圆周使用 `CanvasCircle` / `StruCircleGeometry`；起止角差对 `2π` 取余后，在 `1e-12` 弧度几何容差内等价于零的输入无效。
+- **处理**：新增内部 `detail::IsValidArcSweep()`，由几何 API 与 `CanvasArc` 共用；两层一致拒绝零扫掠、整周/多整周等价角差、容差内近零扫掠及角差溢出输入。
+- **验证**：`GeometryAndCanvasArcUseConsistentSweepTolerance` 覆盖零扫掠、正负整周/多整周、容差内外边界、极小有效扫掠和顺逆方向；`GeometryRejectsOverflowingArcAngleDifference` 验证几何 API 与实体层都拒绝角差溢出。Qt 5.12.10 Debug/Release 全量 QtTest 均为 174 passed、0 failed、0 skipped。
+- **代码位置**：[CanvasGeometry.cpp](src/CanvasGeometry.cpp#L497)、[CanvasEntities.cpp](src/CanvasEntities.cpp#L53)、[CanvasGeometryPrivate.h](src/CanvasGeometryPrivate.h#L9)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L2555)
 
 ## 4. 数值、边界与数据格式风险
 
@@ -214,16 +215,16 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 
 ## 10. 测试与验证情况
 
-- 本次 MG-002 修复后，Qt 5.12.10 x64 Debug/Release 均完成全量构建，各有 173 项 QtTest 通过；Qt 6.5.3 的最近一次已知记录仍为上一轮 163 项通过，本次未重跑。
-- 本次验证覆盖 MG-002 的多段线绘制、点击/框选、编辑柄和捕捉；不代表报告中其他边界用例已验证。
-- 建议补充：CanvasData 绑定冲突、整周圆弧 API 契约与极大有限角度溢出、NaN/无穷/巨大坐标、距离溢出、深层组；若命令格式承诺支持任意文本/路径，再补带逗号和空字段用例；以及不同实体数量下的性能基准。
+- 本次 MG-003 修复后，Qt 5.12.10 x64 Debug/Release 均完成全量构建，各有 174 项 QtTest 通过；Qt 6.5.3 的最近一次已知记录仍为上一轮 163 项通过，本次未重跑。
+- 本次验证覆盖 MG-003 圆弧有效性容差及 MG-002 多段线绘制、点击/框选、编辑柄和捕捉；不代表报告中其他边界用例已验证。
+- 建议补充：CanvasData 绑定冲突、NaN/无穷/巨大坐标、距离溢出、深层组；若命令格式承诺支持任意文本/路径，再补带逗号和空字段用例；以及不同实体数量下的性能基准。
 - 目前没有足够基准数据来承诺可支持的最大图元数或帧率。
 
 ## 11. 建议处理顺序
 
 1. 修复 MG-001，确保文档 API 的返回值、数据状态和变更信号一致。
 2. MG-002 已按“父对象统一描边样式、子段可见性独立生效”修复，绘制、选择、编辑柄和捕捉已统一过滤隐藏子段。
-3. 明确 MG-003 的整周圆弧契约；若两层应接受相同数据，再统一校验和几何行为。
+3. MG-003 已统一圆弧几何 API 与实体层的角差校验；完整圆周由 Circle 类型表达。
 4. 为 MG-004 至 MG-006、MG-022 补齐数值范围和非有限值保护。
 5. 明确 MG-007 命令格式的兼容契约；若确需无损表达任意字符串，再定义转义/空字段规则并补测试。
 6. 为 MG-009 至 MG-011 建立基准后再做定向性能优化。
