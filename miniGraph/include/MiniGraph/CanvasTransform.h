@@ -21,31 +21,34 @@ public:
     // 返回当前缩放比例。
     qreal GetZoom() const;
 
-    // 设置缩放比例，最终会限制在最小和最大缩放范围内。
+    // 设置缩放比例，最终会限制在最小和最大缩放范围内；非有限或非正输入不改变当前值。
     void SetZoom(qreal zoom);
 
     // 返回当前视图中心对应的世界坐标。
     CanvasVector GetCenter() const;
 
-    // 设置视图中心对应的世界坐标。
+    // 设置视图中心对应的世界坐标；无效中心不改变当前值。
     void SetCenter(const CanvasVector &center);
 
     // 将视口坐标转换为世界坐标，viewportPoint 的原点位于视口左上角。
+    // 输入坐标或视口尺寸无效时返回无效的 CanvasVector。
     CanvasVector MapToWorld(const QPointF &viewportPoint,
                             const QSizeF &viewportSize) const;
 
     // 将世界坐标转换为视口坐标。
+    // 输入无效或计算结果非有限时返回默认 QPointF()。
     QPointF MapFromWorld(const CanvasVector &worldPoint,
                          const QSizeF &viewportSize) const;
 
-    // 按视口像素增量平移画布。
+    // 按视口像素增量平移画布；输入或计算结果无效时不改变当前状态。
     void PanBy(const QPointF &viewportDelta);
 
     // 围绕指定视口位置缩放，并保持该位置下的世界坐标不变。
+    // 输入坐标、缩放因子或视口尺寸无效时不修改变换状态。
     void ZoomAt(const QPointF &viewportPoint, const QSizeF &viewportSize, qreal factor);
 
     // 调整缩放比例和视图中心，使世界坐标矩形适配到视口内。
-    // marginPixels 为视口边缘预留的像素边距；视口无效时返回 false。
+    // marginPixels 为视口边缘预留的像素边距；任一输入无效时返回 false，且不修改状态。
     bool FitRect(const QRectF &worldRect,
                  const QSizeF &viewportSize,
                  qreal marginPixels = 40.0);

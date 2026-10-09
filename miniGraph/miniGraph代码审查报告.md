@@ -4,7 +4,7 @@
 > 审查对象：`D:\MyWorks\ProQt\miniGraph\miniGraph`  画布动态库、测试和基础示例  
 > 审查方式：源码静态检查；本报告不等同于安全渗透测试或大场景性能测试
 >
-> 本次更新：核验 Gemini 3.8 Flash 的部分技术判断，纳入已确认或带条件的补充项，并标明不受源码支持的结论。按用户要求，不评价其“CAD 交互体验与功能缺失（UX Gaps）”部分，也不据此要求改变当前交互效果。
+> 本次更新：核验 Gemini 3.8 Flash 的部分技术判断，纳入已确认或带条件的补充项，并标明不受源码支持的结论；本次另行复核并修复 MG-004。按用户要求，不评价其“CAD 交互体验与功能缺失（UX Gaps）”部分，也不据此要求改变当前交互效果。
 
 ## 1. 总体结论
 
@@ -54,12 +54,14 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 
 ## 4. 数值、边界与数据格式风险
 
-### MG-004 · P2 · `CanvasTransform` 未统一拒绝 NaN/无穷输入
+### MG-004 · P2 · `CanvasTransform` 未统一拒绝 NaN/无穷输入【已修复】
 
-- **现象**：`SetZoom()`、`ZoomAt()` 和 `PanBy()` 对参数主要检查正负或直接运算，没有完整检查 `std::isfinite()`。例如 NaN 不满足 `factor <= 0`，可能进入缩放状态；无效平移也可能使中心坐标失效。
-- **影响**：一次异常参数就可能污染后续坐标映射和视口状态，导致绘制、命中和捕捉都异常。
-- **建议**：所有公开变换入口先验证有限性；计算结果也要验证有限且有效，失败时保持原状态不变。增加 NaN、正负无穷和溢出输入测试。
-- **代码位置**：[CanvasTransform.cpp](src/CanvasTransform.cpp#L25)、[CanvasTransform.cpp](src/CanvasTransform.cpp#L69)、[CanvasTransform.cpp](src/CanvasTransform.cpp#L75)
+- **原报告描述有误**：当前源码中的 `SetZoom()`、`SetCenter()`、`PanBy()` 和 `ZoomAt()` 已有有限性/有效性检查；其中 `ZoomAt()` 在输入或中间结果无效时会保持原状态。不能再将这些路径描述为缺少 NaN/无穷保护。
+- **实际缺口**：`MapToWorld()`、`MapFromWorld()` 未统一拒绝零、负数或非有限视口尺寸；`MapFromWorld()` 的差值或映射结果溢出时也可能返回错误坐标。`FitRect()` 将非有限 `marginPixels` 静默替换为零，且未验证拟合中间结果。
+- **统一契约**：所有使用视口尺寸的映射、缩放及拟合入口要求宽、高均为有限正数；`MapToWorld()` 输入无效时返回无效 `CanvasVector`，`MapFromWorld()` 输入无效或计算结果非有限时返回默认 `QPointF()`。`FitRect()` 遇到非有限参数、无效视口或非有限中间结果时返回 `false` 且不修改变换状态；有限负边距继续按零处理。
+- **处理**：提取有限点和有效视口尺寸检查；映射结果经过有限性校验；`ZoomAt()` 复用统一视口尺寸规则；`FitRect()` 先验证并计算候选中心/缩放，再一次性更新状态。
+- **验证**：新增 `CanvasTransformRejectsInvalidViewportDimensions` 与 `FitRectRejectsNonFiniteInputsWithoutMutation`，分别覆盖零/负/非有限视口尺寸、映射差值溢出、NaN/正负无穷边距、拟合矩形溢出和失败时状态不变。Qt 5.12.10 x64 Debug 全量 QtTest 为 176 passed、0 failed、0 skipped。
+- **代码位置**：[CanvasTransform.cpp](src/CanvasTransform.cpp#L64)、[CanvasTransform.cpp](src/CanvasTransform.cpp#L80)、[CanvasTransform.cpp](src/CanvasTransform.cpp#L114)、[CanvasTransform.cpp](src/CanvasTransform.cpp#L148)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L1469)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L1563)
 
 ### MG-005 · P2 · 网格和标尺把世界坐标索引直接转换为 `int`
 
@@ -216,8 +218,9 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 ## 10. 测试与验证情况
 
 - 本次 MG-003 修复后，Qt 5.12.10 x64 Debug/Release 均完成全量构建，各有 174 项 QtTest 通过；Qt 6.5.3 的最近一次已知记录仍为上一轮 163 项通过，本次未重跑。
-- 本次验证覆盖 MG-003 圆弧有效性容差及 MG-002 多段线绘制、点击/框选、编辑柄和捕捉；不代表报告中其他边界用例已验证。
-- 建议补充：CanvasData 绑定冲突、NaN/无穷/巨大坐标、距离溢出、深层组；若命令格式承诺支持任意文本/路径，再补带逗号和空字段用例；以及不同实体数量下的性能基准。
+- 本次 MG-004 修复后，Qt 5.12.10 x64 Debug 动态库和测试程序均重新构建；全量 QtTest 为 176 passed、0 failed、0 skipped。新增映射和拟合边界测试先以预期失败复现，再通过修复。
+- 当前验证覆盖 MG-004 变换入口的非有限输入、非法视口尺寸、映射/拟合溢出及失败时状态保持；也覆盖此前的 MG-003 圆弧有效性容差、MG-002 多段线绘制/选择/编辑柄/捕捉。Qt 5.12.10 Release 和 Qt 6.5.3 本次未重跑。
+- 建议补充：CanvasData 绑定冲突、命中/捕捉距离溢出、深层组；若命令格式承诺支持任意文本/路径，再补带逗号和空字段用例；以及不同实体数量下的性能基准。
 - 目前没有足够基准数据来承诺可支持的最大图元数或帧率。
 
 ## 11. 建议处理顺序
@@ -225,7 +228,7 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 1. 修复 MG-001，确保文档 API 的返回值、数据状态和变更信号一致。
 2. MG-002 已按“父对象统一描边样式、子段可见性独立生效”修复，绘制、选择、编辑柄和捕捉已统一过滤隐藏子段。
 3. MG-003 已统一圆弧几何 API 与实体层的角差校验；完整圆周由 Circle 类型表达。
-4. 为 MG-004 至 MG-006、MG-022 补齐数值范围和非有限值保护。
+4. MG-004 已修复；继续处理 MG-005、MG-006 和 MG-022 的数值范围与非有限值保护。
 5. 明确 MG-007 命令格式的兼容契约；若确需无损表达任意字符串，再定义转义/空字段规则并补测试。
 6. 为 MG-009 至 MG-011 建立基准后再做定向性能优化。
 7. 根据实际调用需求补充 MG-012 至 MG-015 的文档和示例；暂不做与需求无关的大重构。

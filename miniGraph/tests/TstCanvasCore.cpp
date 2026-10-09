@@ -188,8 +188,10 @@ private slots:
     void ZoomAtKeepsTheWorldPointUnderTheCursor();
     void PanByMovesWorldPointWithViewportDelta();
     void CanvasTransformRejectsNonFiniteInputsWithoutMutation();
+    void CanvasTransformRejectsInvalidViewportDimensions();
     void FitRectCentersAndFitsViewport();
     void FitRectRejectsInvalidViewport();
+    void FitRectRejectsNonFiniteInputsWithoutMutation();
     void DocumentTracksLinesAndBounds();
     void DocumentUpdatesGeometryByType();
     void DocumentCalculatesSelectedBounds();
@@ -1464,6 +1466,54 @@ void CanvasCoreTest::CanvasTransformRejectsNonFiniteInputsWithoutMutation()
     QVERIFY(qAbs(largeCoordinateTransform.GetCenter().GetY() - 25.0) < 1.0e-12);
 }
 
+void CanvasCoreTest::CanvasTransformRejectsInvalidViewportDimensions()
+{
+    mini_graph::CanvasTransform transform;
+    const mini_graph::CanvasVector originalCenter(12.0, -8.0);
+    transform.SetCenter(originalCenter);
+    transform.SetZoom(2.0);
+
+    const qreal nan = std::numeric_limits<qreal>::quiet_NaN();
+    const qreal infinity = std::numeric_limits<qreal>::infinity();
+    QVERIFY(!transform.MapToWorld(QPointF(nan, 0.0), QSizeF(800.0, 600.0)).IsValid());
+    QCOMPARE(transform.MapFromWorld(mini_graph::CanvasVector(nan, 0.0),
+                                    QSizeF(800.0, 600.0)),
+             QPointF());
+    const QSizeF invalidViewports[] = {
+        QSizeF(0.0, 600.0),
+        QSizeF(-1.0, 600.0),
+        QSizeF(800.0, 0.0),
+        QSizeF(800.0, -1.0),
+        QSizeF(infinity, 600.0),
+        QSizeF(800.0, nan)
+    };
+
+    for (const QSizeF &viewport : invalidViewports) {
+        QVERIFY(!transform.MapToWorld(QPointF(100.0, 100.0), viewport).IsValid());
+        QCOMPARE(transform.MapFromWorld(mini_graph::CanvasVector(3.0, 4.0),
+                                        viewport),
+                 QPointF());
+        transform.ZoomAt(QPointF(600.0, 200.0), viewport, 2.0);
+        QCOMPARE(transform.GetZoom(), 2.0);
+        QVERIFY(transform.GetCenter() == originalCenter);
+    }
+
+    mini_graph::CanvasTransform overflowTransform;
+    overflowTransform.SetCenter(mini_graph::CanvasVector(
+                                    -std::numeric_limits<qreal>::max(), 0.0));
+    QCOMPARE(overflowTransform.MapFromWorld(
+                 mini_graph::CanvasVector(std::numeric_limits<qreal>::max(), 0.0),
+                 QSizeF(800.0, 600.0)),
+             QPointF());
+
+    mini_graph::CanvasTransform mappedPointOverflowTransform;
+    mappedPointOverflowTransform.SetZoom(std::numeric_limits<qreal>::max());
+    QCOMPARE(mappedPointOverflowTransform.MapFromWorld(
+                 mini_graph::CanvasVector(std::numeric_limits<qreal>::max(), 0.0),
+                 QSizeF(800.0, 600.0)),
+             QPointF());
+}
+
 void CanvasCoreTest::FitRectCentersAndFitsViewport()
 {
     mini_graph::CanvasTransform transform;
@@ -1491,11 +1541,49 @@ void CanvasCoreTest::FitRectRejectsInvalidViewport()
     transform.SetCenter(mini_graph::CanvasVector(12.0, -8.0));
     transform.SetZoom(2.0);
 
-    QVERIFY(!transform.FitRect(QRectF(0.0, 0.0, 10.0, 10.0),
-                               QSizeF(0.0, 600.0),
+    const qreal nan = std::numeric_limits<qreal>::quiet_NaN();
+    const qreal infinity = std::numeric_limits<qreal>::infinity();
+    const QSizeF invalidViewports[] = {
+        QSizeF(0.0, 600.0),
+        QSizeF(-1.0, 600.0),
+        QSizeF(800.0, 0.0),
+        QSizeF(800.0, -1.0),
+        QSizeF(infinity, 600.0),
+        QSizeF(800.0, nan)
+    };
+    for (const QSizeF &viewport : invalidViewports) {
+        QVERIFY(!transform.FitRect(QRectF(0.0, 0.0, 10.0, 10.0),
+                                   viewport,
+                                   40.0));
+        QVERIFY(transform.GetCenter() == mini_graph::CanvasVector(12.0, -8.0));
+        QCOMPARE(transform.GetZoom(), 2.0);
+    }
+}
+
+void CanvasCoreTest::FitRectRejectsNonFiniteInputsWithoutMutation()
+{
+    mini_graph::CanvasTransform transform;
+    const mini_graph::CanvasVector originalCenter(12.0, -8.0);
+    transform.SetCenter(originalCenter);
+    transform.SetZoom(2.0);
+
+    const qreal nan = std::numeric_limits<qreal>::quiet_NaN();
+    const qreal infinity = std::numeric_limits<qreal>::infinity();
+    const qreal invalidMargins[] = {nan, infinity, -infinity};
+    for (qreal margin : invalidMargins) {
+        QVERIFY(!transform.FitRect(QRectF(-10.0, -5.0, 20.0, 10.0),
+                                   QSizeF(800.0, 600.0),
+                                   margin));
+        QCOMPARE(transform.GetZoom(), 2.0);
+        QVERIFY(transform.GetCenter() == originalCenter);
+    }
+
+    const qreal maximum = std::numeric_limits<qreal>::max();
+    QVERIFY(!transform.FitRect(QRectF(-maximum, -5.0, maximum * 2.0, 10.0),
+                               QSizeF(800.0, 600.0),
                                40.0));
-    QVERIFY(transform.GetCenter() == mini_graph::CanvasVector(12.0, -8.0));
     QCOMPARE(transform.GetZoom(), 2.0);
+    QVERIFY(transform.GetCenter() == originalCenter);
 }
 
 void CanvasCoreTest::DocumentTracksLinesAndBounds()
