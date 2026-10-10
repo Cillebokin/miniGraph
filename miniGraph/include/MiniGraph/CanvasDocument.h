@@ -137,7 +137,8 @@ public:
     // 返回指定图元的附加数据；图元不存在或未设置数据时返回空指针。
     std::shared_ptr<CanvasData> GetItemCanvasData(ItemId id) const;
 
-    // 设置指定图元的附加数据；成功时发出 Changed()。
+    // 设置指定图元的附加数据。
+    // 图元不存在或数据已绑定到其他图元时返回 false，且不发出 Changed()；成功时发出 Changed()。
     bool SetItemCanvasData(ItemId id,
                            const std::shared_ptr<CanvasData> &data);
 

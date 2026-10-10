@@ -76,6 +76,20 @@ static bool HasVisiblePixelNear(const QImage &image,
     return false;
 }
 
+static int CountYellowPixels(const QImage &image)
+{
+    int count = 0;
+    for (int y = 0; y < image.height(); ++y) {
+        for (int x = 0; x < image.width(); ++x) {
+            const QColor color = image.pixelColor(x, y);
+            if (color.red() > 200 && color.green() > 200 && color.blue() < 128) {
+                ++count;
+            }
+        }
+    }
+    return count;
+}
+
 class TestCanvasAction final : public mini_graph::CanvasAction
 {
 public:
@@ -272,6 +286,9 @@ private slots:
     void CanvasViewCenterOnWorldMovesViewportCenter();
     void CanvasViewZoomInShowsFinerGridUnits();
     void CanvasViewGridAndRulerHandleLargeFiniteCoordinates();
+    void CanvasViewGridAndRulerSkipUnsafeTickIndices();
+    void CanvasViewGridCapsVisibleTickCount();
+    void CanvasViewGridSpacingRejectsNonFiniteValues();
     void CanvasViewRendersCadLabOverlays();
     void CanvasViewAxesStayAttachedToWorldAfterPan();
     void CanvasViewAxisDirectionsFollowFlipState();
@@ -4875,6 +4892,102 @@ void CanvasCoreTest::CanvasViewGridAndRulerHandleLargeFiniteCoordinates()
     rulerPainter.end();
     QVERIFY2(rulerPicture.size() > 0,
              "The ruler must record labels for world coordinates beyond int range.");
+}
+
+void CanvasCoreTest::CanvasViewGridAndRulerSkipUnsafeTickIndices()
+{
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.CenterOnWorld(mini_graph::CanvasVector(1.0e18, 1.0e18));
+
+    QImage gridImage(view.size(), QImage::Format_ARGB32_Premultiplied);
+    gridImage.fill(Qt::black);
+    QPainter gridPainter(&gridImage);
+    gridPainter.setRenderHint(QPainter::Antialiasing, false);
+    view.DrawGrid(gridPainter);
+    gridPainter.end();
+
+    int gridPixelCount = 0;
+    for (int y = 0; y < gridImage.height(); ++y) {
+        for (int x = 0; x < gridImage.width(); ++x) {
+            if (gridImage.pixelColor(x, y) != Qt::black) {
+                ++gridPixelCount;
+            }
+        }
+    }
+    QCOMPARE(gridPixelCount, 0);
+
+    QImage rulerImage(view.size(), QImage::Format_ARGB32_Premultiplied);
+    rulerImage.fill(Qt::black);
+    QPainter rulerPainter(&rulerImage);
+    view.DrawRulerLabels(rulerPainter);
+    rulerPainter.end();
+    QCOMPARE(CountYellowPixels(rulerImage), 0);
+}
+
+void CanvasCoreTest::CanvasViewGridCapsVisibleTickCount()
+{
+    const int wideViewportWidth = 1200000;
+    CanvasViewHarness view;
+    view.resize(wideViewportWidth, 600);
+    view.setUpdatesEnabled(false);
+    QCOMPARE(view.width(), wideViewportWidth);
+
+    QPicture gridPicture;
+    QPainter gridPainter(&gridPicture);
+    gridPainter.setRenderHint(QPainter::Antialiasing, false);
+    view.DrawGrid(gridPainter);
+    gridPainter.end();
+
+    QImage gridSample(100, 60, QImage::Format_ARGB32_Premultiplied);
+    gridSample.fill(Qt::black);
+    QPainter samplePainter(&gridSample);
+    samplePainter.setRenderHint(QPainter::Antialiasing, false);
+    samplePainter.drawPicture(QPointF(-599950.0, -220.0), gridPicture);
+    samplePainter.end();
+
+    int verticalLinePixelCount = 0;
+    for (int y = 0; y < gridSample.height(); ++y) {
+        if (gridSample.pixelColor(50, y) == QColor(64, 64, 64)) {
+            ++verticalLinePixelCount;
+        }
+    }
+    QCOMPARE(verticalLinePixelCount, 0);
+
+    QPicture rulerPicture;
+    QPainter rulerPainter(&rulerPicture);
+    view.DrawRulerLabels(rulerPainter);
+    rulerPainter.end();
+
+    QImage rulerSample(100, 60, QImage::Format_ARGB32_Premultiplied);
+    rulerSample.fill(Qt::black);
+    QPainter rulerSamplePainter(&rulerSample);
+    rulerSamplePainter.drawPicture(QPointF(-599950.0, -550.0), rulerPicture);
+    rulerSamplePainter.end();
+    QCOMPARE(CountYellowPixels(rulerSample), 0);
+}
+
+void CanvasCoreTest::CanvasViewGridSpacingRejectsNonFiniteValues()
+{
+    CanvasViewHarness view;
+    QSignalSpy spacingSpy(&view, &mini_graph::CanvasView::GridSpacingChanged);
+
+    view.SetGridSpacing(25.0);
+    QCOMPARE(view.GetGridSpacing(), 25.0);
+    QCOMPARE(spacingSpy.count(), 1);
+    spacingSpy.clear();
+
+    const qreal invalidSpacings[] = {
+        std::numeric_limits<qreal>::quiet_NaN(),
+        std::numeric_limits<qreal>::infinity(),
+        -std::numeric_limits<qreal>::infinity()
+    };
+    for (qreal spacing : invalidSpacings) {
+        view.SetGridSpacing(spacing);
+        QCOMPARE(view.GetGridSpacing(), 25.0);
+        QCOMPARE(spacingSpy.count(), 0);
+    }
 }
 
 void CanvasCoreTest::CanvasViewRendersCadLabOverlays()

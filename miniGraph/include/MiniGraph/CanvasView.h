@@ -125,7 +125,7 @@ public:
     // 返回网格基础世界坐标间距。
     qreal GetGridSpacing() const;
 
-    // 设置网格基础世界坐标间距，spacing 必须大于 0。
+    // 设置网格基础世界坐标间距，spacing 必须为有限正数；无效输入不改变当前值。
     void SetGridSpacing(qreal spacing);
 
     // 返回当前画布缩放比例。

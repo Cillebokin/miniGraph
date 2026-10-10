@@ -4,7 +4,7 @@
 > 审查对象：`D:\MyWorks\ProQt\miniGraph\miniGraph`  画布动态库、测试和基础示例  
 > 审查方式：源码静态检查；本报告不等同于安全渗透测试或大场景性能测试
 >
-> 本次更新：核验 Gemini 3.8 Flash 的部分技术判断，纳入已确认或带条件的补充项，并标明不受源码支持的结论；本次另行复核并修复 MG-004。按用户要求，不评价其“CAD 交互体验与功能缺失（UX Gaps）”部分，也不据此要求改变当前交互效果。
+> 本次更新：核验 Gemini 3.8 Flash 的部分技术判断，纳入已确认或带条件的补充项，并标明不受源码支持的结论；后续复核并修复 MG-004、MG-005，确认 MG-001、MG-006、MG-022 已由当前源码和测试覆盖，并同步修正文档记录。按用户要求，不评价其“CAD 交互体验与功能缺失（UX Gaps）”部分，也不据此要求改变当前交互效果。
 
 ## 1. 总体结论
 
@@ -12,10 +12,9 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 
 目前已形成可用的画布基础能力，但性能适用规模尚未通过基准测试确定；因此不把它定性为“中小规模”或承诺具体承载上限。主要待处理项集中在：
 
-1. 少数公共接口存在“失败但报告成功”的确定缺陷；多段线和圆弧还存在需要结合数据契约判断的跨层行为差异。
-2. 非有限数值、极大坐标和超深组树等边界输入保护不足。
-3. 每次重绘都全量绘制，命中和捕捉线性扫描；尚无大场景基准，不能承诺可扩展到的图元规模。
-4. 持久化、完整图层管理、自定义绘制内容参与选择/捕捉等能力仍属于调用层或后续功能范围。
+1. 非有限数值、极大坐标和超深组树等边界输入仍有保护或测试待补充。
+2. 每次重绘都全量绘制，命中和捕捉线性扫描；尚无大场景基准，不能承诺可扩展到的图元规模。
+3. 持久化、完整图层管理、自定义绘制内容参与选择/捕捉等能力仍属于调用层或后续功能范围。
 
 本报告中的“缺陷”指代码路径已能确认的问题；“风险”指在特定输入或规模下可能出现的问题；“功能缺口”不代表现有接口承诺了该功能。
 
@@ -29,12 +28,13 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 
 ## 3. 确定缺陷与待明确的跨层语义
 
-### MG-001 · P1 · `SetItemCanvasData()` 可能失败却返回成功
+### MG-001 · P1 · `SetItemCanvasData()` 绑定冲突失败契约【已修复】
 
-- **现象**：文档将某个 `CanvasData` 实例绑定到图元 A 后，再尝试将同一实例绑定到图元 B。实体层的 `TrySetCanvasData()` 会拒绝第二次绑定，但 `CanvasDocument::SetItemCanvasData()` 调用的是不返回结果的 `SetCanvasData()`，之后仍返回 `true` 并发出 `Changed()`。
-- **影响**：调用方无法判断绑定是否真正成功；可能继续基于错误假设更新数据或业务状态，观察者也会收到一次实际未变更的刷新通知。
-- **建议**：在文档层直接调用 `TrySetCanvasData()`；失败时返回 `false` 且不发出 `Changed()`。增加“同一个数据实例绑定两个图元”的文档级回归测试。
-- **代码位置**：[CanvasDocument.cpp](src/CanvasDocument.cpp#L650)、[CanvasEntities.cpp](src/CanvasEntities.cpp#L227)
+- **原报告描述已过时**：当前 `CanvasDocument::SetItemCanvasData()` 已调用返回状态的 `TrySetCanvasData()`；数据已绑定到其他图元时立即返回 `false`，不会发出 `Changed()`。
+- **原子性**：实体层先检查新数据的绑定所有者，冲突时在解绑旧数据或更改实体状态之前返回失败。因此目标图元不获得该数据，原图元的绑定保持不变。
+- **处理与接口契约**：当前实现只在 `TrySetCanvasData()` 成功后发出 `Changed()`；本次补充公共头文件注释，明确图元不存在或数据绑定冲突时返回 `false` 且不发信号。
+- **验证**：`DocumentRejectsCanvasDataBindingConflictAtomically` 覆盖共享数据绑定到第二个图元时的失败返回、无 `Changed()`、原绑定保留和目标图元未绑定；`DocumentOwnsCanvasDataAndGlobalData` 覆盖成功路径。Qt 5.12.10 x64 Debug 动态库/测试程序构建成功，专项测试通过；全量 QtTest 为 179 passed、0 failed、0 skipped。
+- **代码位置**：[CanvasDocument.h](include/MiniGraph/CanvasDocument.h#L140)、[CanvasDocument.cpp](src/CanvasDocument.cpp#L650)、[CanvasEntities.cpp](src/CanvasEntities.cpp#L229)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L1834)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L1877)
 
 ### MG-002 · P2 · 多段线子段属性在显示、命中和捕捉中的处理不一致【已修复】
 
@@ -63,19 +63,20 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 - **验证**：新增 `CanvasTransformRejectsInvalidViewportDimensions` 与 `FitRectRejectsNonFiniteInputsWithoutMutation`，分别覆盖零/负/非有限视口尺寸、映射差值溢出、NaN/正负无穷边距、拟合矩形溢出和失败时状态不变。Qt 5.12.10 x64 Debug 全量 QtTest 为 176 passed、0 failed、0 skipped。
 - **代码位置**：[CanvasTransform.cpp](src/CanvasTransform.cpp#L64)、[CanvasTransform.cpp](src/CanvasTransform.cpp#L80)、[CanvasTransform.cpp](src/CanvasTransform.cpp#L114)、[CanvasTransform.cpp](src/CanvasTransform.cpp#L148)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L1469)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L1563)
 
-### MG-005 · P2 · 网格和标尺把世界坐标索引直接转换为 `int`
+### MG-005 · P2 · 网格刻度边界核查发现间距 setter 未拒绝非有限值【已修复】
 
-- **现象**：网格和标尺使用 `floor/ceil(world / spacing)` 后直接转成 `int`，并用整数循环绘制。坐标虽为有限值，也可能远超 `int` 可表示范围；循环边界接近整数极限时还存在溢出风险。
-- **影响**：极大世界坐标下可能产生未定义或平台相关行为，导致网格/标尺错乱或画布绘制异常。
-- **建议**：在转换前检查范围并限制可见刻度数量；使用更宽的整数类型或经范围验证的索引。对极小网格间距和极大视图中心补边界测试。
-- **代码位置**：[CanvasView.cpp](src/CanvasView.cpp#L1902)、[CanvasView.cpp](src/CanvasView.cpp#L2079)
+- **原报告描述有误/已过时**：当前网格和标尺并未把世界坐标索引直接转换为 `int`。`CalculateVisibleTickRange()` 先验证坐标与间距有限、索引处于可安全表示的范围，并将每轴可见刻度限制在 10000 个以内；通过校验后才转换为 `qint64`，绘制循环也使用 `qint64`。因此，不能再把整数溢出描述为当前已确认问题。
+- **实际缺口**：`CanvasView::SetGridSpacing()` 原先只检查间距是否小于等于零；NaN 会绕过该检查，正无穷也可能被保存并发出变更信号。后续网格/标尺计算会因非有限间距而跳过绘制，但对象属性仍会处于无效状态。
+- **处理**：在 setter 入口拒绝 NaN 和正负无穷，同时保留原有的正数约束；无效输入不改变间距、不发出 `GridSpacingChanged`。既有刻度范围保护保持不变。
+- **验证**：新增测试验证极大坐标下网格和标尺不绘制、超出 10000 个上限时跳过刻度绘制，以及 NaN/正负无穷网格间距被拒绝且状态/信号不变。已有 `CanvasViewGridAndRulerHandleLargeFiniteCoordinates` 继续覆盖超出 `int` 范围的有限坐标。Qt 5.12.10 x64 Debug 动态库和测试程序均重新构建；三项专项测试通过，全量 QtTest 为 179 passed、0 failed、0 skipped。
+- **代码位置**：[CanvasView.cpp](src/CanvasView.cpp#L78)、[CanvasView.cpp](src/CanvasView.cpp#L990)、[CanvasView.cpp](src/CanvasView.cpp#L1972)、[CanvasView.cpp](src/CanvasView.cpp#L2185)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L4897)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L4929)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L4971)
 
-### MG-006 · P2 · 非有限距离可能被命中/捕捉比较逻辑接受
+### MG-006 · P2 · 非有限距离可能被命中/捕捉比较逻辑接受【已修复】
 
-- **现象**：`CanvasVector::SquaredDistanceTo()` 在差值或平方溢出时返回 NaN。命中和捕捉代码随后只判断 `distanceSquared > toleranceSquared`；NaN 与该值比较为假，且首个候选在“尚无最佳结果”分支可能被记录。
-- **影响**：极大坐标或中间计算溢出时，远离鼠标的实体可能被错误命中或捕捉。
-- **建议**：在命中/捕捉候选入口显式拒绝非有限距离；对异常距离保持“无命中/无捕捉”。增加可构造溢出差值的测试。
-- **代码位置**：[CanvasVector.cpp](src/CanvasVector.cpp#L196)、[CanvasSnap.cpp](src/CanvasSnap.cpp#L276)、[CanvasView.cpp](src/CanvasView.cpp#L2696)
+- **原报告描述已过时**：`CanvasVector::SquaredDistanceTo()` 在坐标差或平方结果非有限时返回无效标量；`CanvasSnapper` 与 `CanvasView::HitTestItem()` 的候选入口都显式拒绝非有限平方距离，再进行容差和最优候选比较。
+- **处理**：当前两处候选过滤保证 NaN/无穷值不能通过“首个候选”分支成为有效捕捉或命中；无需再增加重复的运行时保护。
+- **验证**：`CanvasSnapperRejectsNonFiniteDistances` 使用极大相反坐标验证不会捕捉；`CanvasViewHitTestRejectsNonFiniteDistances` 验证对应点击不会选中实体。本次 Qt 5.12.10 x64 Debug 两项专项测试均通过。
+- **代码位置**：[CanvasVector.cpp](src/CanvasVector.cpp#L196)、[CanvasSnap.cpp](src/CanvasSnap.cpp#L276)、[CanvasView.cpp](src/CanvasView.cpp#L2825)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L3117)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L5813)
 
 ### MG-007 · P3 · CanvasData 命令格式不能表达任意逗号文本和有意义的空字段
 
@@ -196,12 +197,12 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 
 ### 9.2 本次源码复核发现的补充数值风险
 
-#### MG-022 · P2 · 极大有限圆弧角度差可能溢出并产生非有限扫掠角
+#### MG-022 · P2 · 极大有限圆弧角度差可能溢出并产生非有限扫掠角【已修复】
 
-- **现象**：`IsValidGeometry(StruArcGeometry)` 分别确认起止角有限后，直接计算 `endAngle - startAngle` 并与容差比较，没有检查差值本身是否仍有限。两个极大但有限、符号相反的角度相减可能溢出为无穷；该比较仍会通过。随后 `CalculateDirectedSweep()` 对无穷值调用 `std::fmod()`，可能得到 NaN，`GetArcSweep()` 因而返回非有限结果。
-- **影响**：几何数据通过有效性校验，但后续扫掠查询可能返回 NaN，圆弧离散化也可能因非有限扫掠角而返回空路径。
-- **建议**：校验中间角度差和扫掠结果的有限性；对不能安全计算的输入明确拒绝。增加 `-std::numeric_limits<qreal>::max()` 到 `std::numeric_limits<qreal>::max()` 等极值测试，并验证合法性检查与后续算法不会传播 NaN/无穷。
-- **代码位置**：[CanvasGeometry.cpp](src/CanvasGeometry.cpp#L34)、[CanvasGeometry.cpp](src/CanvasGeometry.cpp#L649)、[CanvasGeometry.cpp](src/CanvasGeometry.cpp#L683)
+- **原报告描述已过时**：几何 API 与 `CanvasArc` 共用 `detail::IsValidArcSweep()`；该函数验证起止角、角度差及归一化差值均有限，并拒绝容差内的零/整周差。角度差溢出时，实体设置和几何合法性检查都会失败。
+- **处理**：`GetArcSweep()` 对无效几何返回 `0.0`，圆弧离散化拒绝无效几何；两层共享的校验避免了输入通过验证后再把 NaN/无穷传播到扫掠结果。
+- **验证**：`GeometryRejectsOverflowingArcAngleDifference` 使用 `-max` 到 `+max` 的角度，检查几何有效性为 false、扫掠为零、离散化为空，且 `CanvasArc::SetGeometry()` 拒绝输入。本次 Qt 5.12.10 x64 Debug 专项测试通过。
+- **代码位置**：[CanvasGeometry.cpp](src/CanvasGeometry.cpp#L34)、[CanvasGeometry.cpp](src/CanvasGeometry.cpp#L497)、[CanvasGeometry.cpp](src/CanvasGeometry.cpp#L672)、[CanvasGeometry.cpp](src/CanvasGeometry.cpp#L708)、[CanvasEntities.cpp](src/CanvasEntities.cpp#L49)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L2734)
 
 ### 9.3 外部分析中未被当前源码支持或不应直接定性的说法
 
@@ -219,16 +220,18 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 
 - 本次 MG-003 修复后，Qt 5.12.10 x64 Debug/Release 均完成全量构建，各有 174 项 QtTest 通过；Qt 6.5.3 的最近一次已知记录仍为上一轮 163 项通过，本次未重跑。
 - 本次 MG-004 修复后，Qt 5.12.10 x64 Debug 动态库和测试程序均重新构建；全量 QtTest 为 176 passed、0 failed、0 skipped。新增映射和拟合边界测试先以预期失败复现，再通过修复。
-- 当前验证覆盖 MG-004 变换入口的非有限输入、非法视口尺寸、映射/拟合溢出及失败时状态保持；也覆盖此前的 MG-003 圆弧有效性容差、MG-002 多段线绘制/选择/编辑柄/捕捉。Qt 5.12.10 Release 和 Qt 6.5.3 本次未重跑。
-- 建议补充：CanvasData 绑定冲突、命中/捕捉距离溢出、深层组；若命令格式承诺支持任意文本/路径，再补带逗号和空字段用例；以及不同实体数量下的性能基准。
+- 本次 MG-005 修复后，Qt 5.12.10 x64 Debug 动态库和测试程序均重新构建；三项 MG-005 专项测试通过，全量 QtTest 为 179 passed、0 failed、0 skipped。专项测试覆盖不安全坐标索引、10000 刻度上限及非有限网格间距。
+- 本次复核 MG-006 的捕捉/命中非有限距离保护及 MG-022 的圆弧角差溢出保护均已存在；两项 MG-006 专项测试和一项 MG-022 专项测试通过，全量 QtTest 为 179 passed、0 failed、0 skipped。
+- 当前验证覆盖 MG-004 变换入口的非有限输入、非法视口尺寸、映射/拟合溢出及失败时状态保持，MG-005 网格/标尺的刻度范围和间距边界，MG-006 命中/捕捉非有限距离，以及 MG-022 几何 API 与实体层对圆弧角差溢出的共同拒绝；也覆盖此前的 MG-003 圆弧有效性容差、MG-002 多段线绘制/选择/编辑柄/捕捉。Qt 5.12.10 Release 和 Qt 6.5.3 本次未重跑。
+- 建议补充：深层组的压力测试；若命令格式承诺支持任意文本/路径，再补带逗号和空字段用例；以及不同实体数量下的性能基准。
 - 目前没有足够基准数据来承诺可支持的最大图元数或帧率。
 
 ## 11. 建议处理顺序
 
-1. 修复 MG-001，确保文档 API 的返回值、数据状态和变更信号一致。
+1. MG-001 已确认由当前实现和回归测试覆盖；API 失败返回、绑定状态与变更信号保持一致。
 2. MG-002 已按“父对象统一描边样式、子段可见性独立生效”修复，绘制、选择、编辑柄和捕捉已统一过滤隐藏子段。
 3. MG-003 已统一圆弧几何 API 与实体层的角差校验；完整圆周由 Circle 类型表达。
-4. MG-004 已修复；继续处理 MG-005、MG-006 和 MG-022 的数值范围与非有限值保护。
+4. MG-004、MG-005、MG-006、MG-022 已由当前源码和回归测试覆盖；数值保护项暂告一段落。
 5. 明确 MG-007 命令格式的兼容契约；若确需无损表达任意字符串，再定义转义/空字段规则并补测试。
 6. 为 MG-009 至 MG-011 建立基准后再做定向性能优化。
 7. 根据实际调用需求补充 MG-012 至 MG-015 的文档和示例；暂不做与需求无关的大重构。

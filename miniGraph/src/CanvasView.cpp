@@ -989,7 +989,9 @@ qreal CanvasView::GetGridSpacing() const
 
 void CanvasView::SetGridSpacing(qreal spacing)
 {
-    if (spacing <= 0.0 || qFuzzyCompare(m_GridSpacing, spacing)) {
+    if (!std::isfinite(static_cast<double>(spacing))
+            || spacing <= 0.0
+            || qFuzzyCompare(m_GridSpacing, spacing)) {
         return;
     }
 
