@@ -195,6 +195,7 @@ private slots:
     void CanvasPolylineValidatesConnectionsAndDeepCopies();
     void CanvasSplineValidatesNurbsDataAndClone();
     void CanvasGroupDeepCopiesChildrenAndNestedGroups();
+    void CanvasGroupRejectsExcessiveNestingWithoutMutation();
     void WorldCoordinateApisUseCanvasVector();
     void CanvasViewQueuesCanvasVectorWorldSignal();
     void DefaultTransformIsIdentityLike();
@@ -1308,6 +1309,69 @@ void CanvasCoreTest::CanvasGroupDeepCopiesChildrenAndNestedGroups()
     QVERIFY(group.IsValid());
     QVERIFY(group.RemoveChild(0));
     QVERIFY(!group.IsValid());
+}
+
+void CanvasCoreTest::CanvasGroupRejectsExcessiveNestingWithoutMutation()
+{
+    const int maximumDepth =
+            mini_graph::CanvasGroupContainer::MaximumNestingDepth;
+    QCOMPARE(maximumDepth, 64);
+    QSharedPointer<mini_graph::CanvasEntity> nested(
+            new mini_graph::CanvasPoint(mini_graph::CanvasVector(1.0, 2.0)));
+
+    for (int depth = 1; depth <= maximumDepth; ++depth) {
+        QSharedPointer<mini_graph::CanvasGroupContainer> parent(
+                new mini_graph::CanvasGroupContainer);
+        QVERIFY(parent->AddChild(*nested));
+        nested = parent;
+    }
+
+    QVERIFY(nested->IsValid());
+    const QSharedPointer<mini_graph::CanvasEntity> clone = nested->Clone();
+    QVERIFY(clone);
+    QVERIFY(clone->IsValid());
+
+    const mini_graph::CanvasEntity *current = clone.data();
+    for (int depth = 0; depth < maximumDepth; ++depth) {
+        const mini_graph::CanvasGroupContainer *group =
+                dynamic_cast<const mini_graph::CanvasGroupContainer *>(current);
+        QVERIFY(group);
+        QCOMPARE(group->GetChildCount(), 1);
+        current = group->GetChild(0);
+        QVERIFY(current);
+    }
+    QVERIFY(dynamic_cast<const mini_graph::CanvasPoint *>(current));
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId id = document.AddEntity(*nested);
+    QVERIFY(id != 0);
+    const mini_graph::CanvasEntity *storedEntity = document.GetEntity(id);
+    QVERIFY(storedEntity);
+    QVERIFY(storedEntity != nested.data());
+    QVERIFY(storedEntity->IsValid());
+    QRectF nestedBounds;
+    QVERIFY(mini_graph::TryGetGeometryBounds(*storedEntity, &nestedBounds));
+    QCOMPARE(nestedBounds, QRectF(1.0, 2.0, 0.0, 0.0));
+
+    mini_graph::CanvasGroupContainer tooDeep;
+    QVERIFY(!tooDeep.AddChild(*nested));
+    QCOMPARE(tooDeep.GetChildCount(), 0);
+
+    mini_graph::CanvasGroupContainer replacementHost;
+    const mini_graph::CanvasPoint marker(mini_graph::CanvasVector(8.0, 9.0));
+    QVERIFY(replacementHost.AddChild(marker));
+    const mini_graph::CanvasEntity *originalChild = replacementHost.GetChild(0);
+    QVERIFY(!replacementHost.ReplaceChild(0, *nested));
+    QCOMPARE(replacementHost.GetChildCount(), 1);
+    QCOMPARE(replacementHost.GetChild(0), originalChild);
+
+    mini_graph::CanvasGroupContainer wideGroup;
+    for (int index = 0; index < 256; ++index) {
+        QVERIFY(wideGroup.AddChild(mini_graph::CanvasPoint(
+                                      mini_graph::CanvasVector(index, index))));
+    }
+    QVERIFY(wideGroup.IsValid());
+    QCOMPARE(wideGroup.GetChildCount(), 256);
 }
 
 void CanvasCoreTest::WorldCoordinateApisUseCanvasVector()

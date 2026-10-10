@@ -17,6 +17,59 @@ bool IsFinite(qreal value)
     return std::isfinite(static_cast<double>(value));
 }
 
+struct GroupTraversalFrame
+{
+    const CanvasGroupContainer *group;
+    int nextChildIndex;
+};
+
+bool HasGroupNestingDepthAtMost(const CanvasEntity &entity, int maximumDepth)
+{
+    if (entity.GetType() != CanvasEntityType::GroupContainer) {
+        return true;
+    }
+    if (maximumDepth < 1) {
+        return false;
+    }
+
+    const CanvasGroupContainer *root =
+            dynamic_cast<const CanvasGroupContainer *>(&entity);
+    if (!root) {
+        return false;
+    }
+
+    QVector<GroupTraversalFrame> pending;
+    pending.append(GroupTraversalFrame{root, 0});
+    while (!pending.isEmpty()) {
+        GroupTraversalFrame &frame = pending.last();
+        if (frame.nextChildIndex >= frame.group->GetChildCount()) {
+            pending.removeLast();
+            continue;
+        }
+
+        const CanvasEntity *child =
+                frame.group->GetChild(frame.nextChildIndex);
+        ++frame.nextChildIndex;
+        if (!child) {
+            return false;
+        }
+        if (child->GetType() != CanvasEntityType::GroupContainer) {
+            continue;
+        }
+        if (pending.size() >= maximumDepth) {
+            return false;
+        }
+
+        const CanvasGroupContainer *nestedGroup =
+                dynamic_cast<const CanvasGroupContainer *>(child);
+        if (!nestedGroup) {
+            return false;
+        }
+        pending.append(GroupTraversalFrame{nestedGroup, 0});
+    }
+    return true;
+}
+
 qreal NormalizeAngle(qreal angle)
 {
     const qreal fullTurn = 2.0 * std::acos(-1.0);
@@ -858,7 +911,10 @@ const CanvasEntity *CanvasGroupContainer::GetChild(int index) const
 
 bool CanvasGroupContainer::AddChild(const CanvasEntity &entity)
 {
-    if (&entity == this || !entity.IsValid()) {
+    if (&entity == this
+            || !HasGroupNestingDepthAtMost(
+                entity, MaximumNestingDepth - 1)
+            || !entity.IsValid()) {
         return false;
     }
     const QSharedPointer<CanvasEntity> clone = entity.Clone();
@@ -873,7 +929,10 @@ bool CanvasGroupContainer::ReplaceChild(int index,
                                         const CanvasEntity &entity)
 {
     if (index < 0 || index >= m_Children.size()
-            || &entity == this || !entity.IsValid()) {
+            || &entity == this
+            || !HasGroupNestingDepthAtMost(
+                entity, MaximumNestingDepth - 1)
+            || !entity.IsValid()) {
         return false;
     }
     const QSharedPointer<CanvasEntity> clone = entity.Clone();

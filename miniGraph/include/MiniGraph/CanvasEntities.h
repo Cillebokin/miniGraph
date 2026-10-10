@@ -341,6 +341,9 @@ private:
 class MINIGRAPH_EXPORT CanvasGroupContainer final : public CanvasEntity
 {
 public:
+    // 组嵌套深度上限，最外层组也计为一层。
+    enum { MaximumNestingDepth = 64 };
+
     CanvasGroupContainer();
 
     // 返回组内子图元数量。
@@ -349,10 +352,10 @@ public:
     // 返回指定子图元的只读借用指针；索引无效时返回空指针。
     const CanvasEntity *GetChild(int index) const;
 
-    // 深拷贝并追加有效子图元；不允许直接加入自身。
+    // 深拷贝并追加有效子图元；不允许直接加入自身或超过嵌套深度上限。
     bool AddChild(const CanvasEntity &entity);
 
-    // 深拷贝并替换指定子图元；非法索引或无效对象会被拒绝。
+    // 深拷贝并替换指定子图元；非法索引、无效对象或超深嵌套会被拒绝。
     bool ReplaceChild(int index, const CanvasEntity &entity);
 
     // 删除指定子图元；非法索引会被拒绝。
