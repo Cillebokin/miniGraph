@@ -55,6 +55,20 @@ void ConfigureView(CanvasView *view,
                    CanvasDocument *document,
                    bool drawCanvasDecorations);
 void SendClick(CanvasView *view, const QPointF &position);
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+bool BuildBoundsCache(const CanvasDocument &document,
+                      const QVector<ItemId> &ids,
+                      QHash<ItemId, QRectF> *boundsCache);
+bool VerifyBoundsCacheMatchesDocument(
+        const CanvasDocument &document,
+        const QVector<ItemId> &ids,
+        const QHash<ItemId, QRectF> &boundsCache);
+bool CountBoundsCandidates(const CanvasDocument &document,
+                           const QVector<ItemId> &ids,
+                           const QHash<ItemId, QRectF> *boundsCache,
+                           const CanvasVector &query,
+                           int *candidateCount);
+#endif
 
 qreal Percentile(const QVector<qreal> &sortedSamples, qreal percentile)
 {
@@ -908,6 +922,15 @@ bool VerifyBoundsFilterHitParity(QTextStream &output)
         return false;
     }
 
+    const QVector<ItemId> ids = document.GetItemIds();
+    QHash<ItemId, QRectF> geometryBoundsCache;
+    if (!BuildBoundsCache(document, ids, &geometryBoundsCache)
+            || !VerifyBoundsCacheMatchesDocument(
+                document, ids, geometryBoundsCache)) {
+        output << "ERROR,bounds_parity_geometry_cache_build_failed\n";
+        return false;
+    }
+
     CanvasView view;
     ConfigureView(&view, &document, false);
     view.setUpdatesEnabled(false);
@@ -923,10 +946,16 @@ bool VerifyBoundsFilterHitParity(QTextStream &output)
         if (target.expectedHit) {
             expectedSelection.append(target.itemId);
         }
-        QVector<ItemId> outcomes[2];
-        for (int mode = 0; mode < 2; ++mode) {
+        QVector<ItemId> outcomes[3];
+        for (int mode = 0; mode < 3; ++mode) {
             document.ClearSelection();
-            view.SetHitTestBoundsFilterEnabledForProfiling(mode == 1);
+            view.SetHitTestBoundsFilterEnabledForProfiling(mode != 0);
+            if (mode == 2) {
+                view.SetHitTestGeometryBoundsCacheForProfiling(
+                            geometryBoundsCache);
+            } else {
+                view.ClearHitTestGeometryBoundsCacheForProfiling();
+            }
             view.ResetHitTestProfile();
             SendClick(&view, viewportQuery);
             outcomes[mode] = document.GetSelectedItemIds();
@@ -946,17 +975,19 @@ bool VerifyBoundsFilterHitParity(QTextStream &output)
                 return false;
             }
         }
-        if (outcomes[0] != outcomes[1]) {
+        if (outcomes[0] != outcomes[1] || outcomes[0] != outcomes[2]) {
             output << "ERROR,bounds_parity_selection_mismatch,"
-                   << target.name << '\n';
+                   << target.name << ",mode=live_or_cached\n";
             return false;
         }
         output << "# MG010_BOUNDS_PARITY," << target.name
                << ",expected=" << (target.expectedHit ? "hit" : "miss")
                << ",baseline_item="
                << (outcomes[0].isEmpty() ? 0 : outcomes[0].first())
-               << ",filtered_item="
+               << ",live_filtered_item="
                << (outcomes[1].isEmpty() ? 0 : outcomes[1].first())
+               << ",cached_filtered_item="
+               << (outcomes[2].isEmpty() ? 0 : outcomes[2].first())
                << ",zoom=" << QString::number(target.zoom, 'g', 10) << '\n';
     }
 
@@ -976,7 +1007,7 @@ bool VerifyBoundsFilterHitParity(QTextStream &output)
               ",geometry_bounds_available=false,document_accepts=false"
               ",hit_test_fallback_reachable=false\n";
     output << "# MG010_BOUNDS_PARITY_SUMMARY,cases=" << targets.size()
-           << ",filter_off_on_selection_parity=true\n";
+           << ",filter_off_live_cached_selection_parity=true\n";
     return true;
 }
 
@@ -989,6 +1020,8 @@ struct BoundsModeSamples
     quint64 itemIdVisits;
     quint64 boundsChecks;
     quint64 boundsRejects;
+    quint64 geometryBoundsCacheLookups;
+    quint64 geometryBoundsCacheMisses;
     quint64 hitTestCalls;
     quint64 selectionPathCount;
     quint64 selectionPathPointCount;
@@ -999,6 +1032,8 @@ struct BoundsModeSamples
         , itemIdVisits(0)
         , boundsChecks(0)
         , boundsRejects(0)
+        , geometryBoundsCacheLookups(0)
+        , geometryBoundsCacheMisses(0)
         , hitTestCalls(0)
         , selectionPathCount(0)
         , selectionPathPointCount(0)
@@ -1416,7 +1451,8 @@ bool MeasureBoundsFilterAba(QTextStream &output,
                                 CanvasEntityType::Invalid,
                             ItemId expectedHitId = 0,
                             const QString &complexityLabel = QString(),
-                            int complexitySelectionPathsPerEntity = -1)
+                            int complexitySelectionPathsPerEntity = -1,
+                            bool includeGeometryBoundsCache = false)
 {
     if (!document) return false;
 
@@ -1471,7 +1507,33 @@ bool MeasureBoundsFilterAba(QTextStream &output,
     view.CenterOnWorld(worldQuery);
     const QPointF viewportQuery = view.MapFromWorld(worldQuery);
 
+    QHash<ItemId, QRectF> geometryBoundsCache;
+    if (includeGeometryBoundsCache) {
+        const QVector<ItemId> ids = document->GetItemIds();
+        int liveCandidateCount = 0;
+        int cachedCandidateCount = 0;
+        if (ids.size() != entityCount
+                || !BuildBoundsCache(*document, ids, &geometryBoundsCache)
+                || !VerifyBoundsCacheMatchesDocument(
+                    *document, ids, geometryBoundsCache)
+                || !CountBoundsCandidates(*document, ids, nullptr,
+                                          worldQuery, &liveCandidateCount)
+                || !CountBoundsCandidates(*document, ids,
+                                          &geometryBoundsCache, worldQuery,
+                                          &cachedCandidateCount)
+                || cachedCandidateCount != liveCandidateCount) {
+            output << "ERROR,bounds_cache_filter_raw_candidate_parity_failed,"
+                   << entityCount << ',' << workload
+                   << ",live_raw_candidates=" << liveCandidateCount
+                   << ",cached_raw_candidates=" << cachedCandidateCount
+                   << ",expected_conservative_candidates="
+                   << expectedBoundsCandidates << '\n';
+            return false;
+        }
+    }
+
     view.SetHitTestBoundsFilterEnabledForProfiling(false);
+    view.ClearHitTestGeometryBoundsCacheForProfiling();
     document->ClearSelection();
     SendClick(&view, viewportQuery);
     const QVector<ItemId> expectedSelection = document->GetSelectedItemIds();
@@ -1485,13 +1547,20 @@ bool MeasureBoundsFilterAba(QTextStream &output,
         return false;
     }
 
-    BoundsModeSamples modes[2];
+    const int modeCount = includeGeometryBoundsCache ? 3 : 2;
+    BoundsModeSamples modes[3];
     for (int sample = 0; sample < kWarmupSamples; ++sample) {
-        const int firstMode = sample % 2;
-        for (int order = 0; order < 2; ++order) {
-            const int mode = order == 0 ? firstMode : 1 - firstMode;
+        const int firstMode = sample % modeCount;
+        for (int order = 0; order < modeCount; ++order) {
+            const int mode = (firstMode + order) % modeCount;
             document->ClearSelection();
-            view.SetHitTestBoundsFilterEnabledForProfiling(mode == 1);
+            view.SetHitTestBoundsFilterEnabledForProfiling(mode != 0);
+            if (mode == 2) {
+                view.SetHitTestGeometryBoundsCacheForProfiling(
+                            geometryBoundsCache);
+            } else {
+                view.ClearHitTestGeometryBoundsCacheForProfiling();
+            }
             SendClick(&view, viewportQuery);
             if (document->GetSelectedItemIds() != expectedSelection) {
                 output << "ERROR,bounds_ab_warmup_selection_mismatch,"
@@ -1503,12 +1572,18 @@ bool MeasureBoundsFilterAba(QTextStream &output,
     }
 
     for (int sample = 0; sample < kMeasuredSamples; ++sample) {
-        const int firstMode = sample % 2;
-        QVector<ItemId> pairedOutcome[2];
-        for (int order = 0; order < 2; ++order) {
-            const int mode = order == 0 ? firstMode : 1 - firstMode;
+        const int firstMode = sample % modeCount;
+        QVector<ItemId> pairedOutcome[3];
+        for (int order = 0; order < modeCount; ++order) {
+            const int mode = (firstMode + order) % modeCount;
             document->ClearSelection();
-            view.SetHitTestBoundsFilterEnabledForProfiling(mode == 1);
+            view.SetHitTestBoundsFilterEnabledForProfiling(mode != 0);
+            if (mode == 2) {
+                view.SetHitTestGeometryBoundsCacheForProfiling(
+                            geometryBoundsCache);
+            } else {
+                view.ClearHitTestGeometryBoundsCacheForProfiling();
+            }
             view.ResetHitTestProfile();
 
             QElapsedTimer eventTimer;
@@ -1537,6 +1612,8 @@ bool MeasureBoundsFilterAba(QTextStream &output,
             const quint64 expectedBoundsRejects = mode == 0
                     ? 0 : static_cast<quint64>(entityCount
                                                - expectedBoundsCandidates) * 2;
+            const quint64 expectedCacheLookups = mode == 2
+                    ? static_cast<quint64>(entityCount) * 2 : 0;
             bool entityTypeProfileMatches = true;
             if (entityTypeScoped) {
                 const int typeIndex = static_cast<int>(entityType);
@@ -1565,6 +1642,9 @@ bool MeasureBoundsFilterAba(QTextStream &output,
                             != expectedPathCollectionCalls
                     || profile.boundsCheckCount != expectedBoundsChecks
                     || profile.boundsRejectCount != expectedBoundsRejects
+                    || profile.geometryBoundsCacheLookupCount
+                            != expectedCacheLookups
+                    || profile.geometryBoundsCacheMissCount != 0
                     || !entityTypeProfileMatches) {
                 output << "ERROR,bounds_ab_profile_invariant_failed,"
                        << entityCount << ',' << workload << ',' << mode
@@ -1573,7 +1653,9 @@ bool MeasureBoundsFilterAba(QTextStream &output,
                        << profile.itemIdVisitCount << ','
                        << profile.pathCollectionCallCount << ','
                        << profile.boundsCheckCount << ','
-                       << profile.boundsRejectCount << '\n';
+                       << profile.boundsRejectCount << ','
+                       << profile.geometryBoundsCacheLookupCount << ','
+                       << profile.geometryBoundsCacheMissCount << '\n';
                 return false;
             }
 
@@ -1587,6 +1669,10 @@ bool MeasureBoundsFilterAba(QTextStream &output,
             samples.itemIdVisits += profile.itemIdVisitCount;
             samples.boundsChecks += profile.boundsCheckCount;
             samples.boundsRejects += profile.boundsRejectCount;
+            samples.geometryBoundsCacheLookups +=
+                    profile.geometryBoundsCacheLookupCount;
+            samples.geometryBoundsCacheMisses +=
+                    profile.geometryBoundsCacheMissCount;
             samples.hitTestCalls += profile.hitTestCallCount;
             samples.distanceSegmentCount += profile.distanceSegmentCount;
             for (int typeIndex = 0;
@@ -1598,15 +1684,18 @@ bool MeasureBoundsFilterAba(QTextStream &output,
                         profile.selectionPathPointCountByType[typeIndex];
             }
         }
-        if (pairedOutcome[0] != pairedOutcome[1]) {
-            output << "ERROR,bounds_ab_paired_selection_mismatch,"
-                   << entityCount << ',' << workload << ','
-                   << sample << '\n';
-            return false;
+        for (int mode = 1; mode < modeCount; ++mode) {
+            if (pairedOutcome[0] != pairedOutcome[mode]) {
+                output << "ERROR,bounds_ab_paired_selection_mismatch,"
+                       << entityCount << ',' << workload << ','
+                       << sample << ",baseline_mode=0,compared_mode="
+                       << mode << '\n';
+                return false;
+            }
         }
     }
 
-    for (int mode = 0; mode < 2; ++mode) {
+    for (int mode = 0; mode < modeCount; ++mode) {
         BoundsModeSamples &samples = modes[mode];
         BenchmarkResult result;
         result.scenario = entityTypeScoped
@@ -1616,9 +1705,14 @@ bool MeasureBoundsFilterAba(QTextStream &output,
                 : QStringLiteral("MG010_BoundsFilterAba");
         result.entityCount = entityCount;
         result.curvePercent = curvePercent;
-        result.workload = workload + (mode == 0
-                ? QStringLiteral("_filter_off")
-                : QStringLiteral("_filter_on"));
+        const QString modeName = mode == 0
+                ? QStringLiteral("filter_off")
+                : (mode == 1
+                   ? (includeGeometryBoundsCache
+                      ? QStringLiteral("filter_live_bounds")
+                      : QStringLiteral("filter_on"))
+                             : QStringLiteral("filter_cached_geometry_bounds"));
+        result.workload = workload + QLatin1Char('_') + modeName;
         result.iterationsPerSample = 1;
         QVector<qreal> sortedEventTimes = samples.eventMilliseconds;
         std::sort(sortedEventTimes.begin(), sortedEventTimes.end());
@@ -1632,7 +1726,7 @@ bool MeasureBoundsFilterAba(QTextStream &output,
         std::sort(sortedBoundsTimes.begin(), sortedBoundsTimes.end());
         output << "# MG010_BOUNDS_AB," << entityCount << ','
                << curvePercent << ',' << workload
-               << ",mode=" << (mode == 0 ? "filter_off" : "filter_on")
+               << ",mode=" << modeName
                << ",item_visits_per_hit_test="
                << QString::number(static_cast<qreal>(samples.itemIdVisits)
                                   / samples.hitTestCalls, 'f', 3)
@@ -1644,6 +1738,14 @@ bool MeasureBoundsFilterAba(QTextStream &output,
                                   / samples.hitTestCalls, 'f', 3)
                << ",bounds_rejects_per_hit_test="
                << QString::number(static_cast<qreal>(samples.boundsRejects)
+                                  / samples.hitTestCalls, 'f', 3)
+               << ",geometry_bounds_cache_lookups_per_hit_test="
+               << QString::number(static_cast<qreal>(
+                                      samples.geometryBoundsCacheLookups)
+                                  / samples.hitTestCalls, 'f', 3)
+               << ",geometry_bounds_cache_misses_per_hit_test="
+               << QString::number(static_cast<qreal>(
+                                      samples.geometryBoundsCacheMisses)
                                   / samples.hitTestCalls, 'f', 3)
                << ",selection_paths_per_hit_test="
                << QString::number(static_cast<qreal>(
@@ -1683,7 +1785,11 @@ bool MeasureBoundsFilterAba(QTextStream &output,
                << QString::number(Percentile(sortedBoundsTimes, 0.50), 'f', 6)
                << ",bounds_check_ms_per_hit_test_p95="
                << QString::number(Percentile(sortedBoundsTimes, 0.95), 'f', 6)
-               << ",selection_parity=true\n";
+               << ",selection_parity=true"
+               << ",cached_geometry_only="
+               << (mode == 2 ? "true" : "false")
+               << ",maximum_display_size_recomputed=true"
+               << ",hit_tolerance_unchanged=true\n";
     }
     return true;
 }
@@ -2982,6 +3088,192 @@ bool RunMG010BoundsCacheExperiment(QTextStream &output)
     output.flush();
     return completedCaseCount == caseCount;
 }
+
+bool RunMG010HitFilterCacheExperiment(QTextStream &output)
+{
+    if (!VerifyBoundsFilterHitParity(output)) {
+        return false;
+    }
+
+    int completedCaseCount = 0;
+    const int mixedEntityCount = 5000;
+    const SceneMix mixes[] = {SceneMix::Simple, SceneMix::CurveHeavy};
+    output << "# MG010_HIT_FILTER_CACHE_MATRIX"
+              ",entity_count=5000"
+              ",mixed_workloads=sparse_hit|miss|dense_overlap_hit"
+              ",modes=filter_off|filter_live_bounds|filter_cached_geometry_bounds"
+              ",cache_scope=raw_geometry_bounds_only"
+              ",maximum_display_size=recomputed"
+              ",hit_tolerance=unchanged"
+              ",samples_per_mode=31"
+              ",paired_order=rotating_same_process\n";
+    for (SceneMix mix : mixes) {
+        CanvasDocument sparseDocument;
+        if (!PopulateDocument(&sparseDocument, mixedEntityCount, mix)
+                || !PrepareInteractionProbe(&sparseDocument)
+                || !MeasureBoundsFilterAba(
+                    output, &sparseDocument, mixedEntityCount, mix,
+                    BoundsFilterWorkload::SparseHit, -1,
+                    CanvasEntityType::Invalid, 0, QString(), -1, true)
+                || !MeasureBoundsFilterAba(
+                    output, &sparseDocument, mixedEntityCount, mix,
+                    BoundsFilterWorkload::Miss, -1,
+                    CanvasEntityType::Invalid, 0, QString(), -1, true)) {
+            output << "ERROR,hit_filter_cache_mixed_sparse_failed,"
+                   << CurvePercentage(mix) << '\n';
+            return false;
+        }
+        completedCaseCount += 2;
+
+        CanvasDocument denseDocument;
+        if (!PopulateDocument(&denseDocument, mixedEntityCount, mix, true)
+                || !MeasureBoundsFilterAba(
+                    output, &denseDocument, mixedEntityCount, mix,
+                    BoundsFilterWorkload::DenseHit, -1,
+                    CanvasEntityType::Invalid, 0, QString(), -1, true)) {
+            output << "ERROR,hit_filter_cache_mixed_dense_failed,"
+                   << CurvePercentage(mix) << '\n';
+            return false;
+        }
+        ++completedCaseCount;
+    }
+
+    const CanvasEntityType entityTypes[] = {
+        CanvasEntityType::Point,
+        CanvasEntityType::Line,
+        CanvasEntityType::Arc,
+        CanvasEntityType::Circle,
+        CanvasEntityType::Ellipse,
+        CanvasEntityType::Polyline,
+        CanvasEntityType::Spline,
+        CanvasEntityType::GroupContainer
+    };
+    const int entityTypeCount = sizeof(entityTypes) / sizeof(entityTypes[0]);
+    const int entityTypeEntityCount = 1000;
+    const int entityTypeCandidatePercentages[] = {1, 100};
+    const int entityTypeCandidateCount = sizeof(entityTypeCandidatePercentages)
+            / sizeof(entityTypeCandidatePercentages[0]);
+    output << "# MG010_HIT_FILTER_CACHE_ENTITY_TYPES"
+              ",entity_count=1000"
+              ",entity_types=Point|Line|Arc|Circle|Ellipse|Polyline|Spline|GroupContainer"
+              ",candidate_percentages=1|100"
+              ",exact_hit_identity_verified=true\n";
+    for (CanvasEntityType type : entityTypes) {
+        for (int candidateIndex = 0;
+             candidateIndex < entityTypeCandidateCount;
+             ++candidateIndex) {
+            const int candidatePercent =
+                    entityTypeCandidatePercentages[candidateIndex];
+            CanvasDocument document;
+            QString sceneFailureReason;
+            if (!PopulateBoundsEntityTypeDocument(
+                        &document, type, entityTypeEntityCount,
+                        candidatePercent, &sceneFailureReason)) {
+                output << "ERROR,hit_filter_cache_entity_scene_failed,"
+                       << CanvasEntityTypeName(type) << ','
+                       << candidatePercent << ',' << sceneFailureReason << '\n';
+                return false;
+            }
+
+            const QVector<ItemId> ids = document.GetItemIds();
+            const ItemId expectedHitId = ids.isEmpty() ? 0 : ids.first();
+            if (expectedHitId == 0
+                    || !MeasureBoundsFilterAba(
+                        output, &document, entityTypeEntityCount,
+                        SceneMix::Simple,
+                        BoundsFilterWorkload::SelectivityHit,
+                        candidatePercent, type, expectedHitId,
+                        QString(), -1, true)) {
+                output << "ERROR,hit_filter_cache_entity_measurement_failed,"
+                       << CanvasEntityTypeName(type) << ','
+                       << candidatePercent << '\n';
+                return false;
+            }
+            ++completedCaseCount;
+        }
+    }
+
+    struct ComplexityCase
+    {
+        CanvasEntityType entityType;
+        int complexity;
+        const char *dimension;
+        int selectionPathsPerEntity;
+    };
+    const ComplexityCase complexityCases[] = {
+        {CanvasEntityType::Polyline, 3, "polyline_segments", 3},
+        {CanvasEntityType::Polyline, 16, "polyline_segments", 16},
+        {CanvasEntityType::Polyline, 64, "polyline_segments", 64},
+        {CanvasEntityType::Polyline, 256, "polyline_segments", 256},
+        {CanvasEntityType::Spline, 3, "spline_control_points", 1},
+        {CanvasEntityType::Spline, 16, "spline_control_points", 1},
+        {CanvasEntityType::Spline, 64, "spline_control_points", 1},
+        {CanvasEntityType::GroupContainer, 3, "group_children", 3},
+        {CanvasEntityType::GroupContainer, 16, "group_children", 16},
+        {CanvasEntityType::GroupContainer, 64, "group_children", 64}
+    };
+    const int complexityCaseCount = sizeof(complexityCases)
+            / sizeof(complexityCases[0]);
+    const int complexityEntityCount = 5000;
+    const int complexityCandidatePercent = 1;
+    output << "# MG010_HIT_FILTER_CACHE_COMPLEXITY"
+              ",entity_count=5000"
+              ",candidate_percent=1"
+              ",polyline_segments=3|16|64|256"
+              ",spline_control_points=3|16|64"
+              ",group_children=3|16|64"
+              ",same_complexity_for_candidate_and_non_candidate_entities=true\n";
+    for (int caseIndex = 0; caseIndex < complexityCaseCount; ++caseIndex) {
+        const ComplexityCase &complexityCase = complexityCases[caseIndex];
+        const QString complexityLabel = QStringLiteral("%1_%2")
+                .arg(QString::fromLatin1(complexityCase.dimension))
+                .arg(complexityCase.complexity);
+        CanvasDocument document;
+        QString sceneFailureReason;
+        if (!PopulateBoundsComplexityDocument(
+                    &document, complexityCase.entityType,
+                    complexityEntityCount, complexityCandidatePercent,
+                    complexityCase.complexity, &sceneFailureReason)) {
+            output << "ERROR,hit_filter_cache_complexity_scene_failed,"
+                   << CanvasEntityTypeName(complexityCase.entityType) << ','
+                   << complexityLabel << ',' << sceneFailureReason << '\n';
+            return false;
+        }
+
+        const QVector<ItemId> ids = document.GetItemIds();
+        const ItemId expectedHitId = ids.isEmpty() ? 0 : ids.first();
+        if (expectedHitId == 0
+                || !MeasureBoundsFilterAba(
+                    output, &document, complexityEntityCount,
+                    SceneMix::Simple,
+                    BoundsFilterWorkload::SelectivityHit,
+                    complexityCandidatePercent, complexityCase.entityType,
+                    expectedHitId, complexityLabel,
+                    complexityCase.selectionPathsPerEntity, true)) {
+            output << "ERROR,hit_filter_cache_complexity_measurement_failed,"
+                   << CanvasEntityTypeName(complexityCase.entityType) << ','
+                   << complexityLabel << '\n';
+            return false;
+        }
+        ++completedCaseCount;
+        output.flush();
+    }
+
+    const int expectedCaseCount = 6 + entityTypeCount * entityTypeCandidateCount
+            + complexityCaseCount;
+    output << "# MG010_HIT_FILTER_CACHE_SUMMARY,cases="
+           << completedCaseCount
+           << ",expected_cases=" << expectedCaseCount
+           << ",timing_rows=" << completedCaseCount * 3
+           << ",three_way_selection_parity=true"
+           << ",cached_bounds_candidate_parity=true"
+           << ",cache_misses=0"
+           << ",maximum_display_size_recomputed=true"
+           << ",hit_tolerance_unchanged=true"
+           << ",production_cache_enabled=false\n";
+    output.flush();
+    return completedCaseCount == expectedCaseCount;
+}
 #endif
 
 void SendWindowSelection(CanvasView *view)
@@ -3243,6 +3535,22 @@ int main(int argc, char *argv[])
     output << "scenario,entities,curve_percent,workload,median_ms,p95_ms,iterations_per_sample\n";
 
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    if (argc > 1
+            && QString::fromLocal8Bit(argv[1])
+                    == QStringLiteral("--mg010-hit-filter-cache")) {
+        output << "# MG010_HIT_FILTER_CACHE_EXPERIMENT"
+                  ",scope=profiling_build_only"
+                  ",runtime_bounds_filter_default=off"
+                  ",production_cache_enabled=false"
+                  ",entity_type_and_complexity_matrix=true"
+                  ",paired_order=rotating_same_process\n";
+        if (!RunMG010HitFilterCacheExperiment(output)) {
+            output.flush();
+            return 2;
+        }
+        return 0;
+    }
+
     if (argc > 1
             && QString::fromLocal8Bit(argv[1])
                     == QStringLiteral("--mg010-bounds-cache")) {

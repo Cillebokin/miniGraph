@@ -13,6 +13,10 @@
 #include <QWidget>
 #include <QVector>
 
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+#include <QHash>
+#endif
+
 #include <memory>
 
 class QPainter;
@@ -90,6 +94,8 @@ public:
             itemIdVisitCount = 0;
             boundsCheckCount = 0;
             boundsRejectCount = 0;
+            geometryBoundsCacheLookupCount = 0;
+            geometryBoundsCacheMissCount = 0;
             pathCollectionCallCount = 0;
             distancePathCount = 0;
             distanceSegmentCount = 0;
@@ -112,6 +118,8 @@ public:
         quint64 itemIdVisitCount;
         quint64 boundsCheckCount;
         quint64 boundsRejectCount;
+        quint64 geometryBoundsCacheLookupCount;
+        quint64 geometryBoundsCacheMissCount;
         quint64 pathCollectionCallCount;
         quint64 entityCountByType[EntityTypeCount];
         quint64 selectionPathCountByType[EntityTypeCount];
@@ -259,6 +267,13 @@ public:
 
     // 仅供性能剖析构建启用/关闭实验性包围盒粗筛，不影响普通构建。
     void SetHitTestBoundsFilterEnabledForProfiling(bool enabled);
+
+    // 设置性能剖析专用的几何包围盒缓存；缓存不包含样式扩展和命中容差。
+    void SetHitTestGeometryBoundsCacheForProfiling(
+            const QHash<ItemId, QRectF> &boundsCache);
+
+    // 清除性能剖析专用的几何包围盒缓存。
+    void ClearHitTestGeometryBoundsCacheForProfiling();
 #endif
 
 signals:

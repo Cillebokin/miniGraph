@@ -258,7 +258,8 @@ bool TryGetMaximumHitDisplaySize(const CanvasEntity &root,
 
 bool IsOutsideConservativeHitBounds(const CanvasEntity &entity,
                                     const CanvasVector &worldPosition,
-                                    qreal zoom)
+                                    qreal zoom,
+                                    const QRectF *cachedGeometryBounds = nullptr)
 {
     if (!worldPosition.IsValid()) {
         return false;
@@ -266,8 +267,12 @@ bool IsOutsideConservativeHitBounds(const CanvasEntity &entity,
 
     QRectF geometryBounds;
     qreal maximumDisplaySize = 0.0;
-    if (!TryGetGeometryBounds(entity, &geometryBounds)
-            || !TryGetMaximumHitDisplaySize(entity, &maximumDisplaySize)) {
+    if (cachedGeometryBounds) {
+        geometryBounds = *cachedGeometryBounds;
+    } else if (!TryGetGeometryBounds(entity, &geometryBounds)) {
+        return false;
+    }
+    if (!TryGetMaximumHitDisplaySize(entity, &maximumDisplaySize)) {
         return false;
     }
 
@@ -727,6 +732,8 @@ public:
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
     CanvasView::CanvasHitTestProfile m_HitTestProfile;
     bool m_UseHitTestBoundsFilter = false;
+    bool m_UseHitTestGeometryBoundsCache = false;
+    QHash<ItemId, QRectF> m_HitTestGeometryBoundsCache;
 #endif
 };
 
@@ -2923,6 +2930,19 @@ void CanvasView::SetHitTestBoundsFilterEnabledForProfiling(bool enabled)
 {
     m_PrivateData->m_UseHitTestBoundsFilter = enabled;
 }
+
+void CanvasView::SetHitTestGeometryBoundsCacheForProfiling(
+        const QHash<ItemId, QRectF> &boundsCache)
+{
+    m_PrivateData->m_HitTestGeometryBoundsCache = boundsCache;
+    m_PrivateData->m_UseHitTestGeometryBoundsCache = true;
+}
+
+void CanvasView::ClearHitTestGeometryBoundsCacheForProfiling()
+{
+    m_PrivateData->m_HitTestGeometryBoundsCache.clear();
+    m_PrivateData->m_UseHitTestGeometryBoundsCache = false;
+}
 #endif
 
 ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
@@ -2995,8 +3015,27 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
         if (m_PrivateData->m_UseHitTestBoundsFilter) {
             ++m_PrivateData->m_HitTestProfile.boundsCheckCount;
             profileStageStartNanoseconds = profileTimer.nsecsElapsed();
-            const bool outsideBounds = IsOutsideConservativeHitBounds(
-                        *entity, worldPosition, zoom);
+            bool outsideBounds = false;
+            if (m_PrivateData->m_UseHitTestGeometryBoundsCache) {
+                ++m_PrivateData->m_HitTestProfile
+                        .geometryBoundsCacheLookupCount;
+                const auto cachedBounds =
+                        m_PrivateData->m_HitTestGeometryBoundsCache.constFind(id);
+                if (cachedBounds
+                        == m_PrivateData->m_HitTestGeometryBoundsCache.constEnd()) {
+                    ++m_PrivateData->m_HitTestProfile
+                            .geometryBoundsCacheMissCount;
+                    outsideBounds = IsOutsideConservativeHitBounds(
+                                *entity, worldPosition, zoom);
+                } else {
+                    outsideBounds = IsOutsideConservativeHitBounds(
+                                *entity, worldPosition, zoom,
+                                &cachedBounds.value());
+                }
+            } else {
+                outsideBounds = IsOutsideConservativeHitBounds(
+                            *entity, worldPosition, zoom);
+            }
             m_PrivateData->m_HitTestProfile.boundsCheckNanoseconds +=
                     profileTimer.nsecsElapsed() - profileStageStartNanoseconds;
             if (outsideBounds) {
