@@ -8,6 +8,10 @@ DESTDIR = $$OUT_PWD/../bin
 
 QT += widgets
 
+contains(CONFIG, performancebench) {
+    DEFINES += MINIGRAPH_ENABLE_PERF_PROFILING
+}
+
 DEFINES += MINIGRAPH_LIBRARY
 INCLUDEPATH += $$PWD/../include
 

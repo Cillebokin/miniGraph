@@ -1,0 +1,43 @@
+# Scenario: Release, Qt 5.12.10 msvc2017_64 libraries, VS2022 MSVC 19.44 x64, offscreen, 1280x720 DPR=1
+# Profile target: 5,000 entities, 67% curve types, 3 warm-up batches, 31 measured batches, 2 clicks per batch
+# Sampling: entity lookup, path collection and path distance time sample 6 of each 36 entity positions and weight by 6; counts are exact
+# ItemId enumeration, HitTestItem total and click-event time are directly timed; per-type stage timings are sampled estimates
+record_type,entities,curve_percent,workload,metric,entity_type,median,p95,unit,entities_per_hit_test,paths_per_hit_test,path_points_per_hit_test,sample_period_entities,sampled_entities_per_period,stage_time_weight
+stage,5000,67,click_hit,profiled_event_ms_per_click,,5.491600,5.635400,ms/click,,,,36,6,6
+stage,5000,67,click_hit,hit_test_calls_per_click,,2.000000,2.000000,calls/click,,,,36,6,6
+stage,5000,67,click_hit,item_id_enumeration,,0.000025,0.000050,ms/hit_test,,,,36,6,6
+stage,5000,67,click_hit,entity_lookup,,0.115950,0.125325,ms/hit_test,,,,36,6,6
+stage,5000,67,click_hit,selection_path_collection,,1.832100,1.873125,ms/hit_test,,,,36,6,6
+stage,5000,67,click_hit,path_distance_evaluation,,0.825150,0.857850,ms/hit_test,,,,36,6,6
+stage,5000,67,click_hit,hit_test_internal_total,,2.740925,2.812275,ms/hit_test,,,,36,6,6
+entity_type,5000,67,click_hit,path_profile,Point,0.081300,0.082500,ms/hit_test,834,834,834,36,6,6
+entity_type,5000,67,click_hit,path_distance,Point,0.020700,0.023100,ms/hit_test,834,834,834,36,6,6
+entity_type,5000,67,click_hit,path_profile,Line,0.112650,0.122025,ms/hit_test,834,834,1668,36,6,6
+entity_type,5000,67,click_hit,path_distance,Line,0.031350,0.036000,ms/hit_test,834,834,1668,36,6,6
+entity_type,5000,67,click_hit,path_profile,Arc,0.167700,0.172500,ms/hit_test,833,833,2499,36,6,6
+entity_type,5000,67,click_hit,path_distance,Arc,0.058200,0.060600,ms/hit_test,833,833,2499,36,6,6
+entity_type,5000,67,click_hit,path_profile,Circle,0.289800,0.304500,ms/hit_test,833,833,14161,36,6,6
+entity_type,5000,67,click_hit,path_distance,Circle,0.331500,0.346275,ms/hit_test,833,833,14161,36,6,6
+entity_type,5000,67,click_hit,path_profile,Ellipse,0.311250,0.317250,ms/hit_test,833,833,14161,36,6,6
+entity_type,5000,67,click_hit,path_distance,Ellipse,0.324450,0.337725,ms/hit_test,833,833,14161,36,6,6
+entity_type,5000,67,click_hit,path_profile,Spline,0.865500,0.898125,ms/hit_test,833,833,2499,36,6,6
+entity_type,5000,67,click_hit,path_distance,Spline,0.057600,0.061650,ms/hit_test,833,833,2499,36,6,6
+stage,5000,67,click_miss,profiled_event_ms_per_click,,5.483350,5.664975,ms/click,,,,36,6,6
+stage,5000,67,click_miss,hit_test_calls_per_click,,2.000000,2.000000,calls/click,,,,36,6,6
+stage,5000,67,click_miss,item_id_enumeration,,0.000025,0.000063,ms/hit_test,,,,36,6,6
+stage,5000,67,click_miss,entity_lookup,,0.115950,0.122175,ms/hit_test,,,,36,6,6
+stage,5000,67,click_miss,selection_path_collection,,1.818900,1.898100,ms/hit_test,,,,36,6,6
+stage,5000,67,click_miss,path_distance_evaluation,,0.817650,0.858000,ms/hit_test,,,,36,6,6
+stage,5000,67,click_miss,hit_test_internal_total,,2.740875,2.831437,ms/hit_test,,,,36,6,6
+entity_type,5000,67,click_miss,path_profile,Point,0.081900,0.083025,ms/hit_test,834,834,834,36,6,6
+entity_type,5000,67,click_miss,path_distance,Point,0.020550,0.022875,ms/hit_test,834,834,834,36,6,6
+entity_type,5000,67,click_miss,path_profile,Line,0.111900,0.114600,ms/hit_test,834,834,1668,36,6,6
+entity_type,5000,67,click_miss,path_distance,Line,0.032700,0.036000,ms/hit_test,834,834,1668,36,6,6
+entity_type,5000,67,click_miss,path_profile,Arc,0.167550,0.172800,ms/hit_test,833,833,2499,36,6,6
+entity_type,5000,67,click_miss,path_distance,Arc,0.056700,0.060000,ms/hit_test,833,833,2499,36,6,6
+entity_type,5000,67,click_miss,path_profile,Circle,0.290100,0.305250,ms/hit_test,833,833,14161,36,6,6
+entity_type,5000,67,click_miss,path_distance,Circle,0.325500,0.342375,ms/hit_test,833,833,14161,36,6,6
+entity_type,5000,67,click_miss,path_profile,Ellipse,0.304950,0.316125,ms/hit_test,833,833,14161,36,6,6
+entity_type,5000,67,click_miss,path_distance,Ellipse,0.321450,0.338100,ms/hit_test,833,833,14161,36,6,6
+entity_type,5000,67,click_miss,path_profile,Spline,0.869550,0.918225,ms/hit_test,833,833,2499,36,6,6
+entity_type,5000,67,click_miss,path_distance,Spline,0.060000,0.065625,ms/hit_test,833,833,2499,36,6,6

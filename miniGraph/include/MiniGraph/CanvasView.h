@@ -70,6 +70,65 @@ public:
         PreviewNavigation
     };
 
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    // 仅在 performancebench 构建中累积命中检测的分阶段诊断数据。
+    struct CanvasHitTestProfile
+    {
+        enum {
+            EntityTypeCount =
+                    static_cast<int>(CanvasEntityType::GroupContainer) + 1
+        };
+
+        CanvasHitTestProfile()
+        {
+            Reset();
+        }
+
+        void Reset()
+        {
+            hitTestCallCount = 0;
+            itemIdVisitCount = 0;
+            boundsCheckCount = 0;
+            boundsRejectCount = 0;
+            pathCollectionCallCount = 0;
+            distancePathCount = 0;
+            distanceSegmentCount = 0;
+            itemIdEnumerationNanoseconds = 0;
+            entityLookupNanoseconds = 0;
+            boundsCheckNanoseconds = 0;
+            pathCollectionNanoseconds = 0;
+            pathDistanceNanoseconds = 0;
+            totalNanoseconds = 0;
+            for (int index = 0; index < EntityTypeCount; ++index) {
+                entityCountByType[index] = 0;
+                selectionPathCountByType[index] = 0;
+                selectionPathPointCountByType[index] = 0;
+                pathCollectionNanosecondsByType[index] = 0;
+                pathDistanceNanosecondsByType[index] = 0;
+            }
+        }
+
+        quint64 hitTestCallCount;
+        quint64 itemIdVisitCount;
+        quint64 boundsCheckCount;
+        quint64 boundsRejectCount;
+        quint64 pathCollectionCallCount;
+        quint64 entityCountByType[EntityTypeCount];
+        quint64 selectionPathCountByType[EntityTypeCount];
+        quint64 selectionPathPointCountByType[EntityTypeCount];
+        quint64 distancePathCount;
+        quint64 distanceSegmentCount;
+        qint64 itemIdEnumerationNanoseconds;
+        qint64 entityLookupNanoseconds;
+        qint64 boundsCheckNanoseconds;
+        qint64 pathCollectionNanoseconds;
+        qint64 pathCollectionNanosecondsByType[EntityTypeCount];
+        qint64 pathDistanceNanoseconds;
+        qint64 pathDistanceNanosecondsByType[EntityTypeCount];
+        qint64 totalNanoseconds;
+    };
+#endif
+
     // 创建画布视图，parent 为 Qt 对象父级，默认为 nullptr。
     explicit CanvasView(QWidget *parent = nullptr);
 
@@ -190,6 +249,17 @@ public:
 
     // 将视图中心移动到指定世界坐标。
     void CenterOnWorld(const CanvasVector &worldPosition);
+
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    // 返回自上次重置以来累积的命中检测诊断数据。
+    CanvasHitTestProfile GetHitTestProfile() const;
+
+    // 清零命中检测诊断数据。
+    void ResetHitTestProfile();
+
+    // 仅供性能剖析构建启用/关闭实验性包围盒粗筛，不影响普通构建。
+    void SetHitTestBoundsFilterEnabledForProfiling(bool enabled);
+#endif
 
 signals:
     // 网格可见状态发生变化时发出。

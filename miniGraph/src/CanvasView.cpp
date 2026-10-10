@@ -17,6 +17,9 @@
 #include <QResizeEvent>
 #include <QWheelEvent>
 #include <QtGlobal>
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+#include <QElapsedTimer>
+#endif
 
 #include <cmath>
 #include <limits>
@@ -33,6 +36,12 @@ const qreal EDIT_HANDLE_SIZE_PIXELS = 7.0;
 const qreal EDIT_HANDLE_HIT_TOLERANCE_PIXELS = 9.0;
 const qreal MAX_SAFE_TICK_INDEX = 9007199254740990.0;
 const qreal MAX_VISIBLE_TICK_COUNT = 10000.0;
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+const int HIT_TEST_PROFILE_SAMPLE_PERIOD = 36;
+const int HIT_TEST_PROFILE_SAMPLE_COUNT = 6;
+const qint64 HIT_TEST_PROFILE_SAMPLE_WEIGHT =
+        HIT_TEST_PROFILE_SAMPLE_PERIOD / HIT_TEST_PROFILE_SAMPLE_COUNT;
+#endif
 
 const QColor CADLAB_WINDOW_SELECTION_COLOR(9, 9, 255, 60);
 const QColor CADLAB_CROSSING_SELECTION_COLOR(9, 255, 9, 60);
@@ -195,6 +204,93 @@ qreal CalculateHitToleranceSquared(qreal zoom, qreal displaySize)
     const qreal worldTolerance = pixelTolerance / zoom;
     return worldTolerance * worldTolerance;
 }
+
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+bool TryGetMaximumHitDisplaySize(const CanvasEntity &root,
+                                qreal *maximumDisplaySize)
+{
+    if (!maximumDisplaySize) {
+        return false;
+    }
+
+    qreal candidateMaximum = 0.0;
+    QVector<const CanvasEntity *> pendingEntities;
+    pendingEntities.append(&root);
+    while (!pendingEntities.isEmpty()) {
+        const CanvasEntity *entity = pendingEntities.takeLast();
+        if (!entity) {
+            return false;
+        }
+
+        const StruCanvasStyle &style = entity->GetStyle();
+        const qreal displaySize = entity->GetType() == CanvasEntityType::Point
+                ? style.pointSize : style.strokeWidth;
+        if (!std::isfinite(static_cast<double>(displaySize))
+                || displaySize < 0.0) {
+            return false;
+        }
+        candidateMaximum = qMax(candidateMaximum, displaySize);
+
+        if (entity->GetType() == CanvasEntityType::Polyline) {
+            const CanvasPolyline *polyline =
+                    dynamic_cast<const CanvasPolyline *>(entity);
+            if (!polyline) {
+                return false;
+            }
+            for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+                pendingEntities.append(polyline->GetSegment(index));
+            }
+        } else if (entity->GetType() == CanvasEntityType::GroupContainer) {
+            const CanvasGroupContainer *group =
+                    dynamic_cast<const CanvasGroupContainer *>(entity);
+            if (!group) {
+                return false;
+            }
+            for (int index = 0; index < group->GetChildCount(); ++index) {
+                pendingEntities.append(group->GetChild(index));
+            }
+        }
+    }
+
+    *maximumDisplaySize = candidateMaximum;
+    return true;
+}
+
+bool IsOutsideConservativeHitBounds(const CanvasEntity &entity,
+                                    const CanvasVector &worldPosition,
+                                    qreal zoom)
+{
+    if (!worldPosition.IsValid()) {
+        return false;
+    }
+
+    QRectF geometryBounds;
+    qreal maximumDisplaySize = 0.0;
+    if (!TryGetGeometryBounds(entity, &geometryBounds)
+            || !TryGetMaximumHitDisplaySize(entity, &maximumDisplaySize)) {
+        return false;
+    }
+
+    const qreal worldTolerance = std::sqrt(
+                CalculateHitToleranceSquared(zoom, maximumDisplaySize));
+    if (!std::isfinite(static_cast<double>(worldTolerance))) {
+        return false;
+    }
+
+    const QRectF expandedBounds = geometryBounds.adjusted(
+                -worldTolerance, -worldTolerance,
+                worldTolerance, worldTolerance);
+    if (!std::isfinite(static_cast<double>(expandedBounds.left()))
+            || !std::isfinite(static_cast<double>(expandedBounds.top()))
+            || !std::isfinite(static_cast<double>(expandedBounds.right()))
+            || !std::isfinite(static_cast<double>(expandedBounds.bottom()))) {
+        return false;
+    }
+
+    return !expandedBounds.contains(QPointF(worldPosition.GetX(),
+                                             worldPosition.GetY()));
+}
+#endif
 
 struct EntitySelectionPath
 {
@@ -628,6 +724,10 @@ public:
     QImage m_GeometryLayer;
     QImage m_OverlayLayer;
     std::unique_ptr<CanvasPainterRenderer> m_DefaultRenderer;
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    CanvasView::CanvasHitTestProfile m_HitTestProfile;
+    bool m_UseHitTestBoundsFilter = false;
+#endif
 };
 
 CanvasView::CanvasView(QWidget *parent)
@@ -2808,12 +2908,33 @@ void CanvasView::CancelEdit()
     ResetEditState();
 }
 
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+CanvasView::CanvasHitTestProfile CanvasView::GetHitTestProfile() const
+{
+    return m_PrivateData->m_HitTestProfile;
+}
+
+void CanvasView::ResetHitTestProfile()
+{
+    m_PrivateData->m_HitTestProfile.Reset();
+}
+
+void CanvasView::SetHitTestBoundsFilterEnabledForProfiling(bool enabled)
+{
+    m_PrivateData->m_UseHitTestBoundsFilter = enabled;
+}
+#endif
+
 ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
 {
     if (!m_Document || size().isEmpty()) {
         return 0;
     }
 
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    QElapsedTimer profileTimer;
+    profileTimer.start();
+#endif
     const CanvasVector worldPosition = MapToWorld(viewportPosition);
     const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
                                    CanvasTransform::GetMinimumZoom());
@@ -2836,23 +2957,134 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
         }
     };
 
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    qint64 profileStageStartNanoseconds = profileTimer.nsecsElapsed();
+#endif
     const QVector<ItemId> ids = m_Document->GetItemIds();
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    m_PrivateData->m_HitTestProfile.itemIdEnumerationNanoseconds +=
+            profileTimer.nsecsElapsed() - profileStageStartNanoseconds;
+#endif
     for (int itemIndex = ids.size() - 1; itemIndex >= 0; --itemIndex) {
         const ItemId id = ids.at(itemIndex);
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+        ++m_PrivateData->m_HitTestProfile.itemIdVisitCount;
+        const bool profileSampleEntity =
+                itemIndex % HIT_TEST_PROFILE_SAMPLE_PERIOD
+                        < HIT_TEST_PROFILE_SAMPLE_COUNT;
+#endif
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+        const CanvasEntity *entity = nullptr;
+        if (profileSampleEntity) {
+            profileStageStartNanoseconds = profileTimer.nsecsElapsed();
+            entity = m_Document->GetEntity(id);
+            m_PrivateData->m_HitTestProfile.entityLookupNanoseconds +=
+                    (profileTimer.nsecsElapsed()
+                     - profileStageStartNanoseconds)
+                    * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
+        } else {
+            entity = m_Document->GetEntity(id);
+        }
+#else
         const CanvasEntity *entity = m_Document->GetEntity(id);
+#endif
         if (!entity) {
             continue;
         }
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+        if (m_PrivateData->m_UseHitTestBoundsFilter) {
+            ++m_PrivateData->m_HitTestProfile.boundsCheckCount;
+            profileStageStartNanoseconds = profileTimer.nsecsElapsed();
+            const bool outsideBounds = IsOutsideConservativeHitBounds(
+                        *entity, worldPosition, zoom);
+            m_PrivateData->m_HitTestProfile.boundsCheckNanoseconds +=
+                    profileTimer.nsecsElapsed() - profileStageStartNanoseconds;
+            if (outsideBounds) {
+                ++m_PrivateData->m_HitTestProfile.boundsRejectCount;
+                continue;
+            }
+        }
+#endif
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+        const int entityTypeIndex = static_cast<int>(entity->GetType());
+        const bool validEntityTypeIndex = entityTypeIndex >= 0
+                && entityTypeIndex < CanvasHitTestProfile::EntityTypeCount;
+        if (validEntityTypeIndex) {
+            ++m_PrivateData->m_HitTestProfile
+                    .entityCountByType[entityTypeIndex];
+        }
+        if (profileSampleEntity) {
+            profileStageStartNanoseconds = profileTimer.nsecsElapsed();
+        }
+#endif
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+        ++m_PrivateData->m_HitTestProfile.pathCollectionCallCount;
+#endif
         QVector<EntitySelectionPath> paths;
         CollectEntitySelectionPaths(*entity, maximumWorldError, &paths);
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+        if (profileSampleEntity) {
+            const qint64 pathCollectionNanoseconds =
+                    (profileTimer.nsecsElapsed()
+                     - profileStageStartNanoseconds)
+                    * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
+            m_PrivateData->m_HitTestProfile.pathCollectionNanoseconds +=
+                    pathCollectionNanoseconds;
+            if (validEntityTypeIndex) {
+                m_PrivateData->m_HitTestProfile
+                        .pathCollectionNanosecondsByType[entityTypeIndex]
+                        += pathCollectionNanoseconds;
+            }
+        }
+        if (validEntityTypeIndex) {
+            m_PrivateData->m_HitTestProfile
+                    .selectionPathCountByType[entityTypeIndex]
+                    += static_cast<quint64>(paths.size());
+            for (const EntitySelectionPath &path : paths) {
+                m_PrivateData->m_HitTestProfile
+                        .selectionPathPointCountByType[entityTypeIndex]
+                        += static_cast<quint64>(path.points.size());
+            }
+        }
+#endif
         for (const EntitySelectionPath &path : paths) {
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+            ++m_PrivateData->m_HitTestProfile.distancePathCount;
+            if (path.points.size() > 1) {
+                m_PrivateData->m_HitTestProfile.distanceSegmentCount +=
+                        static_cast<quint64>(path.points.size() - 1);
+            }
+            if (profileSampleEntity) {
+                profileStageStartNanoseconds = profileTimer.nsecsElapsed();
+            }
+#endif
             const qreal distanceSquared = DistanceSquaredToPath(worldPosition,
                                                                  path.points);
             considerHit(id, distanceSquared,
                         CalculateHitToleranceSquared(zoom, path.displaySize));
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+            if (profileSampleEntity) {
+                const qint64 distanceNanoseconds =
+                        (profileTimer.nsecsElapsed()
+                         - profileStageStartNanoseconds)
+                        * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
+                m_PrivateData->m_HitTestProfile.pathDistanceNanoseconds +=
+                        distanceNanoseconds;
+                if (validEntityTypeIndex) {
+                    m_PrivateData->m_HitTestProfile
+                            .pathDistanceNanosecondsByType[entityTypeIndex]
+                            += distanceNanoseconds;
+                }
+            }
+#endif
         }
     }
 
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    ++m_PrivateData->m_HitTestProfile.hitTestCallCount;
+    m_PrivateData->m_HitTestProfile.totalNanoseconds +=
+            profileTimer.nsecsElapsed();
+#endif
     return hitId;
 }
 
