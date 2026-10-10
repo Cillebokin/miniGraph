@@ -39,10 +39,9 @@ public:
     // 创建独立的数据副本；派生类应避免共享可变状态。
     virtual std::shared_ptr<CanvasData> Clone() = 0;
 
-    // 生成 CADLab CAMData 绘制指令列表。
-    // 支持 Pen、Brush、Font 状态及 Point、Line、Arc、Ellipse、Polyline、
-    // Polygon、Rect、Cubic、Quad、Text、Image；Brush 使用 Qt::BrushStyle，
-    // 包含横线、竖线、交叉线等 hatch pattern 填充样式。
+    // 生成绘制指令列表；每个列表项是一条逗号分隔的命令。
+    // 命令签名、参数限制及兼容边界见项目根目录 CanvasData命令格式.md。
+    // 当前格式不支持字段转义或逗号/空字段；未知或无效命令会被忽略。
     virtual QStringList CalculateToQStringList() = 0;
 
     // 由图元绑定或解绑时调用；派生类不要自行改变绑定关系。

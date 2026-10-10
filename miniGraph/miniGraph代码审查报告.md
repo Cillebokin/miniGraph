@@ -78,12 +78,12 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 - **验证**：`CanvasSnapperRejectsNonFiniteDistances` 使用极大相反坐标验证不会捕捉；`CanvasViewHitTestRejectsNonFiniteDistances` 验证对应点击不会选中实体。本次 Qt 5.12.10 x64 Debug 两项专项测试均通过。
 - **代码位置**：[CanvasVector.cpp](src/CanvasVector.cpp#L196)、[CanvasSnap.cpp](src/CanvasSnap.cpp#L276)、[CanvasView.cpp](src/CanvasView.cpp#L2825)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L3117)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L5813)
 
-### MG-007 · P3 · CanvasData 命令格式不能表达任意逗号文本和有意义的空字段
+### MG-007 · P3 · CanvasData 命令格式限制【契约已明确；当前限制接受】
 
-- **现象**：渲染器按逗号拆分指令并跳过空字段；当前语法没有引号或转义机制，因此不能可靠表达含逗号的文本/路径或有意义的空参数。
-- **影响**：这是当前命令格式的表达能力限制。只有在 API 契约要求任意文本、路径或空字段都可无损传入时，才构成数据错误；目前报告未发现这样的格式承诺。
-- **建议**：先文档化当前命令语法和限制；若调用方确实需要任意字符串，再增加明确的引用/转义规则或结构化指令，不把格式扩展预先视为必须重构。
-- **代码位置**：[CanvasPainterRenderer.cpp](src/CanvasPainterRenderer.cpp#L1026)、[CanvasPainterRenderer.cpp](src/CanvasPainterRenderer.cpp#L1047)
+- **现状**：每个 `QStringList` 项是一条以英文逗号分隔的命令；解析跳过空字段，没有引号或转义机制。文本、字体名称、图片路径等字段不能包含逗号，空参数不能表达。
+- **契约决策**：当前 API 仅承诺表格所列命令语法，不承诺任意字符串或空字段无损传入；未知、字段不足或校验失败的命令会静默忽略，固定参数命令的多余字段会忽略。
+- **处理**：新增 [CanvasData命令格式.md](CanvasData命令格式.md)，并在 `CanvasData`、`CanvasGlobalData` 公共头文件中指向该契约。暂不改解析行为；若未来需要逗号/空字段，应另行设计带兼容规则的转义或结构化格式。
+- **代码位置**：[CanvasData命令格式.md](CanvasData命令格式.md)、[CanvasData.h](include/MiniGraph/CanvasData.h)、[CanvasGlobalData.h](include/MiniGraph/CanvasGlobalData.h)、[CanvasPainterRenderer.cpp](src/CanvasPainterRenderer.cpp#L1041)
 
 ### MG-008 · P2 · 深层组容器带来递归和重复克隆风险【深度已修复；节点总量未设上限】
 
@@ -235,6 +235,6 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 3. MG-003 已统一圆弧几何 API 与实体层的角差校验；完整圆周由 Circle 类型表达。
 4. MG-004、MG-005、MG-006、MG-022 已由当前源码和回归测试覆盖；数值保护项暂告一段落。
 5. MG-008 已将组嵌套深度限制为 64 层；是否需要为超宽组设置总子项上限，按实际产品/API 契约决定。
-6. 明确 MG-007 命令格式的兼容契约；若确需无损表达任意字符串，再定义转义/空字段规则并补测试。
+6. MG-007 已明确并记录当前命令格式契约；只有产品需求要求无损表达逗号或空字段时，才另行设计兼容扩展。
 7. 为 MG-009 至 MG-011 建立基准后再做定向性能优化。
 8. 根据实际调用需求补充 MG-012 至 MG-015 的文档和示例；暂不做与需求无关的大重构。
