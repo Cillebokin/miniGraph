@@ -1,6 +1,7 @@
 #include <QApplication>
 #include <QColor>
 #include <QElapsedTimer>
+#include <QHash>
 #include <QImage>
 #include <QLocale>
 #include <QMouseEvent>
@@ -989,6 +990,9 @@ struct BoundsModeSamples
     quint64 boundsChecks;
     quint64 boundsRejects;
     quint64 hitTestCalls;
+    quint64 selectionPathCount;
+    quint64 selectionPathPointCount;
+    quint64 distanceSegmentCount;
 
     BoundsModeSamples()
         : pathCollectionCalls(0)
@@ -996,6 +1000,9 @@ struct BoundsModeSamples
         , boundsChecks(0)
         , boundsRejects(0)
         , hitTestCalls(0)
+        , selectionPathCount(0)
+        , selectionPathPointCount(0)
+        , distanceSegmentCount(0)
     {
     }
 };
@@ -1004,8 +1011,383 @@ enum class BoundsFilterWorkload
 {
     SparseHit,
     Miss,
-    DenseHit
+    DenseHit,
+    SelectivityHit,
+    BoundsNearMiss
 };
+
+// Builds a fixed-size shape at a chosen center; query-centered shapes overlap
+// the probe AABB while their selection path stays outside its hit tolerance.
+bool AddBoundsOverlapFalsePositive(CanvasDocument *document,
+                                   int candidateIndex,
+                                   SceneMix mix,
+                                   const CanvasVector &center)
+{
+    if (!document || candidateIndex < 0 || !center.IsValid()) {
+        return false;
+    }
+
+    const auto addDiagonalLine = [document, center]() {
+        const CanvasVector start(center.GetX() - 20.0,
+                                 center.GetY() - 4.0);
+        const CanvasVector end(center.GetX() + 4.0,
+                               center.GetY() + 20.0);
+        return document->AddEntity(CanvasLine(start, end)) != 0;
+    };
+
+    if (mix == SceneMix::Simple) {
+        return addDiagonalLine();
+    }
+
+    switch (candidateIndex % 6) {
+    case 0:
+    case 1:
+        return addDiagonalLine();
+    case 2:
+        return document->AddEntity(CanvasArc(
+                    center, 10.0, 0.0, std::acos(-1.0) / 2.0)) != 0;
+    case 3:
+        return document->AddEntity(CanvasCircle(center, 10.0)) != 0;
+    case 4: {
+        CanvasEllipse ellipse;
+        return ellipse.SetGeometry(center, CanvasVector(10.0, 0.0), 0.8,
+                                   false)
+                && document->AddEntity(ellipse) != 0;
+    }
+    default: {
+        const QVector<CanvasVector> controlPoints = QVector<CanvasVector>()
+                << CanvasVector(center.GetX() - 20.0, center.GetY() + 1.0)
+                << CanvasVector(center.GetX(), center.GetY() - 50.0)
+                << CanvasVector(center.GetX() + 20.0, center.GetY() + 1.0);
+        const QVector<qreal> knots = QVector<qreal>()
+                << 0.0 << 0.0 << 0.0 << 1.0 << 1.0 << 1.0;
+        CanvasSpline spline;
+        return spline.SetData(2, controlPoints, knots, QVector<qreal>(),
+                              false, false)
+                && document->AddEntity(spline) != 0;
+    }
+    }
+}
+
+bool PopulateBoundsSelectivityDocument(CanvasDocument *document,
+                                       int entityCount,
+                                       SceneMix mix,
+                                       int candidatePercent,
+                                       bool includeExactHit)
+{
+    if (!document || entityCount <= 0
+            || candidatePercent <= 0 || candidatePercent > 100
+            || (entityCount * candidatePercent) % 100 != 0) {
+        return false;
+    }
+
+    const int candidateCount = entityCount * candidatePercent / 100;
+    if (candidateCount <= 0 || candidateCount > entityCount) {
+        return false;
+    }
+
+    const CanvasVector query = kInteractionProbeCenter;
+    for (int index = 0; index < entityCount; ++index) {
+        if (index < candidateCount && includeExactHit && index == 0) {
+            const CanvasVector start(query.GetX() - 16.0, query.GetY());
+            const CanvasVector end(query.GetX() + 16.0, query.GetY());
+            if (document->AddEntity(CanvasLine(start, end)) == 0) {
+                return false;
+            }
+        } else {
+            const CanvasVector entityCenter = index < candidateCount
+                    ? query : EntityPosition(index);
+            if (!AddBoundsOverlapFalsePositive(document, index, mix,
+                                               entityCenter)) {
+                return false;
+            }
+        }
+    }
+
+    return document->GetItemCount() == entityCount;
+}
+
+bool SetBoundsBenchmarkDisplaySize(CanvasEntity *entity)
+{
+    if (!entity) {
+        return false;
+    }
+
+    StruCanvasStyle style = entity->GetStyle();
+    style.strokeWidth = 0.0;
+    return entity->SetStyle(style);
+}
+
+bool ConfigureBoundsBenchmarkSpline(CanvasSpline *spline,
+                                    const CanvasVector &center,
+                                    bool exactHit)
+{
+    if (!spline || !center.IsValid()) {
+        return false;
+    }
+
+    if (exactHit) {
+        const QVector<CanvasVector> controlPoints = QVector<CanvasVector>()
+                << CanvasVector(center.GetX() - 16.0, center.GetY())
+                << CanvasVector(center.GetX() + 16.0, center.GetY());
+        const QVector<qreal> knots = QVector<qreal>()
+                << 0.0 << 0.0 << 1.0 << 1.0;
+        return spline->SetData(1, controlPoints, knots, QVector<qreal>(),
+                               false, false);
+    }
+
+    const QVector<CanvasVector> controlPoints = QVector<CanvasVector>()
+            << CanvasVector(center.GetX() - 20.0, center.GetY() + 1.0)
+            << CanvasVector(center.GetX(), center.GetY() - 50.0)
+            << CanvasVector(center.GetX() + 20.0, center.GetY() + 1.0);
+    const QVector<qreal> knots = QVector<qreal>()
+            << 0.0 << 0.0 << 0.0 << 1.0 << 1.0 << 1.0;
+    return spline->SetData(2, controlPoints, knots, QVector<qreal>(),
+                           false, false);
+}
+
+bool AddBoundsBenchmarkPolyline(CanvasDocument *document,
+                                const CanvasVector &center,
+                                bool exactHit)
+{
+    if (!document || !center.IsValid()) {
+        return false;
+    }
+
+    QVector<CanvasVector> vertices;
+    if (exactHit) {
+        vertices << CanvasVector(center.GetX() - 16.0, center.GetY())
+                 << CanvasVector(center.GetX(), center.GetY())
+                 << CanvasVector(center.GetX() + 16.0, center.GetY())
+                 << CanvasVector(center.GetX() + 16.0, center.GetY() + 16.0);
+    } else {
+        vertices << CanvasVector(center.GetX() - 12.0, center.GetY() - 12.0)
+                 << CanvasVector(center.GetX() + 12.0, center.GetY() - 12.0)
+                 << CanvasVector(center.GetX() + 12.0, center.GetY() + 12.0)
+                 << CanvasVector(center.GetX() - 12.0, center.GetY() + 12.0);
+    }
+
+    CanvasPolyline polyline;
+    for (int index = 1; index < vertices.size(); ++index) {
+        CanvasLine segment(vertices.at(index - 1), vertices.at(index));
+        if (!SetBoundsBenchmarkDisplaySize(&segment)
+                || !polyline.AddSegment(segment)) {
+            return false;
+        }
+    }
+
+    return SetBoundsBenchmarkDisplaySize(&polyline)
+            && document->AddEntity(polyline) != 0;
+}
+
+bool AddBoundsBenchmarkGroup(CanvasDocument *document,
+                             const CanvasVector &center,
+                             bool exactHit)
+{
+    if (!document || !center.IsValid()) {
+        return false;
+    }
+
+    const qreal pointOffset = 4.8;
+    CanvasPoint point(exactHit
+                      ? center
+                      : CanvasVector(center.GetX() + pointOffset,
+                                     center.GetY() + pointOffset));
+    CanvasLine line;
+    const bool lineGeometrySet = exactHit
+            ? line.SetGeometry(
+                CanvasVector(center.GetX() - 16.0, center.GetY()),
+                CanvasVector(center.GetX() + 16.0, center.GetY()))
+            : line.SetGeometry(
+                CanvasVector(center.GetX() - 20.0, center.GetY() - 4.0),
+                CanvasVector(center.GetX() + 4.0, center.GetY() + 20.0));
+    CanvasSpline spline;
+    CanvasGroupContainer group;
+    if (!SetBoundsBenchmarkDisplaySize(&point)
+            || !lineGeometrySet || !SetBoundsBenchmarkDisplaySize(&line)
+            || !ConfigureBoundsBenchmarkSpline(&spline, center, false)
+            || !SetBoundsBenchmarkDisplaySize(&spline)
+            || !group.AddChild(point)
+            || !group.AddChild(line)
+            || !group.AddChild(spline)
+            || !SetBoundsBenchmarkDisplaySize(&group)) {
+        return false;
+    }
+
+    return document->AddEntity(group) != 0;
+}
+
+bool AddBoundsBenchmarkEntity(CanvasDocument *document,
+                              CanvasEntityType type,
+                              const CanvasVector &center,
+                              bool exactHit,
+                              QString *failureReason = nullptr)
+{
+    if (!document || !center.IsValid()) {
+        return false;
+    }
+
+    const qreal pi = std::acos(-1.0);
+    switch (type) {
+    case CanvasEntityType::Point: {
+        const qreal offset = 4.8;
+        CanvasPoint point(exactHit
+                          ? center
+                          : CanvasVector(center.GetX() + offset,
+                                         center.GetY() + offset));
+        if (!SetBoundsBenchmarkDisplaySize(&point)) {
+            if (failureReason) {
+                *failureReason = QStringLiteral("point_style_rejected");
+            }
+            return false;
+        }
+        if (document->AddEntity(point) == 0) {
+            if (failureReason) {
+                *failureReason = QStringLiteral("point_document_add_rejected");
+            }
+            return false;
+        }
+        return true;
+    }
+    case CanvasEntityType::Line: {
+        CanvasLine line;
+        const bool geometrySet = exactHit
+                ? line.SetGeometry(
+                    CanvasVector(center.GetX() - 16.0, center.GetY()),
+                    CanvasVector(center.GetX() + 16.0, center.GetY()))
+                : line.SetGeometry(
+                    CanvasVector(center.GetX() - 20.0, center.GetY() - 4.0),
+                    CanvasVector(center.GetX() + 4.0, center.GetY() + 20.0));
+        return geometrySet && SetBoundsBenchmarkDisplaySize(&line)
+                && document->AddEntity(line) != 0;
+    }
+    case CanvasEntityType::Arc: {
+        const CanvasVector arcCenter = exactHit
+                ? CanvasVector(center.GetX() - 12.0, center.GetY())
+                : center;
+        CanvasArc arc(arcCenter, 12.0, 0.0, pi / 2.0);
+        return SetBoundsBenchmarkDisplaySize(&arc)
+                && document->AddEntity(arc) != 0;
+    }
+    case CanvasEntityType::Circle: {
+        const CanvasVector circleCenter = exactHit
+                ? CanvasVector(center.GetX() + 12.0, center.GetY())
+                : center;
+        CanvasCircle circle(circleCenter, 12.0);
+        return SetBoundsBenchmarkDisplaySize(&circle)
+                && document->AddEntity(circle) != 0;
+    }
+    case CanvasEntityType::Ellipse: {
+        const CanvasVector ellipseCenter = exactHit
+                ? CanvasVector(center.GetX() + 12.0, center.GetY())
+                : center;
+        CanvasEllipse ellipse;
+        return ellipse.SetGeometry(ellipseCenter, CanvasVector(12.0, 0.0),
+                                   0.75, false)
+                && SetBoundsBenchmarkDisplaySize(&ellipse)
+                && document->AddEntity(ellipse) != 0;
+    }
+    case CanvasEntityType::Polyline:
+        return AddBoundsBenchmarkPolyline(document, center, exactHit);
+    case CanvasEntityType::Spline: {
+        CanvasSpline spline;
+        return ConfigureBoundsBenchmarkSpline(&spline, center, exactHit)
+                && SetBoundsBenchmarkDisplaySize(&spline)
+                && document->AddEntity(spline) != 0;
+    }
+    case CanvasEntityType::GroupContainer:
+        return AddBoundsBenchmarkGroup(document, center, exactHit);
+    case CanvasEntityType::Invalid:
+        return false;
+    }
+
+    return false;
+}
+
+bool PopulateBoundsEntityTypeDocument(CanvasDocument *document,
+                                      CanvasEntityType type,
+                                      int entityCount,
+                                      int candidatePercent,
+                                      QString *failureReason = nullptr)
+{
+    if (!document || type == CanvasEntityType::Invalid || entityCount <= 0
+            || candidatePercent <= 0 || candidatePercent > 100
+            || (entityCount * candidatePercent) % 100 != 0) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("invalid_parameters");
+        }
+        return false;
+    }
+
+    const int candidateCount = entityCount * candidatePercent / 100;
+    if (candidateCount <= 0 || candidateCount > entityCount) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("invalid_candidate_count");
+        }
+        return false;
+    }
+
+    const CanvasVector query = kInteractionProbeCenter;
+    for (int index = 0; index < entityCount; ++index) {
+        const bool isCandidate = index < candidateCount;
+        const CanvasVector center = isCandidate
+                ? query : EntityPosition(index);
+        QString entityFailureReason;
+        if (!AddBoundsBenchmarkEntity(document, type, center, index == 0,
+                                      &entityFailureReason)) {
+            if (failureReason) {
+                *failureReason = QStringLiteral("entity_add_failed_at_%1_%2")
+                        .arg(index).arg(entityFailureReason);
+            }
+            return false;
+        }
+    }
+
+    if (document->GetItemCount() != entityCount) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("item_count_%1_expected_%2")
+                    .arg(document->GetItemCount()).arg(entityCount);
+        }
+        return false;
+    }
+    const QVector<ItemId> ids = document->GetItemIds();
+    for (const ItemId id : ids) {
+        const CanvasEntity *entity = document->GetEntity(id);
+        if (!entity || entity->GetType() != type) {
+            if (failureReason) {
+                *failureReason = QStringLiteral("entity_type_mismatch_for_id_%1")
+                        .arg(static_cast<qulonglong>(id));
+            }
+            return false;
+        }
+    }
+    return true;
+}
+
+int BoundsEntityCurvePercentage(CanvasEntityType type)
+{
+    switch (type) {
+    case CanvasEntityType::Arc:
+    case CanvasEntityType::Circle:
+    case CanvasEntityType::Ellipse:
+    case CanvasEntityType::Spline:
+        return 100;
+    case CanvasEntityType::GroupContainer:
+        return 33;
+    case CanvasEntityType::Invalid:
+    case CanvasEntityType::Point:
+    case CanvasEntityType::Line:
+    case CanvasEntityType::Polyline:
+        return 0;
+    }
+    return 0;
+}
+
+int BoundsEntitySelectionPathsPerEntity(CanvasEntityType type)
+{
+    return type == CanvasEntityType::Polyline
+            || type == CanvasEntityType::GroupContainer ? 3 : 1;
+}
 
 QString BoundsFilterWorkloadName(BoundsFilterWorkload workload)
 {
@@ -1016,6 +1398,10 @@ QString BoundsFilterWorkloadName(BoundsFilterWorkload workload)
         return QStringLiteral("miss");
     case BoundsFilterWorkload::DenseHit:
         return QStringLiteral("dense_overlap_hit");
+    case BoundsFilterWorkload::SelectivityHit:
+        return QStringLiteral("selectivity_hit");
+    case BoundsFilterWorkload::BoundsNearMiss:
+        return QStringLiteral("bounds_near_miss");
     }
     return QStringLiteral("unknown");
 }
@@ -1024,17 +1410,62 @@ bool MeasureBoundsFilterAba(QTextStream &output,
                             CanvasDocument *document,
                             int entityCount,
                             SceneMix mix,
-                            BoundsFilterWorkload workloadType)
+                            BoundsFilterWorkload workloadType,
+                            int candidatePercent = -1,
+                            CanvasEntityType entityType =
+                                CanvasEntityType::Invalid,
+                            ItemId expectedHitId = 0,
+                            const QString &complexityLabel = QString(),
+                            int complexitySelectionPathsPerEntity = -1)
 {
     if (!document) return false;
 
-    const bool hit = workloadType != BoundsFilterWorkload::Miss;
-    const bool dense = workloadType == BoundsFilterWorkload::DenseHit;
-    const QString workload = BoundsFilterWorkloadName(workloadType);
+    const bool entityTypeScoped = entityType != CanvasEntityType::Invalid;
+    const int curvePercent = entityTypeScoped
+            ? BoundsEntityCurvePercentage(entityType)
+            : CurvePercentage(mix);
+    const bool queryAtProbe = workloadType != BoundsFilterWorkload::Miss;
+    const bool expectedHit = workloadType == BoundsFilterWorkload::SparseHit
+            || workloadType == BoundsFilterWorkload::DenseHit
+            || workloadType == BoundsFilterWorkload::SelectivityHit;
+    int expectedBoundsCandidates = 0;
+    if (workloadType == BoundsFilterWorkload::SparseHit) {
+        expectedBoundsCandidates = 1;
+    } else if (workloadType == BoundsFilterWorkload::DenseHit) {
+        expectedBoundsCandidates = entityCount;
+    } else if (workloadType == BoundsFilterWorkload::SelectivityHit
+               || workloadType == BoundsFilterWorkload::BoundsNearMiss) {
+        if (candidatePercent <= 0 || candidatePercent > 100
+                || (entityCount * candidatePercent) % 100 != 0) {
+            output << "ERROR,bounds_ab_invalid_candidate_percent,"
+                   << entityCount << ',' << candidatePercent << '\n';
+            return false;
+        }
+        expectedBoundsCandidates = entityCount * candidatePercent / 100;
+    }
+    if (expectedBoundsCandidates < 0
+            || expectedBoundsCandidates > entityCount
+            || (expectedHit && expectedBoundsCandidates == 0)) {
+        output << "ERROR,bounds_ab_invalid_candidate_count," << entityCount
+               << ',' << expectedBoundsCandidates << '\n';
+        return false;
+    }
+
+    QString workload = BoundsFilterWorkloadName(workloadType);
+    if (entityTypeScoped) {
+        workload = QStringLiteral("entity_%1_%2")
+                .arg(CanvasEntityTypeName(entityType).toLower(), workload);
+    }
+    if (!complexityLabel.isEmpty()) {
+        workload = QStringLiteral("%1_%2").arg(complexityLabel, workload);
+    }
+    if (candidatePercent > 0) {
+        workload += QStringLiteral("_%1pct").arg(candidatePercent);
+    }
     CanvasView view;
     ConfigureView(&view, document, false);
     view.setUpdatesEnabled(false);
-    const CanvasVector worldQuery = hit
+    const CanvasVector worldQuery = queryAtProbe
             ? kInteractionProbeCenter
             : CanvasVector(1000000.0, 1000000.0);
     view.CenterOnWorld(worldQuery);
@@ -1044,8 +1475,11 @@ bool MeasureBoundsFilterAba(QTextStream &output,
     document->ClearSelection();
     SendClick(&view, viewportQuery);
     const QVector<ItemId> expectedSelection = document->GetSelectedItemIds();
-    if ((hit && expectedSelection.size() != 1)
-            || (!hit && !expectedSelection.isEmpty())) {
+    if ((expectedHit && expectedSelection.size() != 1)
+            || (!expectedHit && !expectedSelection.isEmpty())
+            || (expectedHitId != 0
+                && (expectedSelection.size() != 1
+                    || expectedSelection.first() != expectedHitId))) {
         output << "ERROR,bounds_ab_scene_precondition_failed,"
                << entityCount << ',' << workload << '\n';
         return false;
@@ -1092,26 +1526,46 @@ bool MeasureBoundsFilterAba(QTextStream &output,
 
             const CanvasView::CanvasHitTestProfile profile =
                     view.GetHitTestProfile();
-            const quint64 expectedPathsPerHitTest = dense
+            const quint64 expectedPathsPerHitTest = mode == 0
                     ? static_cast<quint64>(entityCount)
-                    : static_cast<quint64>(hit ? 1 : 0);
+                    : static_cast<quint64>(expectedBoundsCandidates);
             const quint64 expectedPathCollectionCalls = mode == 0
                     ? static_cast<quint64>(entityCount) * 2
                     : expectedPathsPerHitTest * 2;
             const quint64 expectedBoundsChecks = mode == 0
                     ? 0 : static_cast<quint64>(entityCount) * 2;
             const quint64 expectedBoundsRejects = mode == 0
-                    ? 0 : static_cast<quint64>(dense
-                                               ? 0
-                                               : entityCount
-                                                 - (hit ? 1 : 0)) * 2;
+                    ? 0 : static_cast<quint64>(entityCount
+                                               - expectedBoundsCandidates) * 2;
+            bool entityTypeProfileMatches = true;
+            if (entityTypeScoped) {
+                const int typeIndex = static_cast<int>(entityType);
+                const int selectionPathsPerEntity =
+                        complexitySelectionPathsPerEntity >= 0
+                        ? complexitySelectionPathsPerEntity
+                        : BoundsEntitySelectionPathsPerEntity(entityType);
+                const quint64 expectedEntitiesWithPaths =
+                        expectedPathsPerHitTest * 2;
+                const quint64 expectedSelectionPathCount =
+                        expectedEntitiesWithPaths
+                        * static_cast<quint64>(selectionPathsPerEntity);
+                entityTypeProfileMatches =
+                        typeIndex >= 0
+                        && typeIndex
+                            < CanvasView::CanvasHitTestProfile::EntityTypeCount
+                        && profile.entityCountByType[typeIndex]
+                            == expectedEntitiesWithPaths
+                        && profile.selectionPathCountByType[typeIndex]
+                            == expectedSelectionPathCount;
+            }
             if (profile.hitTestCallCount != 2
                     || profile.itemIdVisitCount
                             != static_cast<quint64>(entityCount) * 2
                     || profile.pathCollectionCallCount
                             != expectedPathCollectionCalls
                     || profile.boundsCheckCount != expectedBoundsChecks
-                    || profile.boundsRejectCount != expectedBoundsRejects) {
+                    || profile.boundsRejectCount != expectedBoundsRejects
+                    || !entityTypeProfileMatches) {
                 output << "ERROR,bounds_ab_profile_invariant_failed,"
                        << entityCount << ',' << workload << ',' << mode
                        << ',' << sample << ','
@@ -1134,6 +1588,15 @@ bool MeasureBoundsFilterAba(QTextStream &output,
             samples.boundsChecks += profile.boundsCheckCount;
             samples.boundsRejects += profile.boundsRejectCount;
             samples.hitTestCalls += profile.hitTestCallCount;
+            samples.distanceSegmentCount += profile.distanceSegmentCount;
+            for (int typeIndex = 0;
+                 typeIndex < CanvasView::CanvasHitTestProfile::EntityTypeCount;
+                 ++typeIndex) {
+                samples.selectionPathCount +=
+                        profile.selectionPathCountByType[typeIndex];
+                samples.selectionPathPointCount +=
+                        profile.selectionPathPointCountByType[typeIndex];
+            }
         }
         if (pairedOutcome[0] != pairedOutcome[1]) {
             output << "ERROR,bounds_ab_paired_selection_mismatch,"
@@ -1146,9 +1609,13 @@ bool MeasureBoundsFilterAba(QTextStream &output,
     for (int mode = 0; mode < 2; ++mode) {
         BoundsModeSamples &samples = modes[mode];
         BenchmarkResult result;
-        result.scenario = QStringLiteral("MG010_BoundsFilterAba");
+        result.scenario = entityTypeScoped
+                ? (complexityLabel.isEmpty()
+                   ? QStringLiteral("MG010_BoundsFilterEntityTypeAba")
+                   : QStringLiteral("MG010_BoundsFilterComplexityAba"))
+                : QStringLiteral("MG010_BoundsFilterAba");
         result.entityCount = entityCount;
-        result.curvePercent = CurvePercentage(mix);
+        result.curvePercent = curvePercent;
         result.workload = workload + (mode == 0
                 ? QStringLiteral("_filter_off")
                 : QStringLiteral("_filter_on"));
@@ -1164,7 +1631,7 @@ bool MeasureBoundsFilterAba(QTextStream &output,
         QVector<qreal> sortedBoundsTimes = samples.boundsCheckMilliseconds;
         std::sort(sortedBoundsTimes.begin(), sortedBoundsTimes.end());
         output << "# MG010_BOUNDS_AB," << entityCount << ','
-               << CurvePercentage(mix) << ',' << workload
+               << curvePercent << ',' << workload
                << ",mode=" << (mode == 0 ? "filter_off" : "filter_on")
                << ",item_visits_per_hit_test="
                << QString::number(static_cast<qreal>(samples.itemIdVisits)
@@ -1178,6 +1645,36 @@ bool MeasureBoundsFilterAba(QTextStream &output,
                << ",bounds_rejects_per_hit_test="
                << QString::number(static_cast<qreal>(samples.boundsRejects)
                                   / samples.hitTestCalls, 'f', 3)
+               << ",selection_paths_per_hit_test="
+               << QString::number(static_cast<qreal>(
+                                      samples.selectionPathCount)
+                                  / samples.hitTestCalls, 'f', 3)
+               << ",selection_path_points_per_hit_test="
+               << QString::number(static_cast<qreal>(
+                                      samples.selectionPathPointCount)
+                                  / samples.hitTestCalls, 'f', 3)
+               << ",distance_segments_per_hit_test="
+               << QString::number(static_cast<qreal>(
+                                      samples.distanceSegmentCount)
+                                  / samples.hitTestCalls, 'f', 3)
+               << ",scene_bounds_candidates=" << expectedBoundsCandidates
+               << ",scene_bounds_candidate_percent="
+               << QString::number(static_cast<qreal>(expectedBoundsCandidates)
+                                  * 100.0 / entityCount, 'f', 3)
+               << ",requested_candidate_percent=" << candidatePercent
+               << ",entity_type="
+               << (entityTypeScoped ? CanvasEntityTypeName(entityType)
+                                    : QStringLiteral("mixed"))
+               << ",selection_paths_per_entity="
+               << (entityTypeScoped
+                   ? (complexitySelectionPathsPerEntity >= 0
+                      ? complexitySelectionPathsPerEntity
+                      : BoundsEntitySelectionPathsPerEntity(entityType))
+                   : 0)
+               << ",complexity="
+               << (complexityLabel.isEmpty()
+                   ? QStringLiteral("none") : complexityLabel)
+               << ",measured_samples=" << kMeasuredSamples
                << ",path_collection_ms_per_hit_test_median="
                << QString::number(Percentile(sortedPathTimes, 0.50), 'f', 6)
                << ",path_collection_ms_per_hit_test_p95="
@@ -1207,6 +1704,225 @@ QVector<qreal> BuildClampedKnots(int controlPointCount, int degree)
         knots.append(1.0);
     }
     return knots;
+}
+
+QVector<CanvasVector> BoundsComplexityTriangle(const CanvasVector &center)
+{
+    return QVector<CanvasVector>()
+            << CanvasVector(center.GetX() - 20.0, center.GetY() - 12.0)
+            << CanvasVector(center.GetX() + 20.0, center.GetY() - 12.0)
+            << CanvasVector(center.GetX(), center.GetY() + 24.0);
+}
+
+CanvasVector InterpolateBoundsComplexityEdge(const CanvasVector &start,
+                                              const CanvasVector &end,
+                                              qreal fraction)
+{
+    return CanvasVector(start.GetX() + (end.GetX() - start.GetX()) * fraction,
+                        start.GetY() + (end.GetY() - start.GetY()) * fraction);
+}
+
+bool AddBoundsComplexityPolyline(CanvasDocument *document,
+                                 const CanvasVector &center,
+                                 bool exactHit,
+                                 int segmentCount)
+{
+    if (!document || !center.IsValid() || segmentCount < 3) {
+        return false;
+    }
+
+    const QVector<CanvasVector> triangle = BoundsComplexityTriangle(center);
+    QVector<CanvasVector> vertices;
+    vertices.reserve(segmentCount + 1);
+    for (int index = 0; index <= segmentCount; ++index) {
+        const qreal progress = static_cast<qreal>(index) / segmentCount;
+        if (exactHit) {
+            vertices.append(CanvasVector(center.GetX() - 16.0
+                                         + 32.0 * progress,
+                                         center.GetY()));
+            continue;
+        }
+
+        if (index == segmentCount) {
+            vertices.append(triangle.first());
+            continue;
+        }
+        const qreal edgeProgress = progress * triangle.size();
+        const int edgeIndex = static_cast<int>(std::floor(edgeProgress));
+        const qreal edgeFraction = edgeProgress - edgeIndex;
+        vertices.append(InterpolateBoundsComplexityEdge(
+                            triangle.at(edgeIndex),
+                            triangle.at((edgeIndex + 1) % triangle.size()),
+                            edgeFraction));
+    }
+
+    CanvasPolyline polyline;
+    for (int index = 1; index < vertices.size(); ++index) {
+        CanvasLine segment(vertices.at(index - 1), vertices.at(index));
+        if (!SetBoundsBenchmarkDisplaySize(&segment)
+                || !polyline.AddSegment(segment)) {
+            return false;
+        }
+    }
+    return SetBoundsBenchmarkDisplaySize(&polyline)
+            && document->AddEntity(polyline) != 0;
+}
+
+bool ConfigureBoundsComplexitySpline(CanvasSpline *spline,
+                                     const CanvasVector &center,
+                                     bool exactHit,
+                                     int controlPointCount)
+{
+    if (!spline || !center.IsValid() || controlPointCount < 3) {
+        return false;
+    }
+
+    const QVector<CanvasVector> triangle = BoundsComplexityTriangle(center);
+    QVector<CanvasVector> controlPoints;
+    controlPoints.reserve(controlPointCount);
+    for (int index = 0; index < controlPointCount; ++index) {
+        const qreal progress = static_cast<qreal>(index)
+                / (controlPointCount - 1);
+        if (exactHit) {
+            controlPoints.append(CanvasVector(center.GetX() - 16.0
+                                              + 32.0 * progress,
+                                              center.GetY()));
+            continue;
+        }
+
+        const qreal edgeProgress = progress * 2.0;
+        const int edgeIndex = qMin(1, static_cast<int>(
+                                       std::floor(edgeProgress)));
+        const qreal edgeFraction = edgeProgress - edgeIndex;
+        controlPoints.append(InterpolateBoundsComplexityEdge(
+                                 triangle.at(edgeIndex),
+                                 triangle.at(edgeIndex + 1), edgeFraction));
+    }
+
+    return spline->SetData(1, controlPoints,
+                           BuildClampedKnots(controlPointCount, 1),
+                           QVector<qreal>(), false, false);
+}
+
+bool AddBoundsComplexityGroup(CanvasDocument *document,
+                              const CanvasVector &center,
+                              bool exactHit,
+                              int childCount)
+{
+    if (!document || !center.IsValid() || childCount < 3) {
+        return false;
+    }
+
+    const QVector<CanvasVector> triangle = BoundsComplexityTriangle(center);
+    CanvasGroupContainer group;
+    for (int index = 0; index < childCount; ++index) {
+        CanvasLine child;
+        bool geometrySet = false;
+        if (exactHit && index == 0) {
+            geometrySet = child.SetGeometry(
+                        CanvasVector(center.GetX() - 16.0, center.GetY()),
+                        CanvasVector(center.GetX() + 16.0, center.GetY()));
+        } else {
+            const int edgeIndex = (exactHit ? index - 1 : index) % 3;
+            geometrySet = child.SetGeometry(triangle.at(edgeIndex),
+                                             triangle.at((edgeIndex + 1) % 3));
+        }
+        if (!geometrySet || !SetBoundsBenchmarkDisplaySize(&child)
+                || !group.AddChild(child)) {
+            return false;
+        }
+    }
+
+    return SetBoundsBenchmarkDisplaySize(&group)
+            && document->AddEntity(group) != 0;
+}
+
+bool AddBoundsComplexityEntity(CanvasDocument *document,
+                               CanvasEntityType type,
+                               const CanvasVector &center,
+                               bool exactHit,
+                               int complexity)
+{
+    switch (type) {
+    case CanvasEntityType::Polyline:
+        return AddBoundsComplexityPolyline(document, center, exactHit,
+                                           complexity);
+    case CanvasEntityType::Spline: {
+        CanvasSpline spline;
+        return ConfigureBoundsComplexitySpline(&spline, center, exactHit,
+                                               complexity)
+                && SetBoundsBenchmarkDisplaySize(&spline)
+                && document->AddEntity(spline) != 0;
+    }
+    case CanvasEntityType::GroupContainer:
+        return AddBoundsComplexityGroup(document, center, exactHit, complexity);
+    case CanvasEntityType::Invalid:
+    case CanvasEntityType::Point:
+    case CanvasEntityType::Line:
+    case CanvasEntityType::Arc:
+    case CanvasEntityType::Circle:
+    case CanvasEntityType::Ellipse:
+        return false;
+    }
+    return false;
+}
+
+bool PopulateBoundsComplexityDocument(CanvasDocument *document,
+                                     CanvasEntityType type,
+                                     int entityCount,
+                                     int candidatePercent,
+                                     int complexity,
+                                     QString *failureReason = nullptr)
+{
+    if (!document || entityCount <= 0 || complexity < 3
+            || candidatePercent <= 0 || candidatePercent > 100
+            || (entityCount * candidatePercent) % 100 != 0) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("invalid_parameters");
+        }
+        return false;
+    }
+
+    const int candidateCount = entityCount * candidatePercent / 100;
+    if (candidateCount <= 0 || candidateCount > entityCount) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("invalid_candidate_count");
+        }
+        return false;
+    }
+
+    for (int index = 0; index < entityCount; ++index) {
+        const bool isCandidate = index < candidateCount;
+        const CanvasVector center = isCandidate
+                ? kInteractionProbeCenter : EntityPosition(index);
+        if (!AddBoundsComplexityEntity(document, type, center, index == 0,
+                                       complexity)) {
+            if (failureReason) {
+                *failureReason = QStringLiteral("entity_add_failed_at_%1")
+                        .arg(index);
+            }
+            return false;
+        }
+    }
+
+    if (document->GetItemCount() != entityCount) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("item_count_%1_expected_%2")
+                    .arg(document->GetItemCount()).arg(entityCount);
+        }
+        return false;
+    }
+    for (const ItemId id : document->GetItemIds()) {
+        const CanvasEntity *entity = document->GetEntity(id);
+        if (!entity || entity->GetType() != type) {
+            if (failureReason) {
+                *failureReason = QStringLiteral("entity_type_mismatch_for_id_%1")
+                        .arg(static_cast<qulonglong>(id));
+            }
+            return false;
+        }
+    }
+    return true;
 }
 
 bool PopulateSplineProfileDocument(CanvasDocument *document,
@@ -1405,6 +2121,155 @@ bool RunMG010Experiment(QTextStream &output)
         }
     }
 
+    const int selectivityEntityCounts[] = {1000, 5000};
+    const int candidatePercentages[] = {1, 10, 25, 50, 100};
+    const int nearMissPercentages[] = {25, 100};
+    output << "# MG010_BOUNDS_SELECTIVITY_MATRIX"
+              ",entity_counts=1000|5000"
+              ",mixes=simple|curve_heavy"
+              ",controlled_types=simple_line|curve_heavy_2line_4curve"
+              ",point_excluded=true"
+              ",geometry_size_fixed_across_candidate_states=true"
+              ",hit_candidate_percentages=1|10|25|50|100"
+              ",near_miss_candidate_percentages=25|100"
+              ",near_miss_means_aabb_candidates_but_no_exact_hit"
+              ",sample_order=alternating_filter_off_on\n";
+    for (SceneMix mix : mixes) {
+        for (int entityCount : selectivityEntityCounts) {
+            for (int candidatePercent : candidatePercentages) {
+                CanvasDocument document;
+                if (!PopulateBoundsSelectivityDocument(
+                            &document, entityCount, mix, candidatePercent, true)) {
+                    output << "ERROR,bounds_selectivity_hit_scene_build_failed,"
+                           << entityCount << ',' << CurvePercentage(mix) << ','
+                           << candidatePercent << '\n';
+                    return false;
+                }
+                output << "# MG010_BOUNDS_SELECTIVITY_CASE,"
+                       << "entities=" << entityCount
+                       << ",curve_percent=" << CurvePercentage(mix)
+                       << ",case=exact_hit"
+                       << ",requested_candidate_percent=" << candidatePercent
+                       << ",expected_candidate_count="
+                       << entityCount * candidatePercent / 100 << '\n';
+                if (!MeasureBoundsFilterAba(
+                            output, &document, entityCount, mix,
+                            BoundsFilterWorkload::SelectivityHit,
+                            candidatePercent)) {
+                    output << "ERROR,bounds_selectivity_hit_measurement_failed,"
+                           << entityCount << ',' << CurvePercentage(mix) << ','
+                           << candidatePercent << '\n';
+                    return false;
+                }
+            }
+
+            for (int candidatePercent : nearMissPercentages) {
+                CanvasDocument document;
+                if (!PopulateBoundsSelectivityDocument(
+                            &document, entityCount, mix, candidatePercent, false)) {
+                    output << "ERROR,bounds_selectivity_near_miss_scene_build_failed,"
+                           << entityCount << ',' << CurvePercentage(mix) << ','
+                           << candidatePercent << '\n';
+                    return false;
+                }
+                output << "# MG010_BOUNDS_SELECTIVITY_CASE,"
+                       << "entities=" << entityCount
+                       << ",curve_percent=" << CurvePercentage(mix)
+                       << ",case=aabb_overlap_exact_miss"
+                       << ",requested_candidate_percent=" << candidatePercent
+                       << ",expected_candidate_count="
+                       << entityCount * candidatePercent / 100 << '\n';
+                if (!MeasureBoundsFilterAba(
+                            output, &document, entityCount, mix,
+                            BoundsFilterWorkload::BoundsNearMiss,
+                            candidatePercent)) {
+                    output << "ERROR,bounds_selectivity_near_miss_measurement_failed,"
+                           << entityCount << ',' << CurvePercentage(mix) << ','
+                           << candidatePercent << '\n';
+                    return false;
+                }
+            }
+        }
+    }
+    output << "# MG010_BOUNDS_SELECTIVITY_SUMMARY,"
+              "hit_candidate_rates=1|10|25|50|100"
+              ",near_miss_rates=25|100"
+              ",geometry_size_fixed_across_candidate_states=true"
+              ",filter_off_on_selection_parity=true"
+              ",observed_candidate_counts_verified=true\n";
+
+    const CanvasEntityType boundsEntityTypes[] = {
+        CanvasEntityType::Point,
+        CanvasEntityType::Line,
+        CanvasEntityType::Arc,
+        CanvasEntityType::Circle,
+        CanvasEntityType::Ellipse,
+        CanvasEntityType::Polyline,
+        CanvasEntityType::Spline,
+        CanvasEntityType::GroupContainer
+    };
+    output << "# MG010_BOUNDS_ENTITY_TYPE_MATRIX"
+              ",entity_types=Point|Line|Arc|Circle|Ellipse|Polyline|Spline|GroupContainer"
+              ",entity_counts=1000|5000"
+              ",candidate_percentages=1|10|25|50|100"
+              ",each_scene_contains_one_exact_hit_and_remaining_candidates_are_aabb_false_positives"
+              ",non_candidate_geometry_matches_candidate_false_positive_geometry=true"
+              ",polyline_segments=3"
+              ",group_children=3_point_line_spline"
+              ",sample_order=alternating_filter_off_on\n";
+    for (CanvasEntityType type : boundsEntityTypes) {
+        for (int entityCount : selectivityEntityCounts) {
+            for (int candidatePercent : candidatePercentages) {
+                CanvasDocument document;
+                QString sceneFailureReason;
+                if (!PopulateBoundsEntityTypeDocument(
+                            &document, type, entityCount, candidatePercent,
+                            &sceneFailureReason)) {
+                    output << "ERROR,bounds_entity_type_scene_build_failed,"
+                           << CanvasEntityTypeName(type) << ',' << entityCount
+                           << ',' << candidatePercent << ','
+                           << sceneFailureReason << '\n';
+                    return false;
+                }
+
+                const QVector<ItemId> ids = document.GetItemIds();
+                const ItemId expectedHitId = ids.isEmpty() ? 0 : ids.first();
+                if (expectedHitId == 0) {
+                    output << "ERROR,bounds_entity_type_hit_id_missing,"
+                           << CanvasEntityTypeName(type) << ',' << entityCount
+                           << ',' << candidatePercent << '\n';
+                    return false;
+                }
+
+                output << "# MG010_BOUNDS_ENTITY_TYPE_CASE,entity_type="
+                       << CanvasEntityTypeName(type)
+                       << ",entities=" << entityCount
+                       << ",candidate_percent=" << candidatePercent
+                       << ",expected_candidate_count="
+                       << entityCount * candidatePercent / 100
+                       << ",expected_exact_hit_id=" << expectedHitId
+                       << ",selection_paths_per_entity="
+                       << BoundsEntitySelectionPathsPerEntity(type) << '\n';
+                if (!MeasureBoundsFilterAba(
+                            output, &document, entityCount, SceneMix::Simple,
+                            BoundsFilterWorkload::SelectivityHit,
+                            candidatePercent, type, expectedHitId)) {
+                    output << "ERROR,bounds_entity_type_measurement_failed,"
+                           << CanvasEntityTypeName(type) << ',' << entityCount
+                           << ',' << candidatePercent << '\n';
+                    return false;
+                }
+            }
+        }
+    }
+    output << "# MG010_BOUNDS_ENTITY_TYPE_SUMMARY,"
+              "entity_type_cases=80"
+              ",filter_modes=off|on"
+              ",filter_off_on_selection_parity=true"
+              ",expected_exact_hit_identity_verified=true"
+              ",entity_type_path_counts_verified=true"
+              ",candidate_counts_verified=true\n";
+
     const int controlPointCounts[] = {3, 16, 64};
     const int zoomSteps[] = {0, 18};
     for (int controlPointCount : controlPointCounts) {
@@ -1420,6 +2285,702 @@ bool RunMG010Experiment(QTextStream &output)
     }
     output.flush();
     return true;
+}
+
+bool RunMG010ComplexityExperiment(QTextStream &output)
+{
+    if (!VerifyBoundsFilterHitParity(output)) {
+        return false;
+    }
+
+    struct ComplexityCase
+    {
+        CanvasEntityType entityType;
+        int complexity;
+        const char *dimension;
+        int selectionPathsPerEntity;
+    };
+    const ComplexityCase cases[] = {
+        {CanvasEntityType::Polyline, 3, "polyline_segments", 3},
+        {CanvasEntityType::Polyline, 16, "polyline_segments", 16},
+        {CanvasEntityType::Polyline, 64, "polyline_segments", 64},
+        {CanvasEntityType::Polyline, 256, "polyline_segments", 256},
+        {CanvasEntityType::Spline, 3, "spline_control_points", 1},
+        {CanvasEntityType::Spline, 16, "spline_control_points", 1},
+        {CanvasEntityType::Spline, 64, "spline_control_points", 1},
+        {CanvasEntityType::GroupContainer, 3, "group_children", 3},
+        {CanvasEntityType::GroupContainer, 16, "group_children", 16},
+        {CanvasEntityType::GroupContainer, 64, "group_children", 64}
+    };
+    const int entityCount = 5000;
+    const int candidatePercentages[] = {1, 25, 50, 100};
+    const int candidatePercentageCount =
+            sizeof(candidatePercentages) / sizeof(candidatePercentages[0]);
+    const int caseCount = sizeof(cases) / sizeof(cases[0]);
+    int completedCaseCount = 0;
+
+    output << "# MG010_BOUNDS_COMPLEXITY_MATRIX"
+              ",entity_count=5000"
+              ",entity_types=Polyline|Spline|GroupContainer"
+              ",polyline_segments=3|16|64|256"
+              ",spline_control_points=3|16|64"
+              ",group_children=3|16|64"
+              ",candidate_percentages=1|25|50|100"
+              ",samples_per_mode=31"
+              ",sample_order=alternating_filter_off_on"
+              ",same_complexity_for_candidate_and_non_candidate_entities=true\n";
+
+    for (int caseIndex = 0; caseIndex < caseCount; ++caseIndex) {
+        const ComplexityCase &complexityCase = cases[caseIndex];
+        const QString complexityLabel = QStringLiteral("%1_%2")
+                .arg(QString::fromLatin1(complexityCase.dimension))
+                .arg(complexityCase.complexity);
+        for (int candidateIndex = 0;
+             candidateIndex < candidatePercentageCount;
+             ++candidateIndex) {
+            const int candidatePercent =
+                    candidatePercentages[candidateIndex];
+            CanvasDocument document;
+            QString sceneFailureReason;
+            if (!PopulateBoundsComplexityDocument(
+                        &document, complexityCase.entityType, entityCount,
+                        candidatePercent, complexityCase.complexity,
+                        &sceneFailureReason)) {
+                output << "ERROR,bounds_complexity_scene_build_failed,"
+                       << CanvasEntityTypeName(complexityCase.entityType)
+                       << ',' << complexityLabel << ',' << candidatePercent
+                       << ',' << sceneFailureReason << '\n';
+                return false;
+            }
+
+            const QVector<ItemId> ids = document.GetItemIds();
+            const ItemId expectedHitId = ids.isEmpty() ? 0 : ids.first();
+            if (expectedHitId == 0) {
+                output << "ERROR,bounds_complexity_hit_id_missing,"
+                       << CanvasEntityTypeName(complexityCase.entityType)
+                       << ',' << complexityLabel << ',' << candidatePercent
+                       << '\n';
+                return false;
+            }
+
+            output << "# MG010_BOUNDS_COMPLEXITY_CASE,entity_type="
+                   << CanvasEntityTypeName(complexityCase.entityType)
+                   << ",dimension=" << complexityCase.dimension
+                   << ",complexity=" << complexityCase.complexity
+                   << ",entities=" << entityCount
+                   << ",candidate_percent=" << candidatePercent
+                   << ",expected_candidate_count="
+                   << entityCount * candidatePercent / 100
+                   << ",expected_exact_hit_id=" << expectedHitId
+                   << ",selection_paths_per_entity="
+                   << complexityCase.selectionPathsPerEntity << '\n';
+            output.flush();
+
+            if (!MeasureBoundsFilterAba(
+                        output, &document, entityCount, SceneMix::Simple,
+                        BoundsFilterWorkload::SelectivityHit,
+                        candidatePercent, complexityCase.entityType,
+                        expectedHitId, complexityLabel,
+                        complexityCase.selectionPathsPerEntity)) {
+                output << "ERROR,bounds_complexity_measurement_failed,"
+                       << CanvasEntityTypeName(complexityCase.entityType)
+                       << ',' << complexityLabel << ',' << candidatePercent
+                       << '\n';
+                return false;
+            }
+            ++completedCaseCount;
+        }
+    }
+
+    output << "# MG010_BOUNDS_COMPLEXITY_SUMMARY,cases="
+           << completedCaseCount
+           << ",timing_rows=" << completedCaseCount * 2
+           << ",entity_count=" << entityCount
+           << ",candidate_percentages=1|25|50|100"
+           << ",filter_off_on_selection_parity=true"
+           << ",candidate_counts_verified=true"
+           << ",selection_path_counts_verified=true"
+           << ",selection_path_points_and_distance_segments_recorded=true\n";
+    output.flush();
+    return completedCaseCount == caseCount * candidatePercentageCount;
+}
+
+struct BoundsCacheComplexityCase
+{
+    CanvasEntityType entityType;
+    int complexity;
+    const char *dimension;
+};
+
+struct BoundsCacheQuerySamples
+{
+    QVector<qreal> recomputeMilliseconds;
+    QVector<qreal> cachedMilliseconds;
+    QVector<qreal> savingsMilliseconds;
+};
+
+struct BoundsCacheMutationSamples
+{
+    QVector<qreal> mutationOnlyMilliseconds;
+    QVector<qreal> mutationAndRefreshMilliseconds;
+    QVector<qreal> refreshOverheadMilliseconds;
+};
+
+bool BuildBoundsCache(const CanvasDocument &document,
+                      const QVector<ItemId> &ids,
+                      QHash<ItemId, QRectF> *boundsCache)
+{
+    if (!boundsCache) {
+        return false;
+    }
+
+    boundsCache->clear();
+    boundsCache->reserve(ids.size());
+    for (const ItemId id : ids) {
+        const CanvasEntity *entity = document.GetEntity(id);
+        QRectF bounds;
+        if (!entity || !TryGetGeometryBounds(*entity, &bounds)) {
+            return false;
+        }
+        boundsCache->insert(id, bounds);
+    }
+    return boundsCache->size() == ids.size();
+}
+
+bool VerifyBoundsCacheMatchesDocument(
+        const CanvasDocument &document,
+        const QVector<ItemId> &ids,
+        const QHash<ItemId, QRectF> &boundsCache)
+{
+    if (boundsCache.size() != ids.size()) {
+        return false;
+    }
+
+    for (const ItemId id : ids) {
+        const CanvasEntity *entity = document.GetEntity(id);
+        QRectF currentBounds;
+        const auto cachedBounds = boundsCache.constFind(id);
+        if (!entity || cachedBounds == boundsCache.constEnd()
+                || !TryGetGeometryBounds(*entity, &currentBounds)
+                || cachedBounds.value() != currentBounds) {
+            return false;
+        }
+    }
+    return true;
+}
+
+bool CountBoundsCandidates(const CanvasDocument &document,
+                           const QVector<ItemId> &ids,
+                           const QHash<ItemId, QRectF> *boundsCache,
+                           const CanvasVector &query,
+                           int *candidateCount)
+{
+    if (!query.IsValid() || !candidateCount) {
+        return false;
+    }
+
+    int count = 0;
+    const QPointF queryPoint(query.GetX(), query.GetY());
+    for (const ItemId id : ids) {
+        const CanvasEntity *entity = document.GetEntity(id);
+        if (!entity) {
+            return false;
+        }
+
+        QRectF bounds;
+        if (boundsCache) {
+            const auto cachedBounds = boundsCache->constFind(id);
+            if (cachedBounds == boundsCache->constEnd()) {
+                return false;
+            }
+            bounds = cachedBounds.value();
+        } else if (!TryGetGeometryBounds(*entity, &bounds)) {
+            return false;
+        }
+
+        if (bounds.contains(queryPoint)) {
+            ++count;
+        }
+    }
+
+    *candidateCount = count;
+    return true;
+}
+
+BenchmarkResult MakeBoundsCacheResult(const QString &scenario,
+                                      int entityCount,
+                                      int curvePercent,
+                                      const QString &workload,
+                                      int iterationsPerSample,
+                                      QVector<qreal> samples)
+{
+    std::sort(samples.begin(), samples.end());
+    BenchmarkResult result;
+    result.scenario = scenario;
+    result.entityCount = entityCount;
+    result.curvePercent = curvePercent;
+    result.workload = workload;
+    result.iterationsPerSample = iterationsPerSample;
+    result.medianMilliseconds = Percentile(samples, 0.50);
+    result.p95Milliseconds = Percentile(samples, 0.95);
+    return result;
+}
+
+bool MeasureBoundsCacheQueries(QTextStream &output,
+                               const CanvasDocument &document,
+                               const QVector<ItemId> &ids,
+                               const QHash<ItemId, QRectF> &boundsCache,
+                               const CanvasVector &query,
+                               int expectedCandidateCount,
+                               const QString &complexityLabel,
+                               int curvePercent,
+                               BoundsCacheQuerySamples *samples)
+{
+    if (ids.isEmpty() || !samples) {
+        return false;
+    }
+
+    const int iterationsPerSample = 3;
+    const auto runMode = [&](bool useCache, int *candidateCount) {
+        return CountBoundsCandidates(document, ids,
+                                     useCache ? &boundsCache : nullptr,
+                                     query, candidateCount);
+    };
+
+    for (int sample = 0; sample < kWarmupSamples; ++sample) {
+        const int firstMode = sample % 2;
+        for (int order = 0; order < 2; ++order) {
+            const bool useCache = (order == 0 ? firstMode : 1 - firstMode) != 0;
+            for (int iteration = 0; iteration < iterationsPerSample; ++iteration) {
+                int observedCandidateCount = 0;
+                if (!runMode(useCache, &observedCandidateCount)
+                        || observedCandidateCount != expectedCandidateCount) {
+                    output << "ERROR,bounds_cache_warmup_parity_failed,"
+                           << complexityLabel << ',' << sample << ','
+                           << (useCache ? "cached" : "recompute") << ','
+                           << observedCandidateCount << ','
+                           << expectedCandidateCount << '\n';
+                    return false;
+                }
+            }
+        }
+    }
+
+    samples->recomputeMilliseconds.reserve(kMeasuredSamples);
+    samples->cachedMilliseconds.reserve(kMeasuredSamples);
+    samples->savingsMilliseconds.reserve(kMeasuredSamples);
+    for (int sample = 0; sample < kMeasuredSamples; ++sample) {
+        const int firstMode = sample % 2;
+        int observedCandidateCount[2] = {0, 0};
+        for (int order = 0; order < 2; ++order) {
+            const int mode = order == 0 ? firstMode : 1 - firstMode;
+            QElapsedTimer timer;
+            timer.start();
+            for (int iteration = 0; iteration < iterationsPerSample; ++iteration) {
+                if (!runMode(mode != 0, &observedCandidateCount[mode])
+                        || observedCandidateCount[mode]
+                                != expectedCandidateCount) {
+                    output << "ERROR,bounds_cache_query_parity_failed,"
+                           << complexityLabel << ',' << sample << ','
+                           << (mode != 0 ? "cached" : "recompute") << ','
+                           << observedCandidateCount[mode] << ','
+                           << expectedCandidateCount << '\n';
+                    return false;
+                }
+            }
+            const qreal elapsedMilliseconds =
+                    timer.nsecsElapsed() / 1000000.0 / iterationsPerSample;
+            if (mode == 0) {
+                samples->recomputeMilliseconds.append(elapsedMilliseconds);
+            } else {
+                samples->cachedMilliseconds.append(elapsedMilliseconds);
+            }
+        }
+        if (observedCandidateCount[0] != observedCandidateCount[1]) {
+            output << "ERROR,bounds_cache_sample_result_mismatch,"
+                   << complexityLabel << ',' << sample << '\n';
+            return false;
+        }
+        samples->savingsMilliseconds.append(
+                    samples->recomputeMilliseconds.last()
+                    - samples->cachedMilliseconds.last());
+    }
+
+    const QString workload = complexityLabel
+            + QStringLiteral("_sparse_aabb_candidates");
+    PrintResult(output, MakeBoundsCacheResult(
+                    QStringLiteral("MG010_BoundsLiveRecompute"),
+                    ids.size(), curvePercent, workload, iterationsPerSample,
+                    samples->recomputeMilliseconds));
+    PrintResult(output, MakeBoundsCacheResult(
+                    QStringLiteral("MG010_BoundsCachedRead"), ids.size(),
+                    curvePercent, workload, iterationsPerSample,
+                    samples->cachedMilliseconds));
+    return true;
+}
+
+bool MeasureBoundsCacheMutation(QTextStream &output,
+                                CanvasEntityType entityType,
+                                int complexity,
+                                int entityCount,
+                                int candidatePercent,
+                                int curvePercent,
+                                const QString &complexityLabel,
+                                BoundsCacheMutationSamples *samples)
+{
+    if (!samples) {
+        return false;
+    }
+
+    CanvasDocument mutationOnlyDocument;
+    CanvasDocument mutationAndRefreshDocument;
+    if (!PopulateBoundsComplexityDocument(
+                &mutationOnlyDocument, entityType, entityCount,
+                candidatePercent, complexity)
+            || !PopulateBoundsComplexityDocument(
+                &mutationAndRefreshDocument, entityType, entityCount,
+                candidatePercent, complexity)) {
+        output << "ERROR,bounds_cache_mutation_scene_build_failed,"
+               << complexityLabel << '\n';
+        return false;
+    }
+
+    const QVector<ItemId> mutationOnlyIds =
+            mutationOnlyDocument.GetItemIds();
+    const QVector<ItemId> mutationAndRefreshIds =
+            mutationAndRefreshDocument.GetItemIds();
+    if (mutationOnlyIds.size() != entityCount
+            || mutationAndRefreshIds.size() != entityCount) {
+        output << "ERROR,bounds_cache_mutation_ids_failed,"
+               << complexityLabel << '\n';
+        return false;
+    }
+
+    const ItemId mutationOnlyId = mutationOnlyIds.first();
+    const ItemId mutationAndRefreshId = mutationAndRefreshIds.first();
+    const QVector<ItemId> mutationOnlyTargetIds = QVector<ItemId>()
+            << mutationOnlyId;
+    const QVector<ItemId> mutationAndRefreshTargetIds = QVector<ItemId>()
+            << mutationAndRefreshId;
+    QHash<ItemId, QRectF> boundsCache;
+    if (!BuildBoundsCache(mutationAndRefreshDocument,
+                          mutationAndRefreshIds, &boundsCache)) {
+        output << "ERROR,bounds_cache_mutation_initial_cache_failed,"
+               << complexityLabel << '\n';
+        return false;
+    }
+
+    samples->mutationOnlyMilliseconds.reserve(kMeasuredSamples);
+    samples->mutationAndRefreshMilliseconds.reserve(kMeasuredSamples);
+    samples->refreshOverheadMilliseconds.reserve(kMeasuredSamples);
+    int pairIndex = 0;
+    const int warmupPairs = kWarmupSamples;
+    for (int pair = 0; pair < warmupPairs + kMeasuredSamples; ++pair) {
+        const bool moveForward = pairIndex % 2 == 0;
+        ++pairIndex;
+        const CanvasVector delta = moveForward
+                ? CanvasVector(0.25, -0.125)
+                : CanvasVector(-0.25, 0.125);
+        const int firstMode = pair % 2;
+        qreal elapsedMilliseconds[2] = {0.0, 0.0};
+        QRectF refreshedBounds;
+
+        for (int order = 0; order < 2; ++order) {
+            const int mode = order == 0 ? firstMode : 1 - firstMode;
+            QElapsedTimer timer;
+            timer.start();
+            bool operationSucceeded = false;
+            if (mode == 0) {
+                operationSucceeded = mutationOnlyDocument.TranslateItems(
+                            mutationOnlyTargetIds, delta);
+            } else {
+                operationSucceeded = mutationAndRefreshDocument.TranslateItems(
+                            mutationAndRefreshTargetIds, delta);
+                const CanvasEntity *updatedEntity =
+                        mutationAndRefreshDocument.GetEntity(
+                            mutationAndRefreshId);
+                operationSucceeded = operationSucceeded && updatedEntity
+                        && TryGetGeometryBounds(*updatedEntity,
+                                                &refreshedBounds);
+                if (operationSucceeded) {
+                    boundsCache.insert(mutationAndRefreshId,
+                                       refreshedBounds);
+                }
+            }
+            elapsedMilliseconds[mode] = timer.nsecsElapsed() / 1000000.0;
+            if (!operationSucceeded) {
+                output << "ERROR,bounds_cache_mutation_operation_failed,"
+                       << complexityLabel << ',' << pair << ',' << mode << '\n';
+                return false;
+            }
+        }
+
+        const CanvasEntity *mutationOnlyEntity =
+                mutationOnlyDocument.GetEntity(mutationOnlyId);
+        const CanvasEntity *mutationAndRefreshEntity =
+                mutationAndRefreshDocument.GetEntity(mutationAndRefreshId);
+        QRectF mutationOnlyBounds;
+        QRectF mutationAndRefreshBounds;
+        const auto cachedBounds = boundsCache.constFind(mutationAndRefreshId);
+        if (!mutationOnlyEntity || !mutationAndRefreshEntity
+                || cachedBounds == boundsCache.constEnd()
+                || !TryGetGeometryBounds(*mutationOnlyEntity,
+                                         &mutationOnlyBounds)
+                || !TryGetGeometryBounds(*mutationAndRefreshEntity,
+                                         &mutationAndRefreshBounds)
+                || mutationOnlyBounds != mutationAndRefreshBounds
+                || cachedBounds.value() != mutationAndRefreshBounds
+                || refreshedBounds != mutationAndRefreshBounds) {
+            output << "ERROR,bounds_cache_mutation_refresh_parity_failed,"
+                   << complexityLabel << ',' << pair << '\n';
+            return false;
+        }
+
+        if (pair >= warmupPairs) {
+            samples->mutationOnlyMilliseconds.append(elapsedMilliseconds[0]);
+            samples->mutationAndRefreshMilliseconds.append(
+                        elapsedMilliseconds[1]);
+            samples->refreshOverheadMilliseconds.append(
+                        elapsedMilliseconds[1] - elapsedMilliseconds[0]);
+        }
+    }
+
+    if (!VerifyBoundsCacheMatchesDocument(mutationAndRefreshDocument,
+                                          mutationAndRefreshIds,
+                                          boundsCache)) {
+        output << "ERROR,bounds_cache_mutation_final_parity_failed,"
+               << complexityLabel << '\n';
+        return false;
+    }
+
+    const QString workload = complexityLabel
+            + QStringLiteral("_translate_one_entity");
+    PrintResult(output, MakeBoundsCacheResult(
+                    QStringLiteral("MG010_BoundsMutationOnly"), entityCount,
+                    curvePercent, workload, 1,
+                    samples->mutationOnlyMilliseconds));
+    PrintResult(output, MakeBoundsCacheResult(
+                    QStringLiteral("MG010_BoundsMutationPlusRefresh"),
+                    entityCount, curvePercent, workload, 1,
+                    samples->mutationAndRefreshMilliseconds));
+    return true;
+}
+
+quint64 BoundsCacheBreakEvenQueries(qreal setupCostMilliseconds,
+                                    qreal savingsPerQueryMilliseconds)
+{
+    if (setupCostMilliseconds <= 0.0) {
+        return 0;
+    }
+    if (savingsPerQueryMilliseconds <= 0.0) {
+        return std::numeric_limits<quint64>::max();
+    }
+    return static_cast<quint64>(std::ceil(
+                setupCostMilliseconds / savingsPerQueryMilliseconds));
+}
+
+bool RunMG010BoundsCacheExperiment(QTextStream &output)
+{
+    const BoundsCacheComplexityCase cases[] = {
+        {CanvasEntityType::Polyline, 3, "polyline_segments"},
+        {CanvasEntityType::Polyline, 16, "polyline_segments"},
+        {CanvasEntityType::Polyline, 64, "polyline_segments"},
+        {CanvasEntityType::Polyline, 256, "polyline_segments"},
+        {CanvasEntityType::Spline, 3, "spline_control_points"},
+        {CanvasEntityType::Spline, 16, "spline_control_points"},
+        {CanvasEntityType::Spline, 64, "spline_control_points"},
+        {CanvasEntityType::GroupContainer, 3, "group_children"},
+        {CanvasEntityType::GroupContainer, 16, "group_children"},
+        {CanvasEntityType::GroupContainer, 64, "group_children"}
+    };
+    const int entityCount = 5000;
+    const int candidatePercent = 1;
+    const int caseCount = sizeof(cases) / sizeof(cases[0]);
+    int completedCaseCount = 0;
+
+    output << "# MG010_BOUNDS_CACHE_MATRIX,entity_count=5000"
+              ",entity_types=Polyline|Spline|GroupContainer"
+              ",complexity=prior_MG010_staircase"
+              ",requested_candidate_percent=1"
+              ",cache=QHash<ItemId,QRectF>_benchmark_model_only"
+              ",query_comparison=live_TryGetGeometryBounds_vs_cached_read"
+              ",mutation=CanvasDocument_TranslateItems_with_optional_cache_refresh"
+              ",scope=geometry_bounds_only_excludes_hit_tolerance_and_path_build"
+              ",sample_order=alternating_A_B\n";
+
+    for (int caseIndex = 0; caseIndex < caseCount; ++caseIndex) {
+        const BoundsCacheComplexityCase &complexityCase = cases[caseIndex];
+        const QString complexityLabel = QStringLiteral("%1_%2")
+                .arg(QString::fromLatin1(complexityCase.dimension))
+                .arg(complexityCase.complexity);
+        CanvasDocument document;
+        QString sceneFailureReason;
+        if (!PopulateBoundsComplexityDocument(
+                    &document, complexityCase.entityType, entityCount,
+                    candidatePercent, complexityCase.complexity,
+                    &sceneFailureReason)) {
+            output << "ERROR,bounds_cache_scene_build_failed," << complexityLabel
+                   << ',' << sceneFailureReason << '\n';
+            return false;
+        }
+
+        const QVector<ItemId> ids = document.GetItemIds();
+        QHash<ItemId, QRectF> boundsCache;
+        bool cacheBuildValid = true;
+        quint64 builtBoundsCount = 0;
+        const BenchmarkResult cacheBuildResult = Measure(
+                    QStringLiteral("MG010_BoundsCacheBuild"), entityCount,
+                    BoundsEntityCurvePercentage(complexityCase.entityType),
+                    complexityLabel + QStringLiteral("_full_snapshot"), 1,
+                    [&]() {
+            QHash<ItemId, QRectF> candidateCache;
+            if (!BuildBoundsCache(document, ids, &candidateCache)) {
+                cacheBuildValid = false;
+                return;
+            }
+            builtBoundsCount = static_cast<quint64>(candidateCache.size());
+        });
+        if (!cacheBuildValid || builtBoundsCount != entityCount
+                || !BuildBoundsCache(document, ids, &boundsCache)
+                || !VerifyBoundsCacheMatchesDocument(document, ids,
+                                                     boundsCache)) {
+            output << "ERROR,bounds_cache_build_failed," << complexityLabel
+                   << ",built=" << builtBoundsCount
+                   << ",expected=" << entityCount << '\n';
+            return false;
+        }
+        PrintResult(output, cacheBuildResult);
+
+        int recomputedCandidateCount = 0;
+        int cachedCandidateCount = 0;
+        if (!CountBoundsCandidates(document, ids, nullptr,
+                                   kInteractionProbeCenter,
+                                   &recomputedCandidateCount)
+                || !CountBoundsCandidates(document, ids, &boundsCache,
+                                          kInteractionProbeCenter,
+                                          &cachedCandidateCount)
+                || recomputedCandidateCount != cachedCandidateCount) {
+            output << "ERROR,bounds_cache_initial_candidate_parity_failed,"
+                   << complexityLabel << ",recomputed="
+                   << recomputedCandidateCount << ",cached="
+                   << cachedCandidateCount << '\n';
+            return false;
+        }
+
+        output << "# MG010_BOUNDS_CACHE_CASE,entity_type="
+               << CanvasEntityTypeName(complexityCase.entityType)
+               << ",dimension=" << complexityCase.dimension
+               << ",complexity=" << complexityCase.complexity
+               << ",entities=" << entityCount
+               << ",requested_candidate_percent=" << candidatePercent
+               << ",candidate_count=" << recomputedCandidateCount
+               << ",effective_candidate_percent="
+               << QString::number(
+                      100.0 * recomputedCandidateCount / entityCount, 'f', 3)
+               << ",bounds_cache_entries=" << boundsCache.size()
+               << ",mutation_target=first_entity\n";
+        output.flush();
+
+        BoundsCacheQuerySamples querySamples;
+        if (!MeasureBoundsCacheQueries(
+                    output, document, ids, boundsCache,
+                    kInteractionProbeCenter, recomputedCandidateCount,
+                    complexityLabel,
+                    BoundsEntityCurvePercentage(complexityCase.entityType),
+                    &querySamples)) {
+            return false;
+        }
+
+        BoundsCacheMutationSamples mutationSamples;
+        if (!MeasureBoundsCacheMutation(
+                    output, complexityCase.entityType,
+                    complexityCase.complexity,
+                    entityCount, candidatePercent,
+                    BoundsEntityCurvePercentage(complexityCase.entityType),
+                    complexityLabel, &mutationSamples)) {
+            return false;
+        }
+
+        const BenchmarkResult sortedCacheBuild = cacheBuildResult;
+        const BenchmarkResult sortedLiveQuery = MakeBoundsCacheResult(
+                    QString(), entityCount,
+                    BoundsEntityCurvePercentage(complexityCase.entityType),
+                    QString(), 1, querySamples.recomputeMilliseconds);
+        const BenchmarkResult sortedCachedQuery = MakeBoundsCacheResult(
+                    QString(), entityCount,
+                    BoundsEntityCurvePercentage(complexityCase.entityType),
+                    QString(), 1, querySamples.cachedMilliseconds);
+        const BenchmarkResult sortedMutationOnly = MakeBoundsCacheResult(
+                    QString(), entityCount,
+                    BoundsEntityCurvePercentage(complexityCase.entityType),
+                    QString(), 1, mutationSamples.mutationOnlyMilliseconds);
+        const BenchmarkResult sortedMutationAndRefresh = MakeBoundsCacheResult(
+                    QString(), entityCount,
+                    BoundsEntityCurvePercentage(complexityCase.entityType),
+                    QString(), 1,
+                    mutationSamples.mutationAndRefreshMilliseconds);
+        const BenchmarkResult pairedQuerySavings = MakeBoundsCacheResult(
+                    QString(), entityCount,
+                    BoundsEntityCurvePercentage(complexityCase.entityType),
+                    QString(), 1, querySamples.savingsMilliseconds);
+        const BenchmarkResult pairedMutationRefreshOverhead =
+                MakeBoundsCacheResult(
+                    QString(), entityCount,
+                    BoundsEntityCurvePercentage(complexityCase.entityType),
+                    QString(), 1,
+                    mutationSamples.refreshOverheadMilliseconds);
+        const qreal savingsPerQueryMilliseconds =
+                pairedQuerySavings.medianMilliseconds;
+        const qreal cacheUpdateOverheadMilliseconds =
+                pairedMutationRefreshOverhead.medianMilliseconds;
+        const quint64 initialBreakEvenQueries = BoundsCacheBreakEvenQueries(
+                    sortedCacheBuild.medianMilliseconds,
+                    savingsPerQueryMilliseconds);
+        const quint64 mutationBreakEvenQueries = BoundsCacheBreakEvenQueries(
+                    cacheUpdateOverheadMilliseconds,
+                    savingsPerQueryMilliseconds);
+
+        output << "# MG010_BOUNDS_CACHE_ANALYSIS,case=" << complexityLabel
+               << ",live_query_median_ms="
+               << QString::number(sortedLiveQuery.medianMilliseconds, 'f', 6)
+               << ",cached_query_median_ms="
+               << QString::number(sortedCachedQuery.medianMilliseconds, 'f', 6)
+               << ",paired_query_savings_median_ms="
+               << QString::number(savingsPerQueryMilliseconds, 'f', 6)
+               << ",paired_query_savings_p95_ms="
+               << QString::number(pairedQuerySavings.p95Milliseconds, 'f', 6)
+               << ",cache_build_median_ms="
+               << QString::number(sortedCacheBuild.medianMilliseconds, 'f', 6)
+               << ",paired_mutation_refresh_extra_median_ms="
+               << QString::number(cacheUpdateOverheadMilliseconds, 'f', 6)
+               << ",paired_mutation_refresh_extra_p95_ms="
+               << QString::number(
+                      pairedMutationRefreshOverhead.p95Milliseconds, 'f', 6)
+               << ",initial_break_even_queries=";
+        if (initialBreakEvenQueries == std::numeric_limits<quint64>::max()) {
+            output << "not_reached";
+        } else {
+            output << initialBreakEvenQueries;
+        }
+        output << ",post_mutation_break_even_queries=";
+        if (mutationBreakEvenQueries == std::numeric_limits<quint64>::max()) {
+            output << "not_reached";
+        } else {
+            output << mutationBreakEvenQueries;
+        }
+        output << '\n';
+        ++completedCaseCount;
+    }
+
+    output << "# MG010_BOUNDS_CACHE_SUMMARY,cases=" << completedCaseCount
+           << ",entity_count=" << entityCount
+           << ",requested_candidate_percent=" << candidatePercent
+           << ",live_cached_candidate_parity=true"
+           << ",post_translate_cache_refresh_parity=true"
+           << ",production_cache_enabled=false"
+           << ",hit_tolerance_and_style_invalidation_not_measured=true\n";
+    output.flush();
+    return completedCaseCount == caseCount;
 }
 #endif
 
@@ -1682,6 +3243,37 @@ int main(int argc, char *argv[])
     output << "scenario,entities,curve_percent,workload,median_ms,p95_ms,iterations_per_sample\n";
 
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    if (argc > 1
+            && QString::fromLocal8Bit(argv[1])
+                    == QStringLiteral("--mg010-bounds-cache")) {
+        output << "# MG010_BOUNDS_CACHE_EXPERIMENT,scope=profiling_build_only"
+                  ",runtime_bounds_filter_default=off"
+                  ",production_cache_enabled=false"
+                  ",entity_count=5000"
+                  ",query_samples=31"
+                  ",mutation_path=CanvasDocument::TranslateItems"
+                  ",paired_order=alternating_same_process\n";
+        if (!RunMG010BoundsCacheExperiment(output)) {
+            output.flush();
+            return 2;
+        }
+        return 0;
+    }
+
+    if (argc > 1
+            && QString::fromLocal8Bit(argv[1])
+                    == QStringLiteral("--mg010-complexity")) {
+        output << "# MG010_COMPLEXITY_EXPERIMENT,scope=profiling_build_only"
+                  ",runtime_bounds_filter_default=off"
+                  ",entity_count=5000"
+                  ",paired_order=alternating_same_process\n";
+        if (!RunMG010ComplexityExperiment(output)) {
+            output.flush();
+            return 2;
+        }
+        return 0;
+    }
+
     if (argc > 1
             && QString::fromLocal8Bit(argv[1])
                     == QStringLiteral("--mg010-experiment")) {
