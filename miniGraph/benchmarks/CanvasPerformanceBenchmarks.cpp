@@ -934,6 +934,7 @@ bool VerifyBoundsFilterHitParity(QTextStream &output)
     CanvasView view;
     ConfigureView(&view, &document, false);
     view.setUpdatesEnabled(false);
+    view.SetHitTestMaximumDisplaySizeCacheBypassedForProfiling(true);
     for (const BoundsParityTarget &target : targets) {
         if (!SetBoundsValidationZoom(&view, target.zoom)) {
             output << "ERROR,bounds_parity_zoom_setup_failed,"
@@ -1501,6 +1502,7 @@ bool MeasureBoundsFilterAba(QTextStream &output,
     CanvasView view;
     ConfigureView(&view, document, false);
     view.setUpdatesEnabled(false);
+    view.SetHitTestMaximumDisplaySizeCacheBypassedForProfiling(true);
     const CanvasVector worldQuery = queryAtProbe
             ? kInteractionProbeCenter
             : CanvasVector(1000000.0, 1000000.0);
@@ -3089,6 +3091,1116 @@ bool RunMG010BoundsCacheExperiment(QTextStream &output)
     return completedCaseCount == caseCount;
 }
 
+struct HitDisplaySizeModeSamples
+{
+    QVector<qreal> eventMilliseconds;
+    QVector<qreal> boundsCheckMilliseconds;
+    QVector<qreal> geometryAccessMilliseconds;
+    QVector<qreal> displaySizeScanMilliseconds;
+    QVector<qreal> displaySizeCacheLookupMilliseconds;
+    QVector<qreal> boundsExpansionMilliseconds;
+    QVector<qreal> displaySizeNodesPerHitTest;
+    QVector<qreal> displaySizeScanCallsPerHitTest;
+    QVector<qreal> displaySizeCacheHitsPerHitTest;
+};
+
+bool SetBenchmarkHitDisplaySize(CanvasEntity *entity, qreal displaySize)
+{
+    if (!entity || !std::isfinite(static_cast<double>(displaySize))
+            || displaySize < 0.0) {
+        return false;
+    }
+
+    StruCanvasStyle style = entity->GetStyle();
+    if (entity->GetType() == CanvasEntityType::Point) {
+        style.pointSize = displaySize;
+    } else {
+        style.strokeWidth = displaySize;
+    }
+    return entity->SetStyle(style);
+}
+
+bool VerifyMaximumDisplaySizeCacheMutationParity(QTextStream &output)
+{
+    const CanvasVector query = kInteractionProbeCenter;
+    CanvasPoint point(CanvasVector(query.GetX() + 12.0, query.GetY()));
+    StruCanvasStyle wideStyle = point.GetStyle();
+    wideStyle.pointSize = 32.0;
+    if (!point.SetStyle(wideStyle)) {
+        output << "ERROR,display_size_cache_mutation_setup_failed\n";
+        return false;
+    }
+
+    CanvasDocument document;
+    const ItemId id = document.AddEntity(point);
+    CanvasView view;
+    ConfigureView(&view, &document, false);
+    view.setUpdatesEnabled(false);
+    view.CenterOnWorld(query);
+    const QPointF viewportQuery = view.MapFromWorld(query);
+
+    QHash<ItemId, QRectF> boundsCache;
+    QHash<ItemId, qreal> displaySizeCache;
+    quint64 visitedEntityCount = 0;
+    if (id == 0
+            || !BuildBoundsCache(document, document.GetItemIds(),
+                                 &boundsCache)
+            || !view.BuildHitTestMaximumDisplaySizeCacheForProfiling(
+                &displaySizeCache, &visitedEntityCount)
+            || visitedEntityCount != 1) {
+        output << "ERROR,display_size_cache_mutation_initial_cache_failed\n";
+        return false;
+    }
+
+    view.SetHitTestBoundsFilterEnabledForProfiling(false);
+    view.ClearHitTestGeometryBoundsCacheForProfiling();
+    view.ClearHitTestMaximumDisplaySizeCacheForProfiling();
+    SendClick(&view, viewportQuery);
+    const QVector<ItemId> wideStyleUnfilteredSelection =
+            document.GetSelectedItemIds();
+    if (wideStyleUnfilteredSelection.size() != 1
+            || wideStyleUnfilteredSelection.first() != id) {
+        output << "ERROR,display_size_cache_wide_style_unfiltered_precondition_failed\n";
+        return false;
+    }
+
+    document.ClearSelection();
+    view.SetHitTestGeometryBoundsCacheForProfiling(boundsCache);
+    view.SetHitTestMaximumDisplaySizeCacheForProfiling(displaySizeCache);
+    view.SetHitTestBoundsFilterEnabledForProfiling(true);
+    SendClick(&view, viewportQuery);
+    if (document.GetSelectedItemIds() != wideStyleUnfilteredSelection) {
+        output << "ERROR,display_size_cache_wide_style_cached_parity_failed\n";
+        return false;
+    }
+
+    const CanvasEntity *current = document.GetEntity(id);
+    QSharedPointer<CanvasEntity> narrowed = current ? current->Clone()
+                                                    : QSharedPointer<CanvasEntity>();
+    if (!narrowed) {
+        output << "ERROR,display_size_cache_mutation_clone_failed\n";
+        return false;
+    }
+    StruCanvasStyle narrowStyle = narrowed->GetStyle();
+    narrowStyle.pointSize = 2.0;
+    const bool narrowStyleSet = narrowed->SetStyle(narrowStyle);
+    const bool entityReplaced = narrowStyleSet
+            && document.ReplaceEntity(id, *narrowed);
+    const bool geometryCacheRebuilt = entityReplaced
+            && BuildBoundsCache(document, document.GetItemIds(), &boundsCache);
+    const bool displayCacheRebuilt = geometryCacheRebuilt
+            && view.BuildHitTestMaximumDisplaySizeCacheForProfiling(
+                &displaySizeCache, &visitedEntityCount);
+    if (!narrowStyleSet || !entityReplaced || !geometryCacheRebuilt
+            || !displayCacheRebuilt || visitedEntityCount != 1) {
+        output << "ERROR,display_size_cache_mutation_refresh_failed"
+               << ",style_set=" << narrowStyleSet
+               << ",entity_replaced=" << entityReplaced
+               << ",geometry_cache=" << geometryCacheRebuilt
+               << ",display_cache=" << displayCacheRebuilt
+               << ",visited=" << visitedEntityCount << '\n';
+        return false;
+    }
+
+    view.SetHitTestBoundsFilterEnabledForProfiling(false);
+    view.ClearHitTestGeometryBoundsCacheForProfiling();
+    view.ClearHitTestMaximumDisplaySizeCacheForProfiling();
+    document.ClearSelection();
+    SendClick(&view, viewportQuery);
+    const QVector<ItemId> narrowStyleUnfilteredSelection =
+            document.GetSelectedItemIds();
+    if (!narrowStyleUnfilteredSelection.isEmpty()) {
+        output << "ERROR,display_size_cache_narrow_style_unfiltered_precondition_failed\n";
+        return false;
+    }
+
+    view.SetHitTestGeometryBoundsCacheForProfiling(boundsCache);
+    view.SetHitTestMaximumDisplaySizeCacheForProfiling(displaySizeCache);
+    view.SetHitTestBoundsFilterEnabledForProfiling(true);
+    document.ClearSelection();
+    SendClick(&view, viewportQuery);
+    if (document.GetSelectedItemIds() != narrowStyleUnfilteredSelection) {
+        output << "ERROR,display_size_cache_narrow_style_cached_parity_failed\n";
+        return false;
+    }
+
+    output << "# MG010_DISPLAY_SIZE_CACHE_MUTATION_PARITY"
+              ",wide_style_near_miss_accepted=true"
+              ",replaced_with_narrow_style_and_cache_rebuilt=true"
+              ",narrow_style_near_miss_rejected=true"
+              ",cached_vs_uncached_selection_parity=true\n";
+    return true;
+}
+
+bool MeasureHitDisplaySizeCacheMaintenance(
+        QTextStream &output,
+        CanvasDocument *document,
+        CanvasView *view,
+        int entityCount,
+        int curvePercent,
+        const QString &caseName,
+        QHash<ItemId, qreal> *displaySizeCache,
+        BenchmarkResult *replaceOnlyResult,
+        BenchmarkResult *replaceAndRebuildResult)
+{
+    if (!document || !view || !displaySizeCache
+            || !replaceOnlyResult || !replaceAndRebuildResult) {
+        return false;
+    }
+
+    const QVector<ItemId> ids = document->GetItemIds();
+    const ItemId id = ids.isEmpty() ? 0 : ids.first();
+    const CanvasEntity *source = document->GetEntity(id);
+    QSharedPointer<CanvasEntity> firstStyle = source ? source->Clone()
+                                                     : QSharedPointer<CanvasEntity>();
+    QSharedPointer<CanvasEntity> secondStyle = source ? source->Clone()
+                                                      : QSharedPointer<CanvasEntity>();
+    if (id == 0 || !firstStyle || !secondStyle
+            || !SetBenchmarkHitDisplaySize(firstStyle.data(), 24.0)
+            || !SetBenchmarkHitDisplaySize(secondStyle.data(), 40.0)) {
+        output << "ERROR,display_size_cache_mutation_variants_failed," << caseName
+               << '\n';
+        return false;
+    }
+
+    bool mutationValid = true;
+    int replaceOnlyIndex = 0;
+    *replaceOnlyResult = Measure(
+                QStringLiteral("MG010_MaxDisplayCacheMutation"), entityCount,
+                curvePercent, caseName + QStringLiteral("_replace_only"), 1,
+                [&]() {
+        const CanvasEntity &replacement = replaceOnlyIndex++ % 2 == 0
+                ? *firstStyle : *secondStyle;
+        if (!document->ReplaceEntity(id, replacement)) {
+            mutationValid = false;
+        }
+    });
+    if (!mutationValid) {
+        output << "ERROR,display_size_cache_replace_only_failed," << caseName
+               << '\n';
+        return false;
+    }
+    PrintResult(output, *replaceOnlyResult);
+
+    int refreshIndex = 0;
+    *replaceAndRebuildResult = Measure(
+                QStringLiteral("MG010_MaxDisplayCacheMutation"), entityCount,
+                curvePercent,
+                caseName + QStringLiteral("_replace_plus_full_cache_rebuild"),
+                1, [&]() {
+        const CanvasEntity &replacement = refreshIndex++ % 2 == 0
+                ? *firstStyle : *secondStyle;
+        if (!document->ReplaceEntity(id, replacement)) {
+            mutationValid = false;
+            return;
+        }
+
+        QHash<ItemId, qreal> refreshedCache;
+        if (!view->BuildHitTestMaximumDisplaySizeCacheForProfiling(
+                    &refreshedCache)
+                || refreshedCache.size() != entityCount) {
+            mutationValid = false;
+            return;
+        }
+        displaySizeCache->swap(refreshedCache);
+    });
+    if (!mutationValid) {
+        output << "ERROR,display_size_cache_replace_refresh_failed," << caseName
+               << '\n';
+        return false;
+    }
+    PrintResult(output, *replaceAndRebuildResult);
+
+    return view->BuildHitTestMaximumDisplaySizeCacheForProfiling(
+                displaySizeCache)
+            && displaySizeCache->size() == entityCount;
+}
+
+bool MeasureHitDisplaySizeCacheCase(
+        QTextStream &output,
+        CanvasDocument *document,
+        int entityCount,
+        int curvePercent,
+        const QString &caseName,
+        const CanvasVector &worldQuery,
+        bool expectedHit,
+        BenchmarkResult modeResults[4],
+        BenchmarkResult *cacheBuildResult,
+        BenchmarkResult *replaceOnlyResult,
+        BenchmarkResult *replaceAndRebuildResult)
+{
+    if (!document || document->GetItemCount() != entityCount
+            || !cacheBuildResult || !replaceOnlyResult
+            || !replaceAndRebuildResult) {
+        return false;
+    }
+
+    CanvasView view;
+    ConfigureView(&view, document, false);
+    view.setUpdatesEnabled(false);
+    view.SetHitTestMaximumDisplaySizeCacheBypassedForProfiling(true);
+    view.CenterOnWorld(worldQuery);
+    const QPointF viewportQuery = view.MapFromWorld(worldQuery);
+
+    const QVector<ItemId> ids = document->GetItemIds();
+    QHash<ItemId, QRectF> geometryBoundsCache;
+    if (!BuildBoundsCache(*document, ids, &geometryBoundsCache)
+            || !VerifyBoundsCacheMatchesDocument(
+                *document, ids, geometryBoundsCache)) {
+        output << "ERROR,display_size_cache_geometry_snapshot_failed," << caseName
+               << '\n';
+        return false;
+    }
+
+    QHash<ItemId, qreal> displaySizeCache;
+    quint64 displaySizeTreeNodeCount = 0;
+    bool cacheBuildValid = true;
+    *cacheBuildResult = Measure(
+                QStringLiteral("MG010_MaxDisplayCacheBuild"), entityCount,
+                curvePercent, caseName + QStringLiteral("_full_snapshot"), 1,
+        [&]() {
+        QHash<ItemId, qreal> candidateCache;
+        if (!view.BuildHitTestMaximumDisplaySizeCacheForProfiling(
+                    &candidateCache)
+                || candidateCache.size() != entityCount) {
+            cacheBuildValid = false;
+            return;
+        }
+        displaySizeCache.swap(candidateCache);
+    });
+    if (!cacheBuildValid || displaySizeCache.size() != entityCount
+            || displaySizeCache.isEmpty()) {
+        output << "ERROR,display_size_cache_build_failed," << caseName << '\n';
+        return false;
+    }
+    PrintResult(output, *cacheBuildResult);
+
+    if (!view.BuildHitTestMaximumDisplaySizeCacheForProfiling(
+                &displaySizeCache, &displaySizeTreeNodeCount)
+            || displaySizeCache.size() != entityCount
+            || displaySizeTreeNodeCount == 0) {
+        output << "ERROR,display_size_cache_snapshot_parity_failed," << caseName
+               << '\n';
+        return false;
+    }
+
+    view.SetHitTestBoundsFilterEnabledForProfiling(false);
+    view.ClearHitTestGeometryBoundsCacheForProfiling();
+    view.ClearHitTestMaximumDisplaySizeCacheForProfiling();
+    document->ClearSelection();
+    SendClick(&view, viewportQuery);
+    const QVector<ItemId> expectedSelection = document->GetSelectedItemIds();
+    if (expectedHit != !expectedSelection.isEmpty()) {
+        output << "ERROR,display_size_cache_scene_precondition_failed," << caseName
+               << ",selected=" << expectedSelection.size() << '\n';
+        return false;
+    }
+
+    const QString modeNames[] = {
+        QStringLiteral("filter_off"),
+        QStringLiteral("filter_live_geometry_live_style"),
+        QStringLiteral("filter_cached_geometry_live_style"),
+        QStringLiteral("filter_cached_geometry_cached_style")
+    };
+    HitDisplaySizeModeSamples samples[4];
+    for (int sample = 0; sample < kWarmupSamples; ++sample) {
+        const int firstMode = sample % 4;
+        for (int order = 0; order < 4; ++order) {
+            const int mode = (firstMode + order) % 4;
+            document->ClearSelection();
+            view.SetHitTestBoundsFilterEnabledForProfiling(mode != 0);
+            if (mode >= 2) {
+                view.SetHitTestGeometryBoundsCacheForProfiling(
+                            geometryBoundsCache);
+            } else {
+                view.ClearHitTestGeometryBoundsCacheForProfiling();
+            }
+            if (mode == 3) {
+                view.SetHitTestMaximumDisplaySizeCacheForProfiling(
+                            displaySizeCache);
+            } else {
+                view.ClearHitTestMaximumDisplaySizeCacheForProfiling();
+            }
+            SendClick(&view, viewportQuery);
+            if (document->GetSelectedItemIds() != expectedSelection) {
+                output << "ERROR,display_size_cache_warmup_selection_mismatch,"
+                       << caseName << ',' << mode << '\n';
+                return false;
+            }
+        }
+    }
+
+    for (int sample = 0; sample < kMeasuredSamples; ++sample) {
+        const int firstMode = sample % 4;
+        for (int order = 0; order < 4; ++order) {
+            const int mode = (firstMode + order) % 4;
+            document->ClearSelection();
+            view.SetHitTestBoundsFilterEnabledForProfiling(mode != 0);
+            if (mode >= 2) {
+                view.SetHitTestGeometryBoundsCacheForProfiling(
+                            geometryBoundsCache);
+            } else {
+                view.ClearHitTestGeometryBoundsCacheForProfiling();
+            }
+            if (mode == 3) {
+                view.SetHitTestMaximumDisplaySizeCacheForProfiling(
+                            displaySizeCache);
+            } else {
+                view.ClearHitTestMaximumDisplaySizeCacheForProfiling();
+            }
+            view.ResetHitTestProfile();
+
+            QElapsedTimer eventTimer;
+            eventTimer.start();
+            SendClick(&view, viewportQuery);
+            samples[mode].eventMilliseconds.append(
+                        eventTimer.nsecsElapsed() / 1000000.0);
+            if (document->GetSelectedItemIds() != expectedSelection) {
+                output << "ERROR,display_size_cache_selection_mismatch,"
+                       << caseName << ',' << mode << ',' << sample << '\n';
+                return false;
+            }
+
+            const CanvasView::CanvasHitTestProfile profile =
+                    view.GetHitTestProfile();
+            const quint64 expectedHitTestCount = 2;
+            const quint64 expectedEntityVisits =
+                    static_cast<quint64>(entityCount) * expectedHitTestCount;
+            const quint64 expectedFiltered = mode == 0 ? 0
+                    : expectedEntityVisits;
+            const quint64 expectedGeometryCacheLookups = mode >= 2
+                    ? expectedEntityVisits : 0;
+            const quint64 expectedDisplayCacheLookups = mode == 3
+                    ? expectedEntityVisits : 0;
+            const quint64 expectedDisplaySizeScans =
+                    mode == 1 || mode == 2 ? expectedEntityVisits : 0;
+            const quint64 expectedDisplaySizeTreeVisits =
+                    (mode == 1 || mode == 2)
+                    ? displaySizeTreeNodeCount * expectedHitTestCount : 0;
+            if (profile.hitTestCallCount != expectedHitTestCount
+                    || profile.itemIdVisitCount != expectedEntityVisits
+                    || profile.boundsCheckCount != expectedFiltered
+                    || profile.geometryBoundsCacheLookupCount
+                            != expectedGeometryCacheLookups
+                    || profile.geometryBoundsCacheMissCount != 0
+                    || profile.maximumDisplaySizeCacheLookupCount
+                            != expectedDisplayCacheLookups
+                    || profile.maximumDisplaySizeCacheMissCount != 0
+                    || profile.maximumDisplaySizeCalculationCallCount
+                            != expectedDisplaySizeScans
+                    || (mode != 0
+                        && profile.hitBoundsExpansionNanoseconds <= 0)) {
+                output << "ERROR,display_size_cache_profile_invariant_failed,"
+                       << caseName << ',' << mode << ',' << sample << ','
+                       << profile.hitTestCallCount << ','
+                       << profile.boundsCheckCount << ','
+                       << profile.maximumDisplaySizeCacheLookupCount << ','
+                       << profile.maximumDisplaySizeCalculationCallCount << '\n';
+                return false;
+            }
+
+            const qreal hitTestCount =
+                    static_cast<qreal>(profile.hitTestCallCount);
+            samples[mode].boundsCheckMilliseconds.append(
+                        profile.boundsCheckNanoseconds
+                        / 1000000.0 / hitTestCount);
+            samples[mode].geometryAccessMilliseconds.append(
+                        profile.geometryBoundsAccessNanoseconds
+                        / 1000000.0 / hitTestCount);
+            samples[mode].displaySizeScanMilliseconds.append(
+                        profile.maximumDisplaySizeCalculationNanoseconds
+                        / 1000000.0 / hitTestCount);
+            samples[mode].displaySizeCacheLookupMilliseconds.append(
+                        profile.maximumDisplaySizeCacheLookupNanoseconds
+                        / 1000000.0 / hitTestCount);
+            samples[mode].boundsExpansionMilliseconds.append(
+                        profile.hitBoundsExpansionNanoseconds
+                        / 1000000.0 / hitTestCount);
+            samples[mode].displaySizeNodesPerHitTest.append(
+                        static_cast<qreal>(expectedDisplaySizeTreeVisits)
+                        / hitTestCount);
+            samples[mode].displaySizeScanCallsPerHitTest.append(
+                        static_cast<qreal>(
+                            profile.maximumDisplaySizeCalculationCallCount)
+                        / hitTestCount);
+            samples[mode].displaySizeCacheHitsPerHitTest.append(
+                        static_cast<qreal>(
+                            profile.maximumDisplaySizeCacheLookupCount
+                            - profile.maximumDisplaySizeCacheMissCount)
+                        / hitTestCount);
+        }
+    }
+
+    for (int mode = 0; mode < 4; ++mode) {
+        modeResults[mode] = MakeBoundsCacheResult(
+                    QStringLiteral("MG010_MaxDisplaySizeCacheAba"),
+                    entityCount, curvePercent,
+                    caseName + QLatin1Char('_') + modeNames[mode], 1,
+                    samples[mode].eventMilliseconds);
+        PrintResult(output, modeResults[mode]);
+        PrintProfileMetric(output, entityCount, curvePercent,
+                           caseName + QLatin1Char('_') + modeNames[mode],
+                           QStringLiteral("bounds_check_ms_per_hit_test"),
+                           samples[mode].boundsCheckMilliseconds,
+                           QStringLiteral("ms/hit_test"));
+        PrintProfileMetric(output, entityCount, curvePercent,
+                           caseName + QLatin1Char('_') + modeNames[mode],
+                           QStringLiteral("geometry_bounds_access_ms_per_hit_test"),
+                           samples[mode].geometryAccessMilliseconds,
+                           QStringLiteral("ms/hit_test"));
+        PrintProfileMetric(output, entityCount, curvePercent,
+                           caseName + QLatin1Char('_') + modeNames[mode],
+                           QStringLiteral("maximum_display_size_scan_ms_per_hit_test"),
+                           samples[mode].displaySizeScanMilliseconds,
+                           QStringLiteral("ms/hit_test"));
+        PrintProfileMetric(output, entityCount, curvePercent,
+                           caseName + QLatin1Char('_') + modeNames[mode],
+                           QStringLiteral("maximum_display_size_cache_lookup_ms_per_hit_test"),
+                           samples[mode].displaySizeCacheLookupMilliseconds,
+                           QStringLiteral("ms/hit_test"));
+        PrintProfileMetric(output, entityCount, curvePercent,
+                           caseName + QLatin1Char('_') + modeNames[mode],
+                           QStringLiteral("hit_bounds_expansion_ms_per_hit_test"),
+                           samples[mode].boundsExpansionMilliseconds,
+                           QStringLiteral("ms/hit_test"));
+        PrintProfileMetric(output, entityCount, curvePercent,
+                           caseName + QLatin1Char('_') + modeNames[mode],
+                           QStringLiteral("maximum_display_size_nodes_per_hit_test"),
+                           samples[mode].displaySizeNodesPerHitTest,
+                           QStringLiteral("nodes/hit_test"));
+        PrintProfileMetric(output, entityCount, curvePercent,
+                           caseName + QLatin1Char('_') + modeNames[mode],
+                           QStringLiteral("maximum_display_size_scans_per_hit_test"),
+                           samples[mode].displaySizeScanCallsPerHitTest,
+                           QStringLiteral("scans/hit_test"));
+        PrintProfileMetric(output, entityCount, curvePercent,
+                           caseName + QLatin1Char('_') + modeNames[mode],
+                           QStringLiteral("maximum_display_size_cache_hits_per_hit_test"),
+                           samples[mode].displaySizeCacheHitsPerHitTest,
+                           QStringLiteral("hits/hit_test"));
+    }
+
+    if (!MeasureHitDisplaySizeCacheMaintenance(
+                output, document, &view, entityCount, curvePercent, caseName,
+                &displaySizeCache, replaceOnlyResult,
+                replaceAndRebuildResult)) {
+        return false;
+    }
+
+    const qreal querySavingsMilliseconds =
+            modeResults[2].medianMilliseconds
+            - modeResults[3].medianMilliseconds;
+    const qreal rebuildOverheadMilliseconds =
+            replaceAndRebuildResult->medianMilliseconds
+            - replaceOnlyResult->medianMilliseconds;
+    const quint64 buildBreakEvenQueries = BoundsCacheBreakEvenQueries(
+                cacheBuildResult->medianMilliseconds,
+                querySavingsMilliseconds);
+    const quint64 refreshBreakEvenQueries = BoundsCacheBreakEvenQueries(
+                rebuildOverheadMilliseconds, querySavingsMilliseconds);
+    output << "# MG010_DISPLAY_SIZE_CACHE_ANALYSIS,case=" << caseName
+           << ",cache_build_median_ms="
+           << QString::number(cacheBuildResult->medianMilliseconds, 'f', 6)
+           << ",live_style_query_median_ms="
+           << QString::number(modeResults[2].medianMilliseconds, 'f', 6)
+           << ",cached_style_query_median_ms="
+           << QString::number(modeResults[3].medianMilliseconds, 'f', 6)
+           << ",paired_query_savings_ms="
+           << QString::number(querySavingsMilliseconds, 'f', 6)
+           << ",replace_only_median_ms="
+           << QString::number(replaceOnlyResult->medianMilliseconds, 'f', 6)
+           << ",replace_plus_full_rebuild_median_ms="
+           << QString::number(replaceAndRebuildResult->medianMilliseconds,
+                              'f', 6)
+           << ",full_rebuild_incremental_cost_ms="
+           << QString::number(rebuildOverheadMilliseconds, 'f', 6)
+           << ",build_break_even_queries=";
+    if (buildBreakEvenQueries == std::numeric_limits<quint64>::max()) {
+        output << "not_reached";
+    } else {
+        output << buildBreakEvenQueries;
+    }
+    output << ",refresh_break_even_queries=";
+    if (refreshBreakEvenQueries == std::numeric_limits<quint64>::max()) {
+        output << "not_reached";
+    } else {
+        output << refreshBreakEvenQueries;
+    }
+    output << '\n';
+    return true;
+}
+
+void ConfigureProductionDisplayCacheView(CanvasView *view,
+                                         CanvasDocument *document,
+                                         const CanvasVector &worldQuery,
+                                         bool bypassProductionCache)
+{
+    if (!view) {
+        return;
+    }
+
+    view->resize(kViewSize);
+    view->setUpdatesEnabled(false);
+    view->SetGridVisible(false);
+    view->SetAxisVisible(false);
+    view->SetRulerVisible(false);
+    view->SetSnapEnabled(false);
+    view->SetDocument(document);
+    view->CenterOnWorld(worldQuery);
+    view->SetHitTestMaximumDisplaySizeCacheBypassedForProfiling(
+                bypassProductionCache);
+}
+
+bool CaptureProductionDisplayCacheSample(
+        QTextStream &output,
+        CanvasView *view,
+        CanvasDocument *document,
+        const QPointF &viewportQuery,
+        bool includeReleaseInTiming,
+        bool cacheEnabled,
+        int recursiveEntityCount,
+        bool expectedHit,
+        ItemId expectedItemId,
+        const QString &caseName,
+        const QString &modeName,
+        int sampleIndex,
+        QVector<qreal> *elapsedSamples,
+        QVector<ItemId> *selection)
+{
+    if (!view || !document || !elapsedSamples || !selection) {
+        return false;
+    }
+
+    document->ClearSelection();
+    view->ResetHitTestProfile();
+    QElapsedTimer timer;
+    timer.start();
+    SendMouseEvent(view, QEvent::MouseButtonPress, viewportQuery,
+                   Qt::LeftButton, Qt::LeftButton);
+    if (includeReleaseInTiming) {
+        SendMouseEvent(view, QEvent::MouseButtonRelease, viewportQuery,
+                       Qt::LeftButton, Qt::NoButton);
+    }
+    const qreal elapsedMilliseconds = timer.nsecsElapsed() / 1000000.0;
+    const CanvasView::CanvasHitTestProfile profile =
+            view->GetHitTestProfile();
+
+    if (!includeReleaseInTiming) {
+        SendMouseEvent(view, QEvent::MouseButtonRelease, viewportQuery,
+                       Qt::LeftButton, Qt::NoButton);
+    }
+    *selection = document->GetSelectedItemIds();
+
+    const quint64 hitTestCount = includeReleaseInTiming ? 2 : 1;
+    const quint64 expectedEntityVisits =
+            static_cast<quint64>(document->GetItemCount()) * hitTestCount;
+    const quint64 expectedBoundsChecks =
+            static_cast<quint64>(recursiveEntityCount) * hitTestCount;
+    const quint64 expectedCacheLookups = cacheEnabled
+            ? expectedBoundsChecks : 0;
+    const quint64 expectedLiveCalculations = cacheEnabled
+            ? 0 : expectedBoundsChecks;
+    const bool profileValid = profile.hitTestCallCount == hitTestCount
+            && profile.itemIdVisitCount == expectedEntityVisits
+            && profile.boundsCheckCount == expectedBoundsChecks
+            && profile.geometryBoundsCacheLookupCount == 0
+            && profile.geometryBoundsCacheMissCount == 0
+            && profile.maximumDisplaySizeCacheLookupCount
+                    == expectedCacheLookups
+            && profile.maximumDisplaySizeCacheMissCount == 0
+            && profile.maximumDisplaySizeCalculationCallCount
+                    == expectedLiveCalculations;
+    const bool selectionValid = expectedHit == !selection->isEmpty()
+            && (expectedItemId == 0
+                || (selection->size() == 1
+                    && selection->first() == expectedItemId));
+    if (!profileValid || !selectionValid) {
+        output << "ERROR,production_display_cache_invariant_failed,"
+               << caseName << ',' << modeName << ',' << sampleIndex
+               << ",hit_tests=" << profile.hitTestCallCount
+               << ",bounds_checks=" << profile.boundsCheckCount
+               << ",cache_lookups="
+               << profile.maximumDisplaySizeCacheLookupCount
+               << ",cache_misses="
+               << profile.maximumDisplaySizeCacheMissCount
+               << ",live_calculations="
+               << profile.maximumDisplaySizeCalculationCallCount
+               << ",selected=" << selection->size() << '\n';
+        return false;
+    }
+
+    elapsedSamples->append(elapsedMilliseconds);
+    return true;
+}
+
+bool CaptureProductionDisplayCachePair(
+        QTextStream &output,
+        CanvasView *cacheView,
+        CanvasView *liveView,
+        CanvasDocument *document,
+        const QPointF &viewportQuery,
+        bool includeReleaseInTiming,
+        int recursiveEntityCount,
+        bool expectedHit,
+        ItemId expectedItemId,
+        const QString &caseName,
+        const QString &phaseName,
+        int sampleIndex,
+        QVector<qreal> *cacheSamples,
+        QVector<qreal> *liveSamples)
+{
+    QVector<ItemId> cacheSelection;
+    QVector<ItemId> liveSelection;
+    const bool cacheFirst = sampleIndex % 2 == 0;
+    bool cacheValid = false;
+    bool liveValid = false;
+    if (cacheFirst) {
+        cacheValid = CaptureProductionDisplayCacheSample(
+                    output, cacheView, document, viewportQuery,
+                    includeReleaseInTiming, true, recursiveEntityCount,
+                    expectedHit, expectedItemId, caseName,
+                    phaseName + QStringLiteral("_cache_on"), sampleIndex,
+                    cacheSamples, &cacheSelection);
+        liveValid = CaptureProductionDisplayCacheSample(
+                    output, liveView, document, viewportQuery,
+                    includeReleaseInTiming, false, recursiveEntityCount,
+                    expectedHit, expectedItemId, caseName,
+                    phaseName + QStringLiteral("_live_control"), sampleIndex,
+                    liveSamples, &liveSelection);
+    } else {
+        liveValid = CaptureProductionDisplayCacheSample(
+                    output, liveView, document, viewportQuery,
+                    includeReleaseInTiming, false, recursiveEntityCount,
+                    expectedHit, expectedItemId, caseName,
+                    phaseName + QStringLiteral("_live_control"), sampleIndex,
+                    liveSamples, &liveSelection);
+        cacheValid = CaptureProductionDisplayCacheSample(
+                    output, cacheView, document, viewportQuery,
+                    includeReleaseInTiming, true, recursiveEntityCount,
+                    expectedHit, expectedItemId, caseName,
+                    phaseName + QStringLiteral("_cache_on"), sampleIndex,
+                    cacheSamples, &cacheSelection);
+    }
+
+    if (!cacheValid || !liveValid || cacheSelection != liveSelection) {
+        output << "ERROR,production_display_cache_selection_parity_failed,"
+               << caseName << ',' << phaseName << ',' << sampleIndex << '\n';
+        return false;
+    }
+    return true;
+}
+
+void PrintProductionDisplayCacheProfile(QTextStream &output,
+                                        const QString &caseName,
+                                        int recursiveEntityCount)
+{
+    output << "# MG011_PRODUCTION_CACHE_PROFILE,case=" << caseName
+           << ",cache_on_lookups_per_hit_test=" << recursiveEntityCount
+           << ",cache_on_live_scans_per_hit_test=0"
+           << ",cache_on_misses=0"
+           << ",live_control_cache_hits_per_hit_test=0"
+           << ",live_control_scans_per_hit_test="
+           << recursiveEntityCount << '\n';
+}
+
+bool MeasureProductionDisplayCacheCase(
+        QTextStream &output,
+        CanvasDocument *document,
+        int entityCount,
+        int curvePercent,
+        const QString &caseName,
+        const CanvasVector &worldQuery,
+        bool recursiveEntitySet,
+        bool expectedHit,
+        ItemId expectedItemId,
+        bool measureInvalidationRefresh)
+{
+    if (!document || document->GetItemCount() != entityCount) {
+        return false;
+    }
+
+    const int recursiveEntityCount = recursiveEntitySet ? entityCount : 0;
+    const QPointF viewportQuery = [&]() {
+        CanvasView mappingView;
+        ConfigureProductionDisplayCacheView(
+                    &mappingView, document, worldQuery, false);
+        return mappingView.MapFromWorld(worldQuery);
+    }();
+    QVector<qreal> coldCacheSamples;
+    QVector<qreal> coldLiveSamples;
+    coldCacheSamples.reserve(kMeasuredSamples);
+    coldLiveSamples.reserve(kMeasuredSamples);
+
+    for (int sample = 0; sample < kMeasuredSamples; ++sample) {
+        CanvasView cacheView;
+        CanvasView liveView;
+        ConfigureProductionDisplayCacheView(
+                    &cacheView, document, worldQuery, false);
+        ConfigureProductionDisplayCacheView(
+                    &liveView, document, worldQuery, true);
+        if (!CaptureProductionDisplayCachePair(
+                    output, &cacheView, &liveView, document, viewportQuery,
+                    false, recursiveEntityCount, expectedHit, expectedItemId,
+                    caseName, QStringLiteral("cold_first_press"), sample,
+                    &coldCacheSamples, &coldLiveSamples)) {
+            return false;
+        }
+    }
+
+    CanvasView cacheView;
+    CanvasView liveView;
+    ConfigureProductionDisplayCacheView(
+                &cacheView, document, worldQuery, false);
+    ConfigureProductionDisplayCacheView(
+                &liveView, document, worldQuery, true);
+
+    QVector<qreal> warmCacheSamples;
+    QVector<qreal> warmLiveSamples;
+    for (int sample = 0; sample < kWarmupSamples; ++sample) {
+        if (!CaptureProductionDisplayCachePair(
+                    output, &cacheView, &liveView, document, viewportQuery,
+                    true, recursiveEntityCount, expectedHit, expectedItemId,
+                    caseName, QStringLiteral("warmup_click"), sample,
+                    &warmCacheSamples, &warmLiveSamples)) {
+            return false;
+        }
+    }
+    warmCacheSamples.clear();
+    warmLiveSamples.clear();
+
+    for (int sample = 0; sample < kMeasuredSamples; ++sample) {
+        if (!CaptureProductionDisplayCachePair(
+                    output, &cacheView, &liveView, document, viewportQuery,
+                    true, recursiveEntityCount, expectedHit, expectedItemId,
+                    caseName, QStringLiteral("warm_click"), sample,
+                    &warmCacheSamples, &warmLiveSamples)) {
+            return false;
+        }
+    }
+
+    const BenchmarkResult coldCacheResult = MakeBoundsCacheResult(
+                QStringLiteral("MG011_ProductionDisplayCache"), entityCount,
+                curvePercent, caseName + QStringLiteral("_cache_on_cold_first_press"),
+                1, coldCacheSamples);
+    const BenchmarkResult coldLiveResult = MakeBoundsCacheResult(
+                QStringLiteral("MG011_ProductionDisplayCache"), entityCount,
+                curvePercent, caseName + QStringLiteral("_live_control_cold_first_press"),
+                1, coldLiveSamples);
+    const BenchmarkResult warmCacheResult = MakeBoundsCacheResult(
+                QStringLiteral("MG011_ProductionDisplayCache"), entityCount,
+                curvePercent, caseName + QStringLiteral("_cache_on_warm_click"),
+                1, warmCacheSamples);
+    const BenchmarkResult warmLiveResult = MakeBoundsCacheResult(
+                QStringLiteral("MG011_ProductionDisplayCache"), entityCount,
+                curvePercent, caseName + QStringLiteral("_live_control_warm_click"),
+                1, warmLiveSamples);
+    PrintResult(output, coldCacheResult);
+    PrintResult(output, coldLiveResult);
+    PrintResult(output, warmCacheResult);
+    PrintResult(output, warmLiveResult);
+
+    qreal refreshCacheMedian = 0.0;
+    qreal refreshLiveMedian = 0.0;
+    if (measureInvalidationRefresh) {
+        const QVector<ItemId> ids = document->GetItemIds();
+        if (ids.isEmpty()) {
+            return false;
+        }
+        const ItemId mutationId = ids.first();
+        QVector<qreal> refreshCacheSamples;
+        QVector<qreal> refreshLiveSamples;
+        refreshCacheSamples.reserve(kMeasuredSamples);
+        refreshLiveSamples.reserve(kMeasuredSamples);
+        for (int sample = 0; sample < kMeasuredSamples; ++sample) {
+            const CanvasEntity *current = document->GetEntity(mutationId);
+            QSharedPointer<CanvasEntity> replacement = current
+                    ? current->Clone()
+                    : QSharedPointer<CanvasEntity>();
+            const qreal displaySize = sample % 2 == 0 ? 24.0 : 4.0;
+            if (!replacement
+                    || !SetBenchmarkHitDisplaySize(replacement.data(),
+                                                   displaySize)
+                    || !document->ReplaceEntity(mutationId, *replacement)) {
+                output << "ERROR,production_display_cache_refresh_mutation_failed,"
+                       << caseName << ',' << sample << '\n';
+                return false;
+            }
+
+            if (!CaptureProductionDisplayCachePair(
+                        output, &cacheView, &liveView, document,
+                        viewportQuery, false, recursiveEntityCount,
+                        expectedHit, expectedItemId, caseName,
+                        QStringLiteral("post_replace_first_press"), sample,
+                        &refreshCacheSamples, &refreshLiveSamples)) {
+                return false;
+            }
+        }
+
+        const BenchmarkResult refreshCacheResult = MakeBoundsCacheResult(
+                    QStringLiteral("MG011_ProductionDisplayCache"),
+                    entityCount, curvePercent,
+                    caseName + QStringLiteral("_cache_on_post_replace_first_press"),
+                    1, refreshCacheSamples);
+        const BenchmarkResult refreshLiveResult = MakeBoundsCacheResult(
+                    QStringLiteral("MG011_ProductionDisplayCache"),
+                    entityCount, curvePercent,
+                    caseName + QStringLiteral("_live_control_post_replace_first_press"),
+                    1, refreshLiveSamples);
+        PrintResult(output, refreshCacheResult);
+        PrintResult(output, refreshLiveResult);
+        refreshCacheMedian = refreshCacheResult.medianMilliseconds;
+        refreshLiveMedian = refreshLiveResult.medianMilliseconds;
+    }
+
+    const qreal coldBuildOverhead = coldCacheResult.medianMilliseconds
+            - coldLiveResult.medianMilliseconds;
+    const qreal warmQuerySavings = warmLiveResult.medianMilliseconds
+            - warmCacheResult.medianMilliseconds;
+    const qreal refreshOverhead = refreshCacheMedian - refreshLiveMedian;
+    output << "# MG011_PRODUCTION_CACHE_ANALYSIS,case=" << caseName
+           << ",cold_cache_overhead_ms="
+           << QString::number(coldBuildOverhead, 'f', 6)
+           << ",warm_query_savings_ms="
+           << QString::number(warmQuerySavings, 'f', 6)
+           << ",cold_break_even_queries=";
+    const quint64 coldBreakEvenQueries = BoundsCacheBreakEvenQueries(
+                coldBuildOverhead, warmQuerySavings);
+    if (coldBreakEvenQueries == std::numeric_limits<quint64>::max()) {
+        output << "not_reached";
+    } else {
+        output << coldBreakEvenQueries;
+    }
+    if (measureInvalidationRefresh) {
+        output << ",post_replace_cache_overhead_ms="
+               << QString::number(refreshOverhead, 'f', 6)
+               << ",post_replace_break_even_queries=";
+        const quint64 refreshBreakEvenQueries = BoundsCacheBreakEvenQueries(
+                    refreshOverhead, warmQuerySavings);
+        if (refreshBreakEvenQueries == std::numeric_limits<quint64>::max()) {
+            output << "not_reached";
+        } else {
+            output << refreshBreakEvenQueries;
+        }
+    }
+    output << '\n';
+    PrintProductionDisplayCacheProfile(output, caseName,
+                                       recursiveEntityCount);
+    return true;
+}
+
+bool RunMG011ProductionDisplayCacheExperiment(QTextStream &output)
+{
+    struct ExperimentCase
+    {
+        const char *name;
+        CanvasEntityType entityType;
+        int entityCount;
+        int complexity;
+        SceneMix mix;
+        bool dense;
+        bool hit;
+        bool refresh;
+        ItemId expectedItemId;
+    };
+    const ExperimentCase cases[] = {
+        {"polyline_256_hit", CanvasEntityType::Polyline, 1000, 256,
+         SceneMix::Simple, false, true, false, 1},
+        {"polyline_256_miss", CanvasEntityType::Polyline, 1000, 256,
+         SceneMix::Simple, false, false, true, 0},
+        {"group_64_hit", CanvasEntityType::GroupContainer, 1000, 64,
+         SceneMix::Simple, false, true, false, 1},
+        {"group_64_miss", CanvasEntityType::GroupContainer, 1000, 64,
+         SceneMix::Simple, false, false, true, 0},
+        {"simple_sparse_hit", CanvasEntityType::Invalid, 5000, 0,
+         SceneMix::Simple, false, true, false, 2}
+    };
+    const int caseCount = sizeof(cases) / sizeof(cases[0]);
+    int completedCaseCount = 0;
+    output << "# MG011_PRODUCTION_DISPLAY_CACHE_EXPERIMENT"
+              ",scope=performancebench_only"
+              ",cache_on=production_default"
+              ",live_control=production_cache_bypassed_for_profiling"
+              ",both_modes_keep_default_selective_bounds_filter=true"
+              ",cold=first_mouse_press_on_fresh_view"
+              ",warm=mouse_click_after_cache_warmup"
+              ",refresh=first_mouse_press_after_document_replace"
+              ",samples=31"
+              ",paired_order=alternating_same_process"
+              ",selection_and_operation_count_parity_required=true\n";
+
+    for (int caseIndex = 0; caseIndex < caseCount; ++caseIndex) {
+        const ExperimentCase &experimentCase = cases[caseIndex];
+        const QString caseName = QString::fromLatin1(experimentCase.name);
+        CanvasDocument document;
+        bool sceneValid = false;
+        if (experimentCase.entityType == CanvasEntityType::Invalid) {
+            sceneValid = PopulateDocument(
+                        &document, experimentCase.entityCount,
+                        experimentCase.mix, experimentCase.dense);
+            if (sceneValid && experimentCase.hit && !experimentCase.dense) {
+                sceneValid = PrepareInteractionProbe(&document);
+            }
+        } else {
+            QString failureReason;
+            sceneValid = PopulateBoundsComplexityDocument(
+                        &document, experimentCase.entityType,
+                        experimentCase.entityCount, 1,
+                        experimentCase.complexity, &failureReason);
+            if (!sceneValid) {
+                output << "ERROR,production_display_cache_scene_build_failed,"
+                       << caseName << ',' << failureReason << '\n';
+                return false;
+            }
+        }
+        if (!sceneValid) {
+            output << "ERROR,production_display_cache_scene_build_failed,"
+                   << caseName << '\n';
+            return false;
+        }
+
+        const int curvePercent = experimentCase.entityType
+                == CanvasEntityType::Invalid
+                ? CurvePercentage(experimentCase.mix)
+                : BoundsEntityCurvePercentage(experimentCase.entityType);
+        const CanvasVector worldQuery = experimentCase.hit
+                ? kInteractionProbeCenter
+                : CanvasVector(1000000.0, 1000000.0);
+        const bool recursiveEntitySet =
+                experimentCase.entityType == CanvasEntityType::Polyline
+                || experimentCase.entityType
+                        == CanvasEntityType::GroupContainer;
+        if (!MeasureProductionDisplayCacheCase(
+                    output, &document, experimentCase.entityCount,
+                    curvePercent, caseName, worldQuery, recursiveEntitySet,
+                    experimentCase.hit, experimentCase.expectedItemId,
+                    experimentCase.refresh)) {
+            output << "ERROR,production_display_cache_case_failed,"
+                   << caseName << '\n';
+            return false;
+        }
+        ++completedCaseCount;
+        output.flush();
+    }
+
+    output << "# MG011_PRODUCTION_DISPLAY_CACHE_SUMMARY,cases="
+           << completedCaseCount << ",expected_cases=" << caseCount
+           << ",selection_parity=true"
+           << ",cold_warm_refresh_stages_measured=true"
+           << ",production_default_path_exercised=true"
+           << ",live_control_preserves_default_bounds_filter=true\n";
+    output.flush();
+    return completedCaseCount == caseCount;
+}
+
+bool RunMG010MaximumDisplaySizeExperiment(QTextStream &output)
+{
+    if (!VerifyMaximumDisplaySizeCacheMutationParity(output)) {
+        return false;
+    }
+
+    struct ExperimentCase
+    {
+        const char *name;
+        int entityCount;
+        SceneMix mix;
+        CanvasEntityType entityType;
+        int complexity;
+        bool dense;
+        bool hit;
+    };
+    const ExperimentCase cases[] = {
+        {"simple_sparse_hit", 5000, SceneMix::Simple,
+         CanvasEntityType::Invalid, 0, false, true},
+        {"simple_dense_hit", 5000, SceneMix::Simple,
+         CanvasEntityType::Invalid, 0, true, true},
+        {"curve_heavy_miss", 5000, SceneMix::CurveHeavy,
+         CanvasEntityType::Invalid, 0, false, false},
+        {"polyline_256_miss", 1000, SceneMix::Simple,
+         CanvasEntityType::Polyline, 256, false, false},
+        {"group_64_miss", 1000, SceneMix::Simple,
+         CanvasEntityType::GroupContainer, 64, false, false}
+    };
+    const int caseCount = sizeof(cases) / sizeof(cases[0]);
+    int completedCaseCount = 0;
+    output << "# MG010_MAXIMUM_DISPLAY_SIZE_EXPERIMENT"
+              ",scope=profiling_build_only"
+              ",modes=filter_off|live_geometry_live_style|cached_geometry_live_style|cached_geometry_cached_style"
+              ",hierarchy_cases=1000_entities"
+              ",mixed_cases=5000_entities"
+              ",samples_per_mode=31"
+              ",stage_timing_sample=6_of_36_weighted_by_6"
+              ",operation_counts=exact"
+              ",mutation_refresh=replace_one_entity_then_rebuild_full_cache"
+              ",production_cache_enabled=false"
+              ",selection_parity_required=true\n";
+
+    for (int caseIndex = 0; caseIndex < caseCount; ++caseIndex) {
+        const ExperimentCase &experimentCase = cases[caseIndex];
+        const QString caseName = QString::fromLatin1(experimentCase.name);
+        CanvasDocument document;
+        bool sceneValid = false;
+        if (experimentCase.entityType == CanvasEntityType::Invalid) {
+            sceneValid = PopulateDocument(
+                        &document, experimentCase.entityCount,
+                        experimentCase.mix, experimentCase.dense);
+            if (sceneValid && experimentCase.hit && !experimentCase.dense) {
+                sceneValid = PrepareInteractionProbe(&document);
+            }
+        } else {
+            QString sceneFailureReason;
+            sceneValid = PopulateBoundsComplexityDocument(
+                        &document, experimentCase.entityType,
+                        experimentCase.entityCount, 1,
+                        experimentCase.complexity, &sceneFailureReason);
+            if (!sceneValid) {
+                output << "ERROR,display_size_cache_scene_build_failed,"
+                       << caseName << ',' << sceneFailureReason << '\n';
+                return false;
+            }
+        }
+        if (!sceneValid) {
+            output << "ERROR,display_size_cache_scene_build_failed," << caseName
+                   << '\n';
+            return false;
+        }
+
+        const int curvePercent = experimentCase.entityType
+                == CanvasEntityType::Invalid
+                ? CurvePercentage(experimentCase.mix)
+                : BoundsEntityCurvePercentage(experimentCase.entityType);
+        const CanvasVector query = experimentCase.hit
+                ? kInteractionProbeCenter
+                : CanvasVector(1000000.0, 1000000.0);
+        BenchmarkResult modeResults[4];
+        BenchmarkResult cacheBuildResult;
+        BenchmarkResult replaceOnlyResult;
+        BenchmarkResult replaceAndRebuildResult;
+        if (!MeasureHitDisplaySizeCacheCase(
+                    output, &document, experimentCase.entityCount,
+                    static_cast<int>(curvePercent), caseName, query,
+                    experimentCase.hit, modeResults, &cacheBuildResult,
+                    &replaceOnlyResult, &replaceAndRebuildResult)) {
+            output << "ERROR,display_size_cache_case_failed," << caseName << '\n';
+            return false;
+        }
+        ++completedCaseCount;
+        output.flush();
+    }
+
+    output << "# MG010_MAXIMUM_DISPLAY_SIZE_SUMMARY,cases="
+           << completedCaseCount
+           << ",expected_cases=" << caseCount
+           << ",timing_rows=" << completedCaseCount * 7
+           << ",four_way_selection_parity=true"
+           << ",style_tree_visit_counts_verified=true"
+           << ",cache_misses=0"
+           << ",wide_and_narrow_style_mutation_parity=true"
+           << ",post_replace_full_cache_rebuild_measured=true"
+           << ",production_cache_enabled=false\n";
+    output.flush();
+    return completedCaseCount == caseCount;
+}
+
 bool RunMG010HitFilterCacheExperiment(QTextStream &output)
 {
     if (!VerifyBoundsFilterHitParity(output)) {
@@ -3535,6 +4647,32 @@ int main(int argc, char *argv[])
     output << "scenario,entities,curve_percent,workload,median_ms,p95_ms,iterations_per_sample\n";
 
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    if (argc > 1
+            && QString::fromLocal8Bit(argv[1])
+                    == QStringLiteral("--mg011-production-display-cache")) {
+        if (!RunMG011ProductionDisplayCacheExperiment(output)) {
+            output.flush();
+            return 2;
+        }
+        return 0;
+    }
+
+    if (argc > 1
+            && QString::fromLocal8Bit(argv[1])
+                    == QStringLiteral("--mg010-hit-display-cache")) {
+        output << "# MG010_HIT_DISPLAY_CACHE_EXPERIMENT"
+                  ",scope=profiling_build_only"
+                  ",production_cache_enabled=false"
+                  ",bounds_filter_default=off"
+                  ",style_scan_and_cache_build_refresh=true"
+                  ",paired_order=rotating_same_process\n";
+        if (!RunMG010MaximumDisplaySizeExperiment(output)) {
+            output.flush();
+            return 2;
+        }
+        return 0;
+    }
+
     if (argc > 1
             && QString::fromLocal8Bit(argv[1])
                     == QStringLiteral("--mg010-hit-filter-cache")) {

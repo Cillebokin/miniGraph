@@ -224,7 +224,8 @@ public:
     QRectF GetBounds(const QVector<ItemId> &ids) const;
 
 signals:
-    // 文档中的图元集合或图元数据发生变化时发出。
+    // 图元集合或图元数据提交变化后发出；处理信号时可以读取到更新后的文档状态。
+    // 依赖文档图元数据的缓存应在收到该信号时失效；该粗粒度信号不提供具体图元 ID。
     void Changed();
 
     // 文档中的图元选择状态发生变化时发出。

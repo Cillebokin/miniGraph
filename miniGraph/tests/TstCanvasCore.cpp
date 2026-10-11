@@ -211,6 +211,7 @@ private slots:
     void DocumentUpdatesGeometryByType();
     void DocumentCalculatesSelectedBounds();
     void DocumentChangesEmitSignals();
+    void DocumentDisplaySizeMutationsEmitChanged();
     void DocumentOwnsCanvasDataAndGlobalData();
     void DocumentDetachesCanvasDataWhenEntitiesAreRemoved();
     void DocumentNotifiesCanvasDataMutations();
@@ -301,6 +302,11 @@ private slots:
     void CanvasViewHitTestUsesPointDisplaySize();
     void CanvasViewHitTestRejectsNonFiniteDistances();
     void CanvasViewHitTestUsesLineDisplayWidth();
+    void CanvasViewMaximumDisplaySizeCacheInvalidatesOnDocumentChanges();
+    void CanvasViewMaximumDisplaySizeCacheInvalidatesOnPolylineReplacement();
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    void CanvasViewMaximumDisplaySizeCacheProfilingBypassPreservesHitTesting();
+#endif
     void CanvasViewWindowSelectionUsesDragDirection();
     void CanvasViewWindowSelectionSelectsAllGeometryTypes();
     void CanvasViewSingleClickSelectsAllCanvasEntityTypes();
@@ -1779,6 +1785,222 @@ void CanvasCoreTest::DocumentChangesEmitSignals()
 
     QCOMPARE(changedSpy.count(), 4);
     QCOMPARE(document.GetItemCount(), 0);
+}
+
+void CanvasCoreTest::DocumentDisplaySizeMutationsEmitChanged()
+{
+    mini_graph::CanvasDocument document;
+
+    mini_graph::CanvasPoint point(mini_graph::CanvasVector(0.0, 0.0));
+    mini_graph::StruCanvasStyle pointStyle = point.GetStyle();
+    pointStyle.pointSize = 4.0;
+    QVERIFY(point.SetStyle(pointStyle));
+    const mini_graph::ItemId pointId = document.AddEntity(point);
+    QVERIFY(pointId != 0);
+
+    mini_graph::CanvasLine polylineSegment(
+                mini_graph::CanvasVector(0.0, 10.0),
+                mini_graph::CanvasVector(10.0, 10.0));
+    mini_graph::StruCanvasStyle segmentStyle = polylineSegment.GetStyle();
+    segmentStyle.strokeWidth = 2.0;
+    QVERIFY(polylineSegment.SetStyle(segmentStyle));
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(polylineSegment));
+    const mini_graph::ItemId polylineId = document.AddEntity(polyline);
+    QVERIFY(polylineId != 0);
+
+    mini_graph::CanvasPoint nestedPoint(mini_graph::CanvasVector(20.0, 0.0));
+    mini_graph::StruCanvasStyle nestedPointStyle = nestedPoint.GetStyle();
+    nestedPointStyle.pointSize = 3.0;
+    QVERIFY(nestedPoint.SetStyle(nestedPointStyle));
+    mini_graph::CanvasGroupContainer innerGroup;
+    QVERIFY(innerGroup.AddChild(nestedPoint));
+    mini_graph::CanvasGroupContainer outerGroup;
+    QVERIFY(outerGroup.AddChild(innerGroup));
+    const mini_graph::ItemId groupId = document.AddEntity(outerGroup);
+    QVERIFY(groupId != 0);
+
+    QSignalSpy changedSpy(&document, &mini_graph::CanvasDocument::Changed);
+    QVERIFY(changedSpy.isValid());
+
+    bool pointStyleWasUpdatedWhenChangedWasEmitted = false;
+    const QMetaObject::Connection pointStyleObserver = QObject::connect(
+                &document, &mini_graph::CanvasDocument::Changed, &document,
+                [&document, pointId,
+                 &pointStyleWasUpdatedWhenChangedWasEmitted]() {
+        mini_graph::StruCanvasStyle observedStyle;
+        pointStyleWasUpdatedWhenChangedWasEmitted =
+                document.GetItemStyle(pointId, &observedStyle)
+                && observedStyle.pointSize == 24.0;
+    });
+    QVERIFY(pointStyleObserver);
+    QVERIFY(document.GetItemStyle(pointId, &pointStyle));
+    pointStyle.pointSize = 24.0;
+    QVERIFY(document.SetItemStyle(pointId, pointStyle));
+    QObject::disconnect(pointStyleObserver);
+    QCOMPARE(changedSpy.count(), 1);
+    QVERIFY(pointStyleWasUpdatedWhenChangedWasEmitted);
+    mini_graph::StruCanvasStyle storedPointStyle;
+    QVERIFY(document.GetItemStyle(pointId, &storedPointStyle));
+    QCOMPARE(storedPointStyle.pointSize, 24.0);
+    QVERIFY(!document.SetItemStyle(pointId, pointStyle));
+    QCOMPARE(changedSpy.count(), 1);
+
+    QSharedPointer<mini_graph::CanvasEntity> polylineClone =
+            document.GetEntity(polylineId)->Clone();
+    mini_graph::CanvasPolyline *updatedPolyline =
+            dynamic_cast<mini_graph::CanvasPolyline *>(polylineClone.data());
+    QVERIFY(updatedPolyline);
+    mini_graph::CanvasLine widerSegment(
+                mini_graph::CanvasVector(0.0, 10.0),
+                mini_graph::CanvasVector(10.0, 10.0));
+    segmentStyle = widerSegment.GetStyle();
+    segmentStyle.strokeWidth = 32.0;
+    QVERIFY(widerSegment.SetStyle(segmentStyle));
+    QVERIFY(updatedPolyline->SetSegment(0, widerSegment));
+    QCOMPARE(changedSpy.count(), 1);
+    bool polylineStyleWasUpdatedWhenChangedWasEmitted = false;
+    const QMetaObject::Connection polylineStyleObserver = QObject::connect(
+                &document, &mini_graph::CanvasDocument::Changed, &document,
+                [&document, polylineId,
+                 &polylineStyleWasUpdatedWhenChangedWasEmitted]() {
+        const mini_graph::CanvasPolyline *observedPolyline =
+                dynamic_cast<const mini_graph::CanvasPolyline *>(
+                    document.GetEntity(polylineId));
+        const mini_graph::CanvasLine *observedSegment = observedPolyline
+                ? dynamic_cast<const mini_graph::CanvasLine *>(
+                    observedPolyline->GetSegment(0))
+                : nullptr;
+        polylineStyleWasUpdatedWhenChangedWasEmitted = observedSegment
+                && observedSegment->GetStyle().strokeWidth == 32.0;
+    });
+    QVERIFY(polylineStyleObserver);
+    QVERIFY(document.ReplaceEntity(polylineId, *updatedPolyline));
+    QObject::disconnect(polylineStyleObserver);
+    QCOMPARE(changedSpy.count(), 2);
+    QVERIFY(polylineStyleWasUpdatedWhenChangedWasEmitted);
+
+    const mini_graph::CanvasPolyline *storedPolyline =
+            dynamic_cast<const mini_graph::CanvasPolyline *>(
+                document.GetEntity(polylineId));
+    QVERIFY(storedPolyline);
+    const mini_graph::CanvasLine *storedSegment =
+            dynamic_cast<const mini_graph::CanvasLine *>(
+                storedPolyline->GetSegment(0));
+    QVERIFY(storedSegment);
+    QCOMPARE(storedSegment->GetStyle().strokeWidth, 32.0);
+
+    QSharedPointer<mini_graph::CanvasEntity> groupClone =
+            document.GetEntity(groupId)->Clone();
+    mini_graph::CanvasGroupContainer *updatedOuterGroup =
+            dynamic_cast<mini_graph::CanvasGroupContainer *>(groupClone.data());
+    QVERIFY(updatedOuterGroup);
+    QSharedPointer<mini_graph::CanvasEntity> innerClone =
+            updatedOuterGroup->GetChild(0)->Clone();
+    mini_graph::CanvasGroupContainer *updatedInnerGroup =
+            dynamic_cast<mini_graph::CanvasGroupContainer *>(innerClone.data());
+    QVERIFY(updatedInnerGroup);
+
+    mini_graph::CanvasPoint widerNestedPoint(
+                mini_graph::CanvasVector(20.0, 0.0));
+    nestedPointStyle = widerNestedPoint.GetStyle();
+    nestedPointStyle.pointSize = 40.0;
+    QVERIFY(widerNestedPoint.SetStyle(nestedPointStyle));
+    QVERIFY(updatedInnerGroup->ReplaceChild(0, widerNestedPoint));
+    QVERIFY(updatedOuterGroup->ReplaceChild(0, *updatedInnerGroup));
+    QCOMPARE(changedSpy.count(), 2);
+    bool nestedGroupStyleWasUpdatedWhenChangedWasEmitted = false;
+    const QMetaObject::Connection nestedGroupStyleObserver = QObject::connect(
+                &document, &mini_graph::CanvasDocument::Changed, &document,
+                [&document, groupId,
+                 &nestedGroupStyleWasUpdatedWhenChangedWasEmitted]() {
+        const mini_graph::CanvasGroupContainer *observedOuterGroup =
+                dynamic_cast<const mini_graph::CanvasGroupContainer *>(
+                    document.GetEntity(groupId));
+        const mini_graph::CanvasGroupContainer *observedInnerGroup =
+                observedOuterGroup
+                ? dynamic_cast<const mini_graph::CanvasGroupContainer *>(
+                    observedOuterGroup->GetChild(0))
+                : nullptr;
+        const mini_graph::CanvasPoint *observedPoint = observedInnerGroup
+                ? dynamic_cast<const mini_graph::CanvasPoint *>(
+                    observedInnerGroup->GetChild(0))
+                : nullptr;
+        nestedGroupStyleWasUpdatedWhenChangedWasEmitted = observedPoint
+                && observedPoint->GetStyle().pointSize == 40.0;
+    });
+    QVERIFY(nestedGroupStyleObserver);
+    QVERIFY(document.ReplaceEntity(groupId, *updatedOuterGroup));
+    QObject::disconnect(nestedGroupStyleObserver);
+    QCOMPARE(changedSpy.count(), 3);
+    QVERIFY(nestedGroupStyleWasUpdatedWhenChangedWasEmitted);
+
+    const mini_graph::CanvasGroupContainer *storedOuterGroup =
+            dynamic_cast<const mini_graph::CanvasGroupContainer *>(
+                document.GetEntity(groupId));
+    QVERIFY(storedOuterGroup);
+    const mini_graph::CanvasGroupContainer *storedInnerGroup =
+            dynamic_cast<const mini_graph::CanvasGroupContainer *>(
+                storedOuterGroup->GetChild(0));
+    QVERIFY(storedInnerGroup);
+    const mini_graph::CanvasPoint *storedNestedPoint =
+            dynamic_cast<const mini_graph::CanvasPoint *>(
+                storedInnerGroup->GetChild(0));
+    QVERIFY(storedNestedPoint);
+    QCOMPARE(storedNestedPoint->GetStyle().pointSize, 40.0);
+
+    QSharedPointer<mini_graph::CanvasEntity> groupWithAddedChildClone =
+            document.GetEntity(groupId)->Clone();
+    updatedOuterGroup = dynamic_cast<mini_graph::CanvasGroupContainer *>(
+                groupWithAddedChildClone.data());
+    QVERIFY(updatedOuterGroup);
+    innerClone = updatedOuterGroup->GetChild(0)->Clone();
+    updatedInnerGroup = dynamic_cast<mini_graph::CanvasGroupContainer *>(
+                innerClone.data());
+    QVERIFY(updatedInnerGroup);
+    mini_graph::CanvasLine addedWideChild(
+                mini_graph::CanvasVector(30.0, 0.0),
+                mini_graph::CanvasVector(40.0, 0.0));
+    mini_graph::StruCanvasStyle addedChildStyle = addedWideChild.GetStyle();
+    addedChildStyle.strokeWidth = 48.0;
+    QVERIFY(addedWideChild.SetStyle(addedChildStyle));
+    QVERIFY(updatedInnerGroup->AddChild(addedWideChild));
+    QVERIFY(updatedOuterGroup->ReplaceChild(0, *updatedInnerGroup));
+    QVERIFY(document.ReplaceEntity(groupId, *updatedOuterGroup));
+    QCOMPARE(changedSpy.count(), 4);
+    storedOuterGroup = dynamic_cast<const mini_graph::CanvasGroupContainer *>(
+                document.GetEntity(groupId));
+    QVERIFY(storedOuterGroup);
+    storedInnerGroup = dynamic_cast<const mini_graph::CanvasGroupContainer *>(
+                storedOuterGroup->GetChild(0));
+    QVERIFY(storedInnerGroup);
+    QCOMPARE(storedInnerGroup->GetChildCount(), 2);
+    const mini_graph::CanvasLine *storedAddedWideChild =
+            dynamic_cast<const mini_graph::CanvasLine *>(
+                storedInnerGroup->GetChild(1));
+    QVERIFY(storedAddedWideChild);
+    QCOMPARE(storedAddedWideChild->GetStyle().strokeWidth, 48.0);
+
+    QSharedPointer<mini_graph::CanvasEntity> groupWithRemovedChildClone =
+            document.GetEntity(groupId)->Clone();
+    updatedOuterGroup = dynamic_cast<mini_graph::CanvasGroupContainer *>(
+                groupWithRemovedChildClone.data());
+    QVERIFY(updatedOuterGroup);
+    innerClone = updatedOuterGroup->GetChild(0)->Clone();
+    updatedInnerGroup = dynamic_cast<mini_graph::CanvasGroupContainer *>(
+                innerClone.data());
+    QVERIFY(updatedInnerGroup);
+    QVERIFY(updatedInnerGroup->RemoveChild(1));
+    QVERIFY(updatedOuterGroup->ReplaceChild(0, *updatedInnerGroup));
+    QVERIFY(document.ReplaceEntity(groupId, *updatedOuterGroup));
+    QCOMPARE(changedSpy.count(), 5);
+    storedOuterGroup = dynamic_cast<const mini_graph::CanvasGroupContainer *>(
+                document.GetEntity(groupId));
+    QVERIFY(storedOuterGroup);
+    storedInnerGroup = dynamic_cast<const mini_graph::CanvasGroupContainer *>(
+                storedOuterGroup->GetChild(0));
+    QVERIFY(storedInnerGroup);
+    QCOMPARE(storedInnerGroup->GetChildCount(), 1);
 }
 
 void CanvasCoreTest::DocumentStoresMixedGeometryPools()
@@ -5945,6 +6167,267 @@ void CanvasCoreTest::CanvasViewHitTestUsesLineDisplayWidth()
 
     QVERIFY(document.IsItemSelected(lineId));
 }
+
+void CanvasCoreTest::CanvasViewMaximumDisplaySizeCacheInvalidatesOnDocumentChanges()
+{
+    const auto addNestedGroup = [](mini_graph::CanvasDocument *document,
+                                   qreal strokeWidth) {
+        if (!document) {
+            return mini_graph::ItemId(0);
+        }
+        mini_graph::CanvasLine line(mini_graph::CanvasVector(0.0, 0.0),
+                                    mini_graph::CanvasVector(40.0, 0.0));
+        mini_graph::StruCanvasStyle lineStyle = line.GetStyle();
+        lineStyle.strokeWidth = strokeWidth;
+        if (!line.SetStyle(lineStyle)) {
+            return mini_graph::ItemId(0);
+        }
+
+        mini_graph::CanvasGroupContainer innerGroup;
+        if (!innerGroup.AddChild(line)) {
+            return mini_graph::ItemId(0);
+        }
+        mini_graph::CanvasGroupContainer outerGroup;
+        if (!outerGroup.AddChild(innerGroup)) {
+            return mini_graph::ItemId(0);
+        }
+        return document->AddEntity(outerGroup);
+    };
+    const auto replaceNestedLineWidth = [](
+            mini_graph::CanvasDocument *document,
+            mini_graph::ItemId itemId,
+            qreal strokeWidth) {
+        if (!document) {
+            return false;
+        }
+        const mini_graph::CanvasEntity *entity = document->GetEntity(itemId);
+        if (!entity) {
+            return false;
+        }
+        QSharedPointer<mini_graph::CanvasEntity> outerClone = entity->Clone();
+        mini_graph::CanvasGroupContainer *outerGroup =
+                dynamic_cast<mini_graph::CanvasGroupContainer *>(
+                    outerClone.data());
+        const mini_graph::CanvasGroupContainer *storedInnerGroup = outerGroup
+                ? dynamic_cast<const mini_graph::CanvasGroupContainer *>(
+                    outerGroup->GetChild(0)) : nullptr;
+        QSharedPointer<mini_graph::CanvasEntity> innerClone =
+                storedInnerGroup ? storedInnerGroup->Clone()
+                                 : QSharedPointer<mini_graph::CanvasEntity>();
+        mini_graph::CanvasGroupContainer *innerGroup =
+                dynamic_cast<mini_graph::CanvasGroupContainer *>(
+                    innerClone.data());
+        const mini_graph::CanvasLine *storedLine = innerGroup
+                ? dynamic_cast<const mini_graph::CanvasLine *>(
+                    innerGroup->GetChild(0)) : nullptr;
+        if (!outerGroup || !innerGroup || !storedLine) {
+            return false;
+        }
+
+        mini_graph::CanvasLine replacementLine(
+                    storedLine->GetStartPoint(),
+                    storedLine->GetEndPoint());
+        mini_graph::StruCanvasStyle lineStyle = storedLine->GetStyle();
+        lineStyle.strokeWidth = strokeWidth;
+        if (!replacementLine.SetStyle(lineStyle)
+                || !innerGroup->ReplaceChild(0, replacementLine)
+                || !outerGroup->ReplaceChild(0, *innerGroup)) {
+            return false;
+        }
+        return document->ReplaceEntity(itemId, *outerGroup);
+    };
+    const auto click = [](CanvasViewHarness *view, const QPointF &position) {
+        QMouseEvent press(QEvent::MouseButtonPress,
+                          position,
+                          position,
+                          position,
+                          Qt::LeftButton,
+                          Qt::LeftButton,
+                          Qt::NoModifier);
+        view->mousePressEvent(&press);
+        QMouseEvent release(QEvent::MouseButtonRelease,
+                            position,
+                            position,
+                            position,
+                            Qt::LeftButton,
+                            Qt::NoButton,
+                            Qt::NoModifier);
+        view->mouseReleaseEvent(&release);
+    };
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId itemId = addNestedGroup(&document, 2.0);
+    QVERIFY(itemId != 0);
+
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+    const QPointF clickPosition = view.MapFromWorld(
+                mini_graph::CanvasVector(20.0, 12.0));
+
+    click(&view, clickPosition);
+    QVERIFY(!document.IsItemSelected(itemId));
+
+    QVERIFY(replaceNestedLineWidth(&document, itemId, 30.0));
+    document.ClearSelection();
+    click(&view, clickPosition);
+    QVERIFY(document.IsItemSelected(itemId));
+
+    QVERIFY(replaceNestedLineWidth(&document, itemId, 2.0));
+    document.ClearSelection();
+    click(&view, clickPosition);
+    QVERIFY(!document.IsItemSelected(itemId));
+
+    mini_graph::CanvasDocument replacementDocument;
+    const mini_graph::ItemId replacementItemId =
+            addNestedGroup(&replacementDocument, 30.0);
+    QCOMPARE(replacementItemId, itemId);
+    view.SetDocument(&replacementDocument);
+    click(&view, clickPosition);
+    QVERIFY(replacementDocument.IsItemSelected(replacementItemId));
+}
+
+void CanvasCoreTest::CanvasViewMaximumDisplaySizeCacheInvalidatesOnPolylineReplacement()
+{
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasLine originalLine(mini_graph::CanvasVector(0.0, 0.0),
+                                        mini_graph::CanvasVector(40.0, 0.0));
+    mini_graph::StruCanvasStyle lineStyle = originalLine.GetStyle();
+    lineStyle.strokeWidth = 2.0;
+    QVERIFY(originalLine.SetStyle(lineStyle));
+    mini_graph::CanvasPolyline originalPolyline;
+    mini_graph::StruCanvasStyle polylineStyle = originalPolyline.GetStyle();
+    polylineStyle.strokeWidth = 2.0;
+    QVERIFY(originalPolyline.SetStyle(polylineStyle));
+    QVERIFY(originalPolyline.AddSegment(originalLine));
+    const mini_graph::ItemId itemId = document.AddEntity(originalPolyline);
+    QVERIFY(itemId != 0);
+
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+    const QPointF clickPosition = view.MapFromWorld(
+                mini_graph::CanvasVector(20.0, 12.0));
+    const auto click = [&view, &clickPosition]() {
+        QMouseEvent press(QEvent::MouseButtonPress,
+                          clickPosition,
+                          clickPosition,
+                          clickPosition,
+                          Qt::LeftButton,
+                          Qt::LeftButton,
+                          Qt::NoModifier);
+        view.mousePressEvent(&press);
+        QMouseEvent release(QEvent::MouseButtonRelease,
+                            clickPosition,
+                            clickPosition,
+                            clickPosition,
+                            Qt::LeftButton,
+                            Qt::NoButton,
+                            Qt::NoModifier);
+        view.mouseReleaseEvent(&release);
+    };
+
+    click();
+    QVERIFY(!document.IsItemSelected(itemId));
+
+    QSharedPointer<mini_graph::CanvasEntity> updatedEntity =
+            document.GetEntity(itemId)->Clone();
+    mini_graph::CanvasPolyline *updatedPolyline =
+            dynamic_cast<mini_graph::CanvasPolyline *>(updatedEntity.data());
+    QVERIFY(updatedPolyline);
+    polylineStyle = updatedPolyline->GetStyle();
+    polylineStyle.strokeWidth = 30.0;
+    QVERIFY(updatedPolyline->SetStyle(polylineStyle));
+    QVERIFY(document.ReplaceEntity(itemId, *updatedPolyline));
+
+    document.ClearSelection();
+    click();
+    QVERIFY(document.IsItemSelected(itemId));
+}
+
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+void CanvasCoreTest::CanvasViewMaximumDisplaySizeCacheProfilingBypassPreservesHitTesting()
+{
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasLine line(mini_graph::CanvasVector(0.0, 0.0),
+                                mini_graph::CanvasVector(40.0, 0.0));
+    mini_graph::StruCanvasStyle lineStyle = line.GetStyle();
+    lineStyle.strokeWidth = 2.0;
+    QVERIFY(line.SetStyle(lineStyle));
+
+    mini_graph::CanvasPolyline polyline;
+    mini_graph::StruCanvasStyle polylineStyle = polyline.GetStyle();
+    polylineStyle.strokeWidth = 2.0;
+    QVERIFY(polyline.SetStyle(polylineStyle));
+    QVERIFY(polyline.AddSegment(line));
+    const mini_graph::ItemId itemId = document.AddEntity(polyline);
+    QVERIFY(itemId != 0);
+
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+    const QPointF clickPosition = view.MapFromWorld(
+                mini_graph::CanvasVector(20.0, 12.0));
+    const auto click = [&view, &clickPosition]() {
+        QMouseEvent press(QEvent::MouseButtonPress,
+                          clickPosition,
+                          clickPosition,
+                          clickPosition,
+                          Qt::LeftButton,
+                          Qt::LeftButton,
+                          Qt::NoModifier);
+        view.mousePressEvent(&press);
+        QMouseEvent release(QEvent::MouseButtonRelease,
+                            clickPosition,
+                            clickPosition,
+                            clickPosition,
+                            Qt::LeftButton,
+                            Qt::NoButton,
+                            Qt::NoModifier);
+        view.mouseReleaseEvent(&release);
+    };
+
+    click();
+    QVERIFY(!document.IsItemSelected(itemId));
+    mini_graph::CanvasView::CanvasHitTestProfile profile =
+            view.GetHitTestProfile();
+    QCOMPARE(profile.maximumDisplaySizeCacheLookupCount, quint64(2));
+    QCOMPARE(profile.maximumDisplaySizeCacheMissCount, quint64(0));
+    QCOMPARE(profile.maximumDisplaySizeCalculationCallCount, quint64(0));
+
+    QSharedPointer<mini_graph::CanvasEntity> updatedEntity =
+            document.GetEntity(itemId)->Clone();
+    mini_graph::CanvasPolyline *updatedPolyline =
+            dynamic_cast<mini_graph::CanvasPolyline *>(updatedEntity.data());
+    QVERIFY(updatedPolyline);
+    polylineStyle = updatedPolyline->GetStyle();
+    polylineStyle.strokeWidth = 30.0;
+    QVERIFY(updatedPolyline->SetStyle(polylineStyle));
+    QVERIFY(document.ReplaceEntity(itemId, *updatedPolyline));
+
+    document.ClearSelection();
+    view.ResetHitTestProfile();
+    view.SetHitTestMaximumDisplaySizeCacheBypassedForProfiling(true);
+    click();
+    QVERIFY(document.IsItemSelected(itemId));
+    profile = view.GetHitTestProfile();
+    QCOMPARE(profile.maximumDisplaySizeCacheLookupCount, quint64(0));
+    QCOMPARE(profile.maximumDisplaySizeCalculationCallCount, quint64(2));
+
+    document.ClearSelection();
+    view.ResetHitTestProfile();
+    view.SetHitTestMaximumDisplaySizeCacheBypassedForProfiling(false);
+    click();
+    QVERIFY(document.IsItemSelected(itemId));
+    profile = view.GetHitTestProfile();
+    QCOMPARE(profile.maximumDisplaySizeCacheLookupCount, quint64(2));
+    QCOMPARE(profile.maximumDisplaySizeCacheMissCount, quint64(0));
+    QCOMPARE(profile.maximumDisplaySizeCalculationCallCount, quint64(0));
+}
+#endif
 
 void CanvasCoreTest::CanvasViewWindowSelectionUsesDragDirection()
 {

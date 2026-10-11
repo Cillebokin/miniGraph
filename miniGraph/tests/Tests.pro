@@ -3,6 +3,9 @@ TARGET = MiniGraphTests
 
 QT += testlib widgets
 CONFIG += testcase c++11
+contains(CONFIG, performancebench) {
+    DEFINES += MINIGRAPH_ENABLE_PERF_PROFILING
+}
 win32-msvc {
     QMAKE_CXXFLAGS += /utf-8
 }

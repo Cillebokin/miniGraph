@@ -205,7 +205,6 @@ qreal CalculateHitToleranceSquared(qreal zoom, qreal displaySize)
     return worldTolerance * worldTolerance;
 }
 
-#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
 bool TryGetMaximumHitDisplaySize(const CanvasEntity &root,
                                 qreal *maximumDisplaySize)
 {
@@ -256,23 +255,59 @@ bool TryGetMaximumHitDisplaySize(const CanvasEntity &root,
     return true;
 }
 
-bool IsOutsideConservativeHitBounds(const CanvasEntity &entity,
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+bool TryCountHitDisplaySizeTreeNodes(const CanvasEntity &root,
+                                    quint64 *entityVisitCount)
+{
+    if (!entityVisitCount) {
+        return false;
+    }
+
+    *entityVisitCount = 0;
+    QVector<const CanvasEntity *> pendingEntities;
+    pendingEntities.append(&root);
+    while (!pendingEntities.isEmpty()) {
+        const CanvasEntity *entity = pendingEntities.takeLast();
+        if (!entity) {
+            return false;
+        }
+        ++(*entityVisitCount);
+
+        if (entity->GetType() == CanvasEntityType::Polyline) {
+            const CanvasPolyline *polyline =
+                    dynamic_cast<const CanvasPolyline *>(entity);
+            if (!polyline) {
+                return false;
+            }
+            for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+                pendingEntities.append(polyline->GetSegment(index));
+            }
+        } else if (entity->GetType() == CanvasEntityType::GroupContainer) {
+            const CanvasGroupContainer *group =
+                    dynamic_cast<const CanvasGroupContainer *>(entity);
+            if (!group) {
+                return false;
+            }
+            for (int index = 0; index < group->GetChildCount(); ++index) {
+                pendingEntities.append(group->GetChild(index));
+            }
+        }
+    }
+    return true;
+}
+#endif
+
+bool IsOutsideConservativeHitBounds(const QRectF &geometryBounds,
                                     const CanvasVector &worldPosition,
                                     qreal zoom,
-                                    const QRectF *cachedGeometryBounds = nullptr)
+                                    qreal maximumDisplaySize)
 {
     if (!worldPosition.IsValid()) {
         return false;
     }
 
-    QRectF geometryBounds;
-    qreal maximumDisplaySize = 0.0;
-    if (cachedGeometryBounds) {
-        geometryBounds = *cachedGeometryBounds;
-    } else if (!TryGetGeometryBounds(entity, &geometryBounds)) {
-        return false;
-    }
-    if (!TryGetMaximumHitDisplaySize(entity, &maximumDisplaySize)) {
+    if (!std::isfinite(static_cast<double>(maximumDisplaySize))
+            || maximumDisplaySize < 0.0) {
         return false;
     }
 
@@ -295,7 +330,12 @@ bool IsOutsideConservativeHitBounds(const CanvasEntity &entity,
     return !expandedBounds.contains(QPointF(worldPosition.GetX(),
                                              worldPosition.GetY()));
 }
-#endif
+
+bool UsesRecursiveHitDisplaySize(const CanvasEntity &entity)
+{
+    return entity.GetType() == CanvasEntityType::Polyline
+            || entity.GetType() == CanvasEntityType::GroupContainer;
+}
 
 struct EntitySelectionPath
 {
@@ -729,11 +769,75 @@ public:
     QImage m_GeometryLayer;
     QImage m_OverlayLayer;
     std::unique_ptr<CanvasPainterRenderer> m_DefaultRenderer;
+    QHash<ItemId, qreal> m_HitTestMaximumDisplaySizeCache;
+    bool m_HitTestMaximumDisplaySizeCacheValid = false;
+
+    void InvalidateHitTestMaximumDisplaySizeCache()
+    {
+        m_HitTestMaximumDisplaySizeCache.clear();
+        m_HitTestMaximumDisplaySizeCacheValid = false;
+    }
+
+    bool EnsureHitTestMaximumDisplaySizeCache(
+            const CanvasDocument *document)
+    {
+        if (m_HitTestMaximumDisplaySizeCacheValid) {
+            return true;
+        }
+        if (!document) {
+            return false;
+        }
+
+        QHash<ItemId, qreal> candidateCache;
+        const QVector<ItemId> ids = document->GetItemIds();
+        for (const ItemId id : ids) {
+            const CanvasEntity *entity = document->GetEntity(id);
+            if (!entity || !UsesRecursiveHitDisplaySize(*entity)) {
+                continue;
+            }
+
+            qreal maximumDisplaySize = 0.0;
+            if (TryGetMaximumHitDisplaySize(*entity,
+                                            &maximumDisplaySize)) {
+                candidateCache.insert(id, maximumDisplaySize);
+            }
+        }
+
+        m_HitTestMaximumDisplaySizeCache.swap(candidateCache);
+        m_HitTestMaximumDisplaySizeCacheValid = true;
+        return true;
+    }
+
+    bool TryGetCachedHitDisplaySize(const CanvasDocument *document,
+                                    ItemId id,
+                                    const CanvasEntity &entity,
+                                    qreal *maximumDisplaySize)
+    {
+        if (!maximumDisplaySize || !UsesRecursiveHitDisplaySize(entity)
+                || !EnsureHitTestMaximumDisplaySizeCache(document)) {
+            return false;
+        }
+
+        const auto cachedValue = m_HitTestMaximumDisplaySizeCache.constFind(id);
+        if (cachedValue == m_HitTestMaximumDisplaySizeCache.constEnd()
+                || !std::isfinite(static_cast<double>(cachedValue.value()))
+                || cachedValue.value() < 0.0) {
+            return false;
+        }
+
+        *maximumDisplaySize = cachedValue.value();
+        return true;
+    }
+
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
     CanvasView::CanvasHitTestProfile m_HitTestProfile;
     bool m_UseHitTestBoundsFilter = false;
+    bool m_HitTestBoundsFilterProfilingOverride = false;
     bool m_UseHitTestGeometryBoundsCache = false;
     QHash<ItemId, QRectF> m_HitTestGeometryBoundsCache;
+    bool m_UseHitTestMaximumDisplaySizeCacheForProfiling = false;
+    QHash<ItemId, qreal> m_HitTestMaximumDisplaySizeCacheForProfiling;
+    bool m_BypassHitTestMaximumDisplaySizeCacheForProfiling = false;
 #endif
 };
 
@@ -829,6 +933,7 @@ void CanvasView::SetDocument(CanvasDocument *document)
     CancelMove();
     QObject::disconnect(m_DocumentConnection);
     QObject::disconnect(m_DocumentSelectionConnection);
+    m_PrivateData->InvalidateHitTestMaximumDisplaySizeCache();
     m_Document = document;
     m_SelectionState = SelectionState::Idle;
     m_PressedItemId = 0;
@@ -1994,6 +2099,7 @@ void CanvasView::wheelEvent(QWheelEvent *event)
 
 void CanvasView::OnDocumentChanged()
 {
+    m_PrivateData->InvalidateHitTestMaximumDisplaySizeCache();
     UpdateSnap(MapToWorld(m_CurrentMousePosition));
     update();
 }
@@ -2926,9 +3032,17 @@ void CanvasView::ResetHitTestProfile()
     m_PrivateData->m_HitTestProfile.Reset();
 }
 
+void CanvasView::SetHitTestMaximumDisplaySizeCacheBypassedForProfiling(
+        bool bypassed)
+{
+    m_PrivateData->m_BypassHitTestMaximumDisplaySizeCacheForProfiling =
+            bypassed;
+}
+
 void CanvasView::SetHitTestBoundsFilterEnabledForProfiling(bool enabled)
 {
     m_PrivateData->m_UseHitTestBoundsFilter = enabled;
+    m_PrivateData->m_HitTestBoundsFilterProfilingOverride = true;
 }
 
 void CanvasView::SetHitTestGeometryBoundsCacheForProfiling(
@@ -2942,6 +3056,61 @@ void CanvasView::ClearHitTestGeometryBoundsCacheForProfiling()
 {
     m_PrivateData->m_HitTestGeometryBoundsCache.clear();
     m_PrivateData->m_UseHitTestGeometryBoundsCache = false;
+}
+
+bool CanvasView::BuildHitTestMaximumDisplaySizeCacheForProfiling(
+        QHash<ItemId, qreal> *displaySizeCache,
+        quint64 *entityVisitCount) const
+{
+    if (entityVisitCount) {
+        *entityVisitCount = 0;
+    }
+    if (!displaySizeCache || !m_Document) {
+        return false;
+    }
+
+    displaySizeCache->clear();
+    const QVector<ItemId> ids = m_Document->GetItemIds();
+    displaySizeCache->reserve(ids.size());
+    quint64 totalEntityVisitCount = 0;
+    for (const ItemId id : ids) {
+        const CanvasEntity *entity = m_Document->GetEntity(id);
+        qreal maximumDisplaySize = 0.0;
+        if (!entity
+                || !TryGetMaximumHitDisplaySize(*entity,
+                                                &maximumDisplaySize)) {
+            displaySizeCache->clear();
+            return false;
+        }
+        if (entityVisitCount) {
+            quint64 entityVisits = 0;
+            if (!TryCountHitDisplaySizeTreeNodes(*entity, &entityVisits)) {
+                displaySizeCache->clear();
+                return false;
+            }
+            totalEntityVisitCount += entityVisits;
+        }
+        displaySizeCache->insert(id, maximumDisplaySize);
+    }
+
+    if (entityVisitCount) {
+        *entityVisitCount = totalEntityVisitCount;
+    }
+    return displaySizeCache->size() == ids.size();
+}
+
+void CanvasView::SetHitTestMaximumDisplaySizeCacheForProfiling(
+        const QHash<ItemId, qreal> &displaySizeCache)
+{
+    m_PrivateData->m_HitTestMaximumDisplaySizeCacheForProfiling =
+            displaySizeCache;
+    m_PrivateData->m_UseHitTestMaximumDisplaySizeCacheForProfiling = true;
+}
+
+void CanvasView::ClearHitTestMaximumDisplaySizeCacheForProfiling()
+{
+    m_PrivateData->m_HitTestMaximumDisplaySizeCacheForProfiling.clear();
+    m_PrivateData->m_UseHitTestMaximumDisplaySizeCacheForProfiling = false;
 }
 #endif
 
@@ -3011,39 +3180,185 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
         if (!entity) {
             continue;
         }
+        bool useBoundsFilter = UsesRecursiveHitDisplaySize(*entity);
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-        if (m_PrivateData->m_UseHitTestBoundsFilter) {
+        if (m_PrivateData->m_HitTestBoundsFilterProfilingOverride) {
+            useBoundsFilter = m_PrivateData->m_UseHitTestBoundsFilter;
+        }
+        const bool sampleBoundsStages = profileSampleEntity;
+        const qint64 boundsCheckStartNanoseconds = sampleBoundsStages
+                ? profileTimer.nsecsElapsed() : 0;
+        if (useBoundsFilter) {
             ++m_PrivateData->m_HitTestProfile.boundsCheckCount;
-            profileStageStartNanoseconds = profileTimer.nsecsElapsed();
-            bool outsideBounds = false;
+        }
+#endif
+        bool outsideBounds = false;
+        if (useBoundsFilter && worldPosition.IsValid()) {
+            QRectF geometryBounds;
+            bool geometryBoundsAvailable = false;
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+            qint64 stageStartNanoseconds = sampleBoundsStages
+                    ? profileTimer.nsecsElapsed() : 0;
             if (m_PrivateData->m_UseHitTestGeometryBoundsCache) {
                 ++m_PrivateData->m_HitTestProfile
                         .geometryBoundsCacheLookupCount;
                 const auto cachedBounds =
-                        m_PrivateData->m_HitTestGeometryBoundsCache.constFind(id);
+                        m_PrivateData->m_HitTestGeometryBoundsCache
+                        .constFind(id);
                 if (cachedBounds
-                        == m_PrivateData->m_HitTestGeometryBoundsCache.constEnd()) {
+                        != m_PrivateData->m_HitTestGeometryBoundsCache
+                        .constEnd()) {
+                    geometryBounds = cachedBounds.value();
+                    geometryBoundsAvailable = true;
+                } else {
                     ++m_PrivateData->m_HitTestProfile
                             .geometryBoundsCacheMissCount;
-                    outsideBounds = IsOutsideConservativeHitBounds(
-                                *entity, worldPosition, zoom);
-                } else {
-                    outsideBounds = IsOutsideConservativeHitBounds(
-                                *entity, worldPosition, zoom,
-                                &cachedBounds.value());
                 }
-            } else {
-                outsideBounds = IsOutsideConservativeHitBounds(
-                            *entity, worldPosition, zoom);
             }
-            m_PrivateData->m_HitTestProfile.boundsCheckNanoseconds +=
-                    profileTimer.nsecsElapsed() - profileStageStartNanoseconds;
-            if (outsideBounds) {
-                ++m_PrivateData->m_HitTestProfile.boundsRejectCount;
-                continue;
+#endif
+            if (!geometryBoundsAvailable) {
+                geometryBoundsAvailable = TryGetGeometryBounds(
+                            *entity, &geometryBounds);
+            }
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+            if (sampleBoundsStages) {
+                m_PrivateData->m_HitTestProfile
+                        .geometryBoundsAccessNanoseconds +=
+                        (profileTimer.nsecsElapsed()
+                         - stageStartNanoseconds)
+                        * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
+            }
+#endif
+
+            if (geometryBoundsAvailable) {
+                qreal maximumDisplaySize = 0.0;
+                bool maximumDisplaySizeAvailable = false;
+                bool useProfilingDisplaySizeCache = false;
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+                useProfilingDisplaySizeCache =
+                        m_PrivateData
+                        ->m_UseHitTestMaximumDisplaySizeCacheForProfiling;
+                if (useProfilingDisplaySizeCache) {
+                    if (sampleBoundsStages) {
+                        stageStartNanoseconds = profileTimer.nsecsElapsed();
+                    }
+                    ++m_PrivateData->m_HitTestProfile
+                            .maximumDisplaySizeCacheLookupCount;
+                    const auto cachedDisplaySize =
+                            m_PrivateData
+                            ->m_HitTestMaximumDisplaySizeCacheForProfiling
+                            .constFind(id);
+                    if (cachedDisplaySize
+                            != m_PrivateData
+                            ->m_HitTestMaximumDisplaySizeCacheForProfiling
+                            .constEnd()
+                            && std::isfinite(static_cast<double>(
+                                                 cachedDisplaySize.value()))
+                            && cachedDisplaySize.value() >= 0.0) {
+                        maximumDisplaySize = cachedDisplaySize.value();
+                        maximumDisplaySizeAvailable = true;
+                    } else {
+                        ++m_PrivateData->m_HitTestProfile
+                                .maximumDisplaySizeCacheMissCount;
+                    }
+                    if (sampleBoundsStages) {
+                        m_PrivateData->m_HitTestProfile
+                                .maximumDisplaySizeCacheLookupNanoseconds +=
+                                (profileTimer.nsecsElapsed()
+                                 - stageStartNanoseconds)
+                                * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
+                    }
+                }
+#endif
+                if (!maximumDisplaySizeAvailable
+                        && !useProfilingDisplaySizeCache
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+                        && !m_PrivateData
+                           ->m_BypassHitTestMaximumDisplaySizeCacheForProfiling
+#endif
+                        && UsesRecursiveHitDisplaySize(*entity)) {
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+                    if (sampleBoundsStages) {
+                        stageStartNanoseconds = profileTimer.nsecsElapsed();
+                    }
+                    ++m_PrivateData->m_HitTestProfile
+                            .maximumDisplaySizeCacheLookupCount;
+#endif
+                    maximumDisplaySizeAvailable =
+                            m_PrivateData->TryGetCachedHitDisplaySize(
+                                m_Document.data(), id, *entity,
+                                &maximumDisplaySize);
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+                    if (!maximumDisplaySizeAvailable) {
+                        ++m_PrivateData->m_HitTestProfile
+                                .maximumDisplaySizeCacheMissCount;
+                    }
+                    if (sampleBoundsStages) {
+                        m_PrivateData->m_HitTestProfile
+                                .maximumDisplaySizeCacheLookupNanoseconds +=
+                                (profileTimer.nsecsElapsed()
+                                 - stageStartNanoseconds)
+                                * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
+                    }
+#endif
+                }
+
+                if (!maximumDisplaySizeAvailable) {
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+                    ++m_PrivateData->m_HitTestProfile
+                            .maximumDisplaySizeCalculationCallCount;
+                    if (sampleBoundsStages) {
+                        stageStartNanoseconds = profileTimer.nsecsElapsed();
+                    }
+#endif
+                    maximumDisplaySizeAvailable = TryGetMaximumHitDisplaySize(
+                                *entity, &maximumDisplaySize);
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+                    if (sampleBoundsStages) {
+                        m_PrivateData->m_HitTestProfile
+                                .maximumDisplaySizeCalculationNanoseconds +=
+                                (profileTimer.nsecsElapsed()
+                                 - stageStartNanoseconds)
+                                * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
+                    }
+#endif
+                }
+
+                if (maximumDisplaySizeAvailable) {
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+                    if (sampleBoundsStages) {
+                        stageStartNanoseconds = profileTimer.nsecsElapsed();
+                    }
+#endif
+                    outsideBounds = IsOutsideConservativeHitBounds(
+                                geometryBounds, worldPosition, zoom,
+                                maximumDisplaySize);
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+                    if (sampleBoundsStages) {
+                        m_PrivateData->m_HitTestProfile
+                                .hitBoundsExpansionNanoseconds +=
+                                (profileTimer.nsecsElapsed()
+                                 - stageStartNanoseconds)
+                                * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
+                    }
+#endif
+                }
             }
         }
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+        if (useBoundsFilter && sampleBoundsStages) {
+            m_PrivateData->m_HitTestProfile.boundsCheckNanoseconds +=
+                    (profileTimer.nsecsElapsed()
+                     - boundsCheckStartNanoseconds)
+                    * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
+        }
 #endif
+        if (outsideBounds) {
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+            ++m_PrivateData->m_HitTestProfile.boundsRejectCount;
+#endif
+            continue;
+        }
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
         const int entityTypeIndex = static_cast<int>(entity->GetType());
         const bool validEntityTypeIndex = entityTypeIndex >= 0

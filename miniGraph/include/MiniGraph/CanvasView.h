@@ -96,12 +96,19 @@ public:
             boundsRejectCount = 0;
             geometryBoundsCacheLookupCount = 0;
             geometryBoundsCacheMissCount = 0;
+            maximumDisplaySizeCacheLookupCount = 0;
+            maximumDisplaySizeCacheMissCount = 0;
+            maximumDisplaySizeCalculationCallCount = 0;
             pathCollectionCallCount = 0;
             distancePathCount = 0;
             distanceSegmentCount = 0;
             itemIdEnumerationNanoseconds = 0;
             entityLookupNanoseconds = 0;
             boundsCheckNanoseconds = 0;
+            geometryBoundsAccessNanoseconds = 0;
+            maximumDisplaySizeCacheLookupNanoseconds = 0;
+            maximumDisplaySizeCalculationNanoseconds = 0;
+            hitBoundsExpansionNanoseconds = 0;
             pathCollectionNanoseconds = 0;
             pathDistanceNanoseconds = 0;
             totalNanoseconds = 0;
@@ -120,6 +127,9 @@ public:
         quint64 boundsRejectCount;
         quint64 geometryBoundsCacheLookupCount;
         quint64 geometryBoundsCacheMissCount;
+        quint64 maximumDisplaySizeCacheLookupCount;
+        quint64 maximumDisplaySizeCacheMissCount;
+        quint64 maximumDisplaySizeCalculationCallCount;
         quint64 pathCollectionCallCount;
         quint64 entityCountByType[EntityTypeCount];
         quint64 selectionPathCountByType[EntityTypeCount];
@@ -129,6 +139,10 @@ public:
         qint64 itemIdEnumerationNanoseconds;
         qint64 entityLookupNanoseconds;
         qint64 boundsCheckNanoseconds;
+        qint64 geometryBoundsAccessNanoseconds;
+        qint64 maximumDisplaySizeCacheLookupNanoseconds;
+        qint64 maximumDisplaySizeCalculationNanoseconds;
+        qint64 hitBoundsExpansionNanoseconds;
         qint64 pathCollectionNanoseconds;
         qint64 pathCollectionNanosecondsByType[EntityTypeCount];
         qint64 pathDistanceNanoseconds;
@@ -265,6 +279,9 @@ public:
     // 清零命中检测诊断数据。
     void ResetHitTestProfile();
 
+    // 在性能剖析构建中旁路生产最大显示尺寸缓存，作为实时计算对照。
+    void SetHitTestMaximumDisplaySizeCacheBypassedForProfiling(bool bypassed);
+
     // 仅供性能剖析构建启用/关闭实验性包围盒粗筛，不影响普通构建。
     void SetHitTestBoundsFilterEnabledForProfiling(bool enabled);
 
@@ -274,6 +291,18 @@ public:
 
     // 清除性能剖析专用的几何包围盒缓存。
     void ClearHitTestGeometryBoundsCacheForProfiling();
+
+    // 按当前文档构建每个图元的最大显示尺寸缓存，并返回遍历节点总数。
+    bool BuildHitTestMaximumDisplaySizeCacheForProfiling(
+            QHash<ItemId, qreal> *displaySizeCache,
+            quint64 *entityVisitCount = nullptr) const;
+
+    // 设置性能剖析专用的最大显示尺寸缓存。
+    void SetHitTestMaximumDisplaySizeCacheForProfiling(
+            const QHash<ItemId, qreal> &displaySizeCache);
+
+    // 清除性能剖析专用的最大显示尺寸缓存。
+    void ClearHitTestMaximumDisplaySizeCacheForProfiling();
 #endif
 
 signals:
