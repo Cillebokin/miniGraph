@@ -1,4 +1,13 @@
+#ifdef _WIN32
+#ifndef NOMINMAX
+#define NOMINMAX
+#endif
+#include <windows.h>
+#include <psapi.h>
+#endif
+
 #include <QApplication>
+#include <QByteArray>
 #include <QColor>
 #include <QElapsedTimer>
 #include <QHash>
@@ -6,6 +15,7 @@
 #include <QLocale>
 #include <QMouseEvent>
 #include <QPainter>
+#include <QProcess>
 #include <QSysInfo>
 #include <QTextStream>
 #include <QTemporaryDir>
@@ -49,6 +59,30 @@ struct BenchmarkResult {
     qreal p95Milliseconds;
 };
 
+struct ProductionDisplayCacheCapacitySample
+{
+    qint64 privateUsageBeforeBytes = -1;
+    qint64 privateUsageAfterBytes = -1;
+    quint64 cacheEntryCount = 0;
+    quint64 cacheHashCapacity = 0;
+};
+
+struct ProductionDisplayCacheTimingSummary
+{
+    qreal coldCacheMedianMilliseconds = 0.0;
+    qreal coldCacheP95Milliseconds = 0.0;
+    qreal coldLiveMedianMilliseconds = 0.0;
+    qreal coldLiveP95Milliseconds = 0.0;
+    qreal warmCacheMedianMilliseconds = 0.0;
+    qreal warmCacheP95Milliseconds = 0.0;
+    qreal warmLiveMedianMilliseconds = 0.0;
+    qreal warmLiveP95Milliseconds = 0.0;
+    qreal refreshCacheMedianMilliseconds = 0.0;
+    qreal refreshCacheP95Milliseconds = 0.0;
+    qreal refreshLiveMedianMilliseconds = 0.0;
+    qreal refreshLiveP95Milliseconds = 0.0;
+};
+
 int IterationsForEntityCount(int entityCount);
 int CurvePercentage(SceneMix mix);
 void ConfigureView(CanvasView *view,
@@ -84,6 +118,29 @@ qreal Percentile(const QVector<qreal> &sortedSamples, qreal percentile)
             + (sortedSamples.at(upperIndex) - sortedSamples.at(lowerIndex))
             * fraction;
 }
+
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+bool ReadCurrentProcessPrivateUsageBytes(qint64 *bytes)
+{
+    if (!bytes) {
+        return false;
+    }
+#ifdef _WIN32
+    PROCESS_MEMORY_COUNTERS_EX counters = {};
+    counters.cb = sizeof(counters);
+    if (!GetProcessMemoryInfo(GetCurrentProcess(),
+                              reinterpret_cast<PROCESS_MEMORY_COUNTERS *>(
+                                  &counters),
+                              sizeof(counters))) {
+        return false;
+    }
+    *bytes = static_cast<qint64>(counters.PrivateUsage);
+    return true;
+#else
+    return false;
+#endif
+}
+#endif
 
 template <typename Operation>
 BenchmarkResult Measure(const QString &scenario,
@@ -3665,7 +3722,8 @@ bool CaptureProductionDisplayCacheSample(
         const QString &modeName,
         int sampleIndex,
         QVector<qreal> *elapsedSamples,
-        QVector<ItemId> *selection)
+        QVector<ItemId> *selection,
+        ProductionDisplayCacheCapacitySample *capacitySample = nullptr)
 {
     if (!view || !document || !elapsedSamples || !selection) {
         return false;
@@ -3673,6 +3731,10 @@ bool CaptureProductionDisplayCacheSample(
 
     document->ClearSelection();
     view->ResetHitTestProfile();
+    if (cacheEnabled && capacitySample) {
+        ReadCurrentProcessPrivateUsageBytes(
+                    &capacitySample->privateUsageBeforeBytes);
+    }
     QElapsedTimer timer;
     timer.start();
     SendMouseEvent(view, QEvent::MouseButtonPress, viewportQuery,
@@ -3690,6 +3752,14 @@ bool CaptureProductionDisplayCacheSample(
                        Qt::LeftButton, Qt::NoButton);
     }
     *selection = document->GetSelectedItemIds();
+    if (cacheEnabled && capacitySample) {
+        capacitySample->cacheEntryCount =
+                profile.maximumDisplaySizeCacheEntryCount;
+        capacitySample->cacheHashCapacity =
+                profile.maximumDisplaySizeCacheCapacity;
+        ReadCurrentProcessPrivateUsageBytes(
+                    &capacitySample->privateUsageAfterBytes);
+    }
 
     const quint64 hitTestCount = includeReleaseInTiming ? 2 : 1;
     const quint64 expectedEntityVisits =
@@ -3747,7 +3817,8 @@ bool CaptureProductionDisplayCachePair(
         const QString &phaseName,
         int sampleIndex,
         QVector<qreal> *cacheSamples,
-        QVector<qreal> *liveSamples)
+        QVector<qreal> *liveSamples,
+        ProductionDisplayCacheCapacitySample *capacitySample = nullptr)
 {
     QVector<ItemId> cacheSelection;
     QVector<ItemId> liveSelection;
@@ -3760,7 +3831,7 @@ bool CaptureProductionDisplayCachePair(
                     includeReleaseInTiming, true, recursiveEntityCount,
                     expectedHit, expectedItemId, caseName,
                     phaseName + QStringLiteral("_cache_on"), sampleIndex,
-                    cacheSamples, &cacheSelection);
+                    cacheSamples, &cacheSelection, capacitySample);
         liveValid = CaptureProductionDisplayCacheSample(
                     output, liveView, document, viewportQuery,
                     includeReleaseInTiming, false, recursiveEntityCount,
@@ -3779,7 +3850,7 @@ bool CaptureProductionDisplayCachePair(
                     includeReleaseInTiming, true, recursiveEntityCount,
                     expectedHit, expectedItemId, caseName,
                     phaseName + QStringLiteral("_cache_on"), sampleIndex,
-                    cacheSamples, &cacheSelection);
+                    cacheSamples, &cacheSelection, capacitySample);
     }
 
     if (!cacheValid || !liveValid || cacheSelection != liveSelection) {
@@ -3810,16 +3881,19 @@ bool MeasureProductionDisplayCacheCase(
         int curvePercent,
         const QString &caseName,
         const CanvasVector &worldQuery,
-        bool recursiveEntitySet,
+        int recursiveEntityCount,
         bool expectedHit,
         ItemId expectedItemId,
-        bool measureInvalidationRefresh)
+        bool measureInvalidationRefresh,
+        ProductionDisplayCacheCapacitySample *capacitySample = nullptr,
+        ProductionDisplayCacheTimingSummary *timingSummary = nullptr)
 {
-    if (!document || document->GetItemCount() != entityCount) {
+    if (!document || document->GetItemCount() != entityCount
+            || recursiveEntityCount < 0
+            || recursiveEntityCount > entityCount) {
         return false;
     }
 
-    const int recursiveEntityCount = recursiveEntitySet ? entityCount : 0;
     const QPointF viewportQuery = [&]() {
         CanvasView mappingView;
         ConfigureProductionDisplayCacheView(
@@ -3842,7 +3916,8 @@ bool MeasureProductionDisplayCacheCase(
                     output, &cacheView, &liveView, document, viewportQuery,
                     false, recursiveEntityCount, expectedHit, expectedItemId,
                     caseName, QStringLiteral("cold_first_press"), sample,
-                    &coldCacheSamples, &coldLiveSamples)) {
+                    &coldCacheSamples, &coldLiveSamples,
+                    sample == 0 ? capacitySample : nullptr)) {
             return false;
         }
     }
@@ -3900,7 +3975,9 @@ bool MeasureProductionDisplayCacheCase(
     PrintResult(output, warmLiveResult);
 
     qreal refreshCacheMedian = 0.0;
+    qreal refreshCacheP95 = 0.0;
     qreal refreshLiveMedian = 0.0;
+    qreal refreshLiveP95 = 0.0;
     if (measureInvalidationRefresh) {
         const QVector<ItemId> ids = document->GetItemIds();
         if (ids.isEmpty()) {
@@ -3949,7 +4026,9 @@ bool MeasureProductionDisplayCacheCase(
         PrintResult(output, refreshCacheResult);
         PrintResult(output, refreshLiveResult);
         refreshCacheMedian = refreshCacheResult.medianMilliseconds;
+        refreshCacheP95 = refreshCacheResult.p95Milliseconds;
         refreshLiveMedian = refreshLiveResult.medianMilliseconds;
+        refreshLiveP95 = refreshLiveResult.p95Milliseconds;
     }
 
     const qreal coldBuildOverhead = coldCacheResult.medianMilliseconds
@@ -3985,7 +4064,367 @@ bool MeasureProductionDisplayCacheCase(
     output << '\n';
     PrintProductionDisplayCacheProfile(output, caseName,
                                        recursiveEntityCount);
+    if (timingSummary) {
+        timingSummary->coldCacheMedianMilliseconds =
+                coldCacheResult.medianMilliseconds;
+        timingSummary->coldCacheP95Milliseconds =
+                coldCacheResult.p95Milliseconds;
+        timingSummary->coldLiveMedianMilliseconds =
+                coldLiveResult.medianMilliseconds;
+        timingSummary->coldLiveP95Milliseconds =
+                coldLiveResult.p95Milliseconds;
+        timingSummary->warmCacheMedianMilliseconds =
+                warmCacheResult.medianMilliseconds;
+        timingSummary->warmCacheP95Milliseconds =
+                warmCacheResult.p95Milliseconds;
+        timingSummary->warmLiveMedianMilliseconds =
+                warmLiveResult.medianMilliseconds;
+        timingSummary->warmLiveP95Milliseconds =
+                warmLiveResult.p95Milliseconds;
+        timingSummary->refreshCacheMedianMilliseconds = refreshCacheMedian;
+        timingSummary->refreshCacheP95Milliseconds = refreshCacheP95;
+        timingSummary->refreshLiveMedianMilliseconds = refreshLiveMedian;
+        timingSummary->refreshLiveP95Milliseconds = refreshLiveP95;
+    }
     return true;
+}
+
+bool PopulateMixedCacheCapacityDocument(
+        CanvasDocument *document,
+        int totalEntityCount,
+        int recursiveEntityPercent,
+        int polylineSegmentCount,
+        int groupChildCount,
+        int *recursiveEntityCount,
+        ItemId *probeItemId,
+        QString *failureReason)
+{
+    if (!document || !recursiveEntityCount || !probeItemId
+            || totalEntityCount <= 0 || recursiveEntityPercent <= 0
+            || recursiveEntityPercent > 100
+            || (totalEntityCount * recursiveEntityPercent) % 100 != 0
+            || polylineSegmentCount < 3 || groupChildCount < 3) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("invalid_parameters");
+        }
+        return false;
+    }
+
+    const int recursiveCount =
+            totalEntityCount * recursiveEntityPercent / 100;
+    if (recursiveCount < 2 || recursiveCount % 2 != 0) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("recursive_count_must_be_even");
+        }
+        return false;
+    }
+
+    int simpleEntityIndex = 0;
+    ItemId firstRecursiveEntityId = 0;
+    for (int index = 0; index < totalEntityCount; ++index) {
+        if (index < recursiveCount) {
+            const bool addPolyline = index % 2 == 0;
+            const CanvasEntityType type = addPolyline
+                    ? CanvasEntityType::Polyline
+                    : CanvasEntityType::GroupContainer;
+            const CanvasVector center = index == 0
+                    ? kInteractionProbeCenter
+                    : CanvasVector(300000.0 + index * 64.0,
+                                   -300000.0 - index * 64.0);
+            const int complexity = addPolyline
+                    ? polylineSegmentCount : groupChildCount;
+            if (!AddBoundsComplexityEntity(document, type, center,
+                                           index == 0, complexity)) {
+                if (failureReason) {
+                    *failureReason = QStringLiteral("recursive_entity_add_failed_%1")
+                            .arg(index);
+                }
+                return false;
+            }
+            if (index == 0) {
+                const QVector<ItemId> ids = document->GetItemIds();
+                if (ids.isEmpty()) {
+                    if (failureReason) {
+                        *failureReason = QStringLiteral("probe_entity_missing");
+                    }
+                    return false;
+                }
+                firstRecursiveEntityId = ids.last();
+            }
+        } else {
+            if (!AddBenchmarkEntity(document, simpleEntityIndex++,
+                                    SceneMix::Simple)) {
+                if (failureReason) {
+                    *failureReason = QStringLiteral("simple_entity_add_failed_%1")
+                            .arg(simpleEntityIndex - 1);
+                }
+                return false;
+            }
+        }
+    }
+
+    int actualRecursiveCount = 0;
+    int actualPolylineCount = 0;
+    int actualGroupCount = 0;
+    for (const ItemId id : document->GetItemIds()) {
+        const CanvasEntity *entity = document->GetEntity(id);
+        if (!entity) {
+            if (failureReason) {
+                *failureReason = QStringLiteral("missing_entity_%1")
+                        .arg(static_cast<qulonglong>(id));
+            }
+            return false;
+        }
+        if (entity->GetType() == CanvasEntityType::Polyline) {
+            ++actualRecursiveCount;
+            ++actualPolylineCount;
+        } else if (entity->GetType() == CanvasEntityType::GroupContainer) {
+            ++actualRecursiveCount;
+            ++actualGroupCount;
+        }
+    }
+
+    if (document->GetItemCount() != totalEntityCount
+            || actualRecursiveCount != recursiveCount
+            || actualPolylineCount != recursiveCount / 2
+            || actualGroupCount != recursiveCount / 2
+            || firstRecursiveEntityId == 0) {
+        if (failureReason) {
+            *failureReason = QStringLiteral("mixed_scene_counts_invalid");
+        }
+        return false;
+    }
+
+    *recursiveEntityCount = recursiveCount;
+    *probeItemId = firstRecursiveEntityId;
+    return true;
+}
+
+bool RunMG012CacheCapacitySample(int argc, char *argv[], QTextStream &output)
+{
+    if (argc != 7) {
+        output << "ERROR,mg012_capacity_sample_argument_count," << argc << '\n';
+        return false;
+    }
+
+    const QString caseName = QString::fromLocal8Bit(argv[2]);
+    bool totalOk = false;
+    bool percentOk = false;
+    bool polylineComplexityOk = false;
+    bool groupComplexityOk = false;
+    const int totalEntityCount = QString::fromLocal8Bit(argv[3])
+            .toInt(&totalOk);
+    const int recursiveEntityPercent = QString::fromLocal8Bit(argv[4])
+            .toInt(&percentOk);
+    const int polylineSegmentCount = QString::fromLocal8Bit(argv[5])
+            .toInt(&polylineComplexityOk);
+    const int groupChildCount = QString::fromLocal8Bit(argv[6])
+            .toInt(&groupComplexityOk);
+    if (!totalOk || !percentOk || !polylineComplexityOk
+            || !groupComplexityOk || caseName.isEmpty()) {
+        output << "ERROR,mg012_capacity_sample_invalid_arguments\n";
+        return false;
+    }
+
+    CanvasDocument document;
+    int recursiveEntityCount = 0;
+    ItemId probeItemId = 0;
+    QString failureReason;
+    if (!PopulateMixedCacheCapacityDocument(
+                &document, totalEntityCount, recursiveEntityPercent,
+                polylineSegmentCount, groupChildCount,
+                &recursiveEntityCount, &probeItemId, &failureReason)) {
+        output << "ERROR,mg012_capacity_scene_build_failed," << caseName
+               << ',' << failureReason << '\n';
+        return false;
+    }
+
+    QByteArray detailOutput;
+    QTextStream detailStream(&detailOutput, QIODevice::WriteOnly);
+    ProductionDisplayCacheCapacitySample capacitySample;
+    ProductionDisplayCacheTimingSummary timingSummary;
+    if (!MeasureProductionDisplayCacheCase(
+                detailStream, &document, totalEntityCount,
+                recursiveEntityPercent, caseName, kInteractionProbeCenter,
+                recursiveEntityCount, true, probeItemId, true,
+                &capacitySample, &timingSummary)) {
+        detailStream.flush();
+        output << "ERROR,mg012_capacity_measurement_failed," << caseName
+               << '\n' << detailOutput;
+        return false;
+    }
+    detailStream.flush();
+
+    if (capacitySample.cacheEntryCount
+                != static_cast<quint64>(recursiveEntityCount)
+            || capacitySample.cacheHashCapacity
+                < capacitySample.cacheEntryCount) {
+        output << "ERROR,mg012_capacity_cache_invariant_failed," << caseName
+               << ",expected_entries=" << recursiveEntityCount
+               << ",actual_entries=" << capacitySample.cacheEntryCount
+               << ",hash_capacity=" << capacitySample.cacheHashCapacity
+               << '\n';
+        return false;
+    }
+
+    const quint64 payloadBytesLowerBound =
+            capacitySample.cacheEntryCount
+            * static_cast<quint64>(sizeof(ItemId) + sizeof(qreal));
+    output << "MG012_CACHE_CAPACITY_SAMPLE,case=" << caseName
+           << ",total_entities=" << totalEntityCount
+           << ",recursive_percent=" << recursiveEntityPercent
+           << ",recursive_entities=" << recursiveEntityCount
+           << ",polyline_segments=" << polylineSegmentCount
+           << ",group_children=" << groupChildCount
+           << ",cache_entries=" << capacitySample.cacheEntryCount
+           << ",qhash_capacity=" << capacitySample.cacheHashCapacity
+           << ",key_value_payload_lower_bound_bytes="
+           << payloadBytesLowerBound
+           << ",private_usage_before_bytes=";
+    if (capacitySample.privateUsageBeforeBytes >= 0) {
+        output << capacitySample.privateUsageBeforeBytes;
+    } else {
+        output << "unavailable";
+    }
+    output << ",private_usage_after_bytes=";
+    if (capacitySample.privateUsageAfterBytes >= 0) {
+        output << capacitySample.privateUsageAfterBytes;
+    } else {
+        output << "unavailable";
+    }
+    output << ",private_usage_delta_bytes=";
+    if (capacitySample.privateUsageBeforeBytes >= 0
+            && capacitySample.privateUsageAfterBytes >= 0) {
+        output << capacitySample.privateUsageAfterBytes
+                  - capacitySample.privateUsageBeforeBytes;
+    } else {
+        output << "unavailable";
+    }
+    output << ",cold_cache_median_ms="
+           << QString::number(timingSummary.coldCacheMedianMilliseconds,
+                               'f', 6)
+           << ",cold_live_median_ms="
+           << QString::number(timingSummary.coldLiveMedianMilliseconds,
+                               'f', 6)
+           << ",warm_cache_median_ms="
+           << QString::number(timingSummary.warmCacheMedianMilliseconds,
+                               'f', 6)
+           << ",warm_cache_p95_ms="
+           << QString::number(timingSummary.warmCacheP95Milliseconds,
+                               'f', 6)
+           << ",warm_live_median_ms="
+           << QString::number(timingSummary.warmLiveMedianMilliseconds,
+                               'f', 6)
+           << ",warm_live_p95_ms="
+           << QString::number(timingSummary.warmLiveP95Milliseconds,
+                               'f', 6)
+           << ",post_replace_cache_median_ms="
+           << QString::number(timingSummary.refreshCacheMedianMilliseconds,
+                               'f', 6)
+           << ",post_replace_live_median_ms="
+           << QString::number(timingSummary.refreshLiveMedianMilliseconds,
+                               'f', 6)
+           << ",selection_parity=true,operation_counts_verified=true\n";
+    output.flush();
+    return true;
+}
+
+bool RunMG012CacheCapacityExperiment(QTextStream &output)
+{
+    struct ExperimentCase
+    {
+        const char *name;
+        int totalEntityCount;
+        int recursiveEntityPercent;
+        int polylineSegmentCount;
+        int groupChildCount;
+    };
+    const ExperimentCase cases[] = {
+        {"mixed_1k_1pct_base", 1000, 1, 64, 16},
+        {"mixed_1k_10pct_base", 1000, 10, 64, 16},
+        {"mixed_1k_50pct_base", 1000, 50, 64, 16},
+        {"mixed_5k_1pct_base", 5000, 1, 64, 16},
+        {"mixed_5k_10pct_base", 5000, 10, 64, 16},
+        {"mixed_5k_50pct_base", 5000, 50, 64, 16},
+        {"mixed_10k_1pct_base", 10000, 1, 64, 16},
+        {"mixed_10k_10pct_base", 10000, 10, 64, 16},
+        {"mixed_10k_50pct_base", 10000, 50, 64, 16},
+        {"mixed_5k_10pct_heavy", 5000, 10, 256, 64},
+        {"mixed_5k_50pct_heavy", 5000, 50, 256, 64}
+    };
+    const int caseCount = sizeof(cases) / sizeof(cases[0]);
+    int completedCaseCount = 0;
+    output << "# MG012_CACHE_CAPACITY_EXPERIMENT"
+              ",scope=performancebench_only"
+              ",scene=simple_entities_mixed_with_polyline_and_group"
+              ",recursive_ratios=1|10|50_percent"
+              ",baseline_complexity=polyline_64_segments_group_16_children"
+              ",heavy_complexity=polyline_256_segments_group_64_children"
+              ",memory=isolated_child_process_private_usage_delta"
+              ",samples=31,selection_and_operation_count_parity_required=true\n";
+
+    for (int caseIndex = 0; caseIndex < caseCount; ++caseIndex) {
+        const ExperimentCase &experimentCase = cases[caseIndex];
+        output << "# MG012_CASE_BEGIN,case=" << experimentCase.name << '\n';
+        output.flush();
+
+        QStringList arguments;
+        arguments << QStringLiteral("--mg012-cache-capacity-sample")
+                  << QString::fromLatin1(experimentCase.name)
+                  << QString::number(experimentCase.totalEntityCount)
+                  << QString::number(experimentCase.recursiveEntityPercent)
+                  << QString::number(experimentCase.polylineSegmentCount)
+                  << QString::number(experimentCase.groupChildCount);
+        QProcess process;
+        process.setProcessChannelMode(QProcess::SeparateChannels);
+        process.start(QCoreApplication::applicationFilePath(), arguments);
+        if (!process.waitForStarted(15000)
+                || !process.waitForFinished(300000)) {
+            process.kill();
+            process.waitForFinished();
+            output << "ERROR,mg012_child_process_timeout," << experimentCase.name
+                   << ',' << process.errorString() << '\n';
+            return false;
+        }
+
+        const QByteArray childOutput = process.readAllStandardOutput();
+        const QByteArray childError = process.readAllStandardError();
+        if (process.exitStatus() != QProcess::NormalExit
+                || process.exitCode() != 0) {
+            output << "ERROR,mg012_child_process_failed," << experimentCase.name
+                   << ",exit_code=" << process.exitCode() << '\n'
+                   << childError;
+            return false;
+        }
+
+        QByteArray sampleLine;
+        const QList<QByteArray> lines = childOutput.split('\n');
+        for (const QByteArray &line : lines) {
+            const QByteArray trimmedLine = line.trimmed();
+            if (trimmedLine.startsWith("MG012_CACHE_CAPACITY_SAMPLE,")) {
+                sampleLine = trimmedLine;
+                break;
+            }
+        }
+        if (sampleLine.isEmpty()) {
+            output << "ERROR,mg012_child_sample_output_missing,"
+                   << experimentCase.name << '\n' << childOutput << childError;
+            return false;
+        }
+
+        output << sampleLine << '\n';
+        output.flush();
+        ++completedCaseCount;
+    }
+
+    output << "# MG012_CACHE_CAPACITY_SUMMARY,cases=" << completedCaseCount
+           << ",expected_cases=" << caseCount
+           << ",all_scenes_mixed=true"
+           << ",cache_entries_match_recursive_root_count=true"
+           << ",isolated_memory_measurements=true"
+           << ",selection_parity=true,operation_counts_verified=true\n";
+    output.flush();
+    return completedCaseCount == caseCount;
 }
 
 bool RunMG011ProductionDisplayCacheExperiment(QTextStream &output)
@@ -4065,13 +4504,14 @@ bool RunMG011ProductionDisplayCacheExperiment(QTextStream &output)
         const CanvasVector worldQuery = experimentCase.hit
                 ? kInteractionProbeCenter
                 : CanvasVector(1000000.0, 1000000.0);
-        const bool recursiveEntitySet =
+        const int recursiveEntityCount =
                 experimentCase.entityType == CanvasEntityType::Polyline
                 || experimentCase.entityType
-                        == CanvasEntityType::GroupContainer;
+                        == CanvasEntityType::GroupContainer
+                ? experimentCase.entityCount : 0;
         if (!MeasureProductionDisplayCacheCase(
                     output, &document, experimentCase.entityCount,
-                    curvePercent, caseName, worldQuery, recursiveEntitySet,
+                    curvePercent, caseName, worldQuery, recursiveEntityCount,
                     experimentCase.hit, experimentCase.expectedItemId,
                     experimentCase.refresh)) {
             output << "ERROR,production_display_cache_case_failed,"
@@ -4647,6 +5087,26 @@ int main(int argc, char *argv[])
     output << "scenario,entities,curve_percent,workload,median_ms,p95_ms,iterations_per_sample\n";
 
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+    if (argc > 1
+            && QString::fromLocal8Bit(argv[1])
+                    == QStringLiteral("--mg012-cache-capacity-sample")) {
+        if (!RunMG012CacheCapacitySample(argc, argv, output)) {
+            output.flush();
+            return 2;
+        }
+        return 0;
+    }
+
+    if (argc > 1
+            && QString::fromLocal8Bit(argv[1])
+                    == QStringLiteral("--mg012-cache-capacity")) {
+        if (!RunMG012CacheCapacityExperiment(output)) {
+            output.flush();
+            return 2;
+        }
+        return 0;
+    }
+
     if (argc > 1
             && QString::fromLocal8Bit(argv[1])
                     == QStringLiteral("--mg011-production-display-cache")) {

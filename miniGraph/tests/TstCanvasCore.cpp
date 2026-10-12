@@ -230,6 +230,7 @@ private slots:
     void DocumentPreservesPolylineSegmentPropertiesWhenUpdatingGeometry();
     void DocumentSupportsParameterizedCreation();
     void CanvasStyleHasStableDefaultsAndValueSemantics();
+    void CanvasStyleValidationIsConsistentAcrossEntityAndDocument();
     void DocumentStoresAndUpdatesItemStyle();
     void DocumentNormalizesLineStyleCompatibilityFields();
     void DocumentRejectsNonFiniteLineWidths();
@@ -306,6 +307,7 @@ private slots:
     void CanvasViewMaximumDisplaySizeCacheInvalidatesOnPolylineReplacement();
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
     void CanvasViewMaximumDisplaySizeCacheProfilingBypassPreservesHitTesting();
+    void CanvasViewMaximumDisplaySizeCacheProfileReportsMixedCapacity();
 #endif
     void CanvasViewWindowSelectionUsesDragDirection();
     void CanvasViewWindowSelectionSelectsAllGeometryTypes();
@@ -2845,6 +2847,59 @@ void CanvasCoreTest::CanvasStyleHasStableDefaultsAndValueSemantics()
     mini_graph::StruCanvasStyle changedStyle = style;
     changedStyle.strokeWidth = 2.0;
     QVERIFY(changedStyle != style);
+}
+
+void CanvasCoreTest::CanvasStyleValidationIsConsistentAcrossEntityAndDocument()
+{
+    mini_graph::StruCanvasStyle zeroPointSizeStyle;
+    zeroPointSizeStyle.pointSize = 0.0;
+
+    mini_graph::StruCanvasStyle invalidStrokeColorStyle;
+    invalidStrokeColorStyle.strokeColor = QColor();
+
+    mini_graph::StruCanvasStyle invalidSelectedColorStyle;
+    invalidSelectedColorStyle.selectedStrokeColor = QColor();
+
+    const mini_graph::StruCanvasStyle invalidStyles[] = {
+        zeroPointSizeStyle,
+        invalidStrokeColorStyle,
+        invalidSelectedColorStyle
+    };
+
+    for (int index = 0;
+         index < static_cast<int>(sizeof(invalidStyles)
+                                  / sizeof(invalidStyles[0]));
+         ++index) {
+        mini_graph::CanvasPoint point(mini_graph::CanvasVector(0.0, 0.0));
+        const mini_graph::StruCanvasStyle originalStyle = point.GetStyle();
+        QVERIFY2(!point.SetStyle(invalidStyles[index]),
+                 "CanvasEntity accepted a style rejected by CanvasDocument");
+        QVERIFY(point.GetStyle() == originalStyle);
+
+        mini_graph::CanvasDocument document;
+        const mini_graph::ItemId pointId = document.AddEntity(point);
+        QVERIFY(pointId != 0);
+        QSignalSpy changedSpy(&document,
+                              &mini_graph::CanvasDocument::Changed);
+        QVERIFY(changedSpy.isValid());
+
+        QVERIFY(!document.SetItemStyle(pointId, invalidStyles[index]));
+        QCOMPARE(changedSpy.count(), 0);
+        mini_graph::StruCanvasStyle storedStyle;
+        QVERIFY(document.GetItemStyle(pointId, &storedStyle));
+        QVERIFY(storedStyle == originalStyle);
+    }
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(0.0, 0.0));
+    QVERIFY(pointId != 0);
+    mini_graph::StruCanvasStyle zeroWidthStyle;
+    zeroWidthStyle.strokeWidth = 0.0;
+    QVERIFY(document.SetItemStyle(pointId, zeroWidthStyle));
+    mini_graph::StruCanvasStyle storedStyle;
+    QVERIFY(document.GetItemStyle(pointId, &storedStyle));
+    QCOMPARE(storedStyle.strokeWidth, 0.0);
 }
 
 void CanvasCoreTest::DocumentStoresAndUpdatesItemStyle()
@@ -6426,6 +6481,47 @@ void CanvasCoreTest::CanvasViewMaximumDisplaySizeCacheProfilingBypassPreservesHi
     QCOMPARE(profile.maximumDisplaySizeCacheLookupCount, quint64(2));
     QCOMPARE(profile.maximumDisplaySizeCacheMissCount, quint64(0));
     QCOMPARE(profile.maximumDisplaySizeCalculationCallCount, quint64(0));
+}
+
+void CanvasCoreTest::CanvasViewMaximumDisplaySizeCacheProfileReportsMixedCapacity()
+{
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasLine polylineSegment(
+                mini_graph::CanvasVector(-20.0, 0.0),
+                mini_graph::CanvasVector(20.0, 0.0));
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(polylineSegment));
+    QVERIFY(document.AddEntity(polyline) != 0);
+
+    mini_graph::CanvasGroupContainer group;
+    mini_graph::CanvasLine groupChild(
+                mini_graph::CanvasVector(980.0, 1000.0),
+                mini_graph::CanvasVector(1020.0, 1000.0));
+    QVERIFY(group.AddChild(groupChild));
+    QVERIFY(document.AddEntity(group) != 0);
+    QVERIFY(document.AddEntity(mini_graph::CanvasLine(
+                                  mini_graph::CanvasVector(-20.0, 1000.0),
+                                  mini_graph::CanvasVector(20.0, 1000.0))) != 0);
+
+    CanvasViewHarness view;
+    view.resize(800, 600);
+    view.setUpdatesEnabled(false);
+    view.SetDocument(&document);
+    const QPointF clickPosition = view.MapFromWorld(
+                mini_graph::CanvasVector(0.0, 12.0));
+    QMouseEvent press(QEvent::MouseButtonPress, clickPosition, clickPosition,
+                      clickPosition, Qt::LeftButton, Qt::LeftButton,
+                      Qt::NoModifier);
+    view.mousePressEvent(&press);
+    QMouseEvent release(QEvent::MouseButtonRelease, clickPosition,
+                        clickPosition, clickPosition, Qt::LeftButton,
+                        Qt::NoButton, Qt::NoModifier);
+    view.mouseReleaseEvent(&release);
+
+    const mini_graph::CanvasView::CanvasHitTestProfile profile =
+            view.GetHitTestProfile();
+    QCOMPARE(profile.maximumDisplaySizeCacheEntryCount, quint64(2));
+    QVERIFY(profile.maximumDisplaySizeCacheCapacity >= quint64(2));
 }
 #endif
 

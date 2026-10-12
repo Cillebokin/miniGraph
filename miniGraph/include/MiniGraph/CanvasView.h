@@ -99,6 +99,8 @@ public:
             maximumDisplaySizeCacheLookupCount = 0;
             maximumDisplaySizeCacheMissCount = 0;
             maximumDisplaySizeCalculationCallCount = 0;
+            maximumDisplaySizeCacheEntryCount = 0;
+            maximumDisplaySizeCacheCapacity = 0;
             pathCollectionCallCount = 0;
             distancePathCount = 0;
             distanceSegmentCount = 0;
@@ -130,6 +132,8 @@ public:
         quint64 maximumDisplaySizeCacheLookupCount;
         quint64 maximumDisplaySizeCacheMissCount;
         quint64 maximumDisplaySizeCalculationCallCount;
+        quint64 maximumDisplaySizeCacheEntryCount;
+        quint64 maximumDisplaySizeCacheCapacity;
         quint64 pathCollectionCallCount;
         quint64 entityCountByType[EntityTypeCount];
         quint64 selectionPathCountByType[EntityTypeCount];

@@ -261,8 +261,7 @@ const StruCanvasStyle &CanvasEntity::GetStyle() const
 
 bool CanvasEntity::SetStyle(const StruCanvasStyle &style)
 {
-    if (!IsFinite(style.strokeWidth) || style.strokeWidth < 0.0
-            || !IsFinite(style.pointSize) || style.pointSize < 0.0) {
+    if (!style.IsValid()) {
         return false;
     }
     m_Style = style;

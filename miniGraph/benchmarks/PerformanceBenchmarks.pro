@@ -14,5 +14,6 @@ win32-msvc {
 INCLUDEPATH += $$PWD/../include
 DESTDIR = $$OUT_PWD/../bin
 LIBS += -L$$OUT_PWD/../bin -lMiniGraph
+win32:LIBS += -lpsapi
 
 SOURCES += $$PWD/CanvasPerformanceBenchmarks.cpp

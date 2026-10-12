@@ -12,21 +12,11 @@ namespace mini_graph {
 
 namespace {
 
-bool IsValidCanvasStyle(const StruCanvasStyle &style)
-{
-    return style.strokeColor.isValid()
-            && style.selectedStrokeColor.isValid()
-            && std::isfinite(static_cast<double>(style.strokeWidth))
-            && style.strokeWidth >= 0.0
-            && std::isfinite(static_cast<double>(style.pointSize))
-            && style.pointSize > 0.0;
-}
-
 bool IsValidEntityTree(const CanvasEntity &entity)
 {
     if (entity.GetType() == CanvasEntityType::Invalid
             || !entity.IsValid()
-            || !IsValidCanvasStyle(entity.GetStyle())) {
+            || !entity.GetStyle().IsValid()) {
         return false;
     }
 
@@ -630,10 +620,7 @@ bool CanvasDocument::GetItemStyle(ItemId id, StruCanvasStyle *style) const
 bool CanvasDocument::SetItemStyle(ItemId id, const StruCanvasStyle &style)
 {
     CanvasEntity *entity = FindEntity(id);
-    if (!entity || !IsValidCanvasStyle(style) || entity->GetStyle() == style) {
-        return false;
-    }
-    if (!entity->SetStyle(style)) {
+    if (!entity || entity->GetStyle() == style || !entity->SetStyle(style)) {
         return false;
     }
     InvalidatePrimitiveViews();

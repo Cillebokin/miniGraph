@@ -3,6 +3,8 @@
 #include "MiniGraph_global.h"
 #include "CanvasVector.h"
 
+#include <cmath>
+
 #include <QColor>
 #include <QMetaType>
 #include <QVector>
@@ -146,6 +148,17 @@ struct StruCanvasStyle
 
     // 是否显示图元。
     bool visible;
+
+    // 检查颜色和尺寸是否满足画布文档的样式约束。
+    bool IsValid() const
+    {
+        return strokeColor.isValid()
+                && selectedStrokeColor.isValid()
+                && std::isfinite(static_cast<double>(strokeWidth))
+                && strokeWidth >= 0.0
+                && std::isfinite(static_cast<double>(pointSize))
+                && pointSize > 0.0;
+    }
 
     // 比较两个显示样式是否完全相同。
     bool operator==(const StruCanvasStyle &other) const

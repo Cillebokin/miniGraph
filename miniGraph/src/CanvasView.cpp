@@ -818,6 +818,14 @@ public:
             return false;
         }
 
+#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
+        m_HitTestProfile.maximumDisplaySizeCacheEntryCount =
+                static_cast<quint64>(
+                    m_HitTestMaximumDisplaySizeCache.size());
+        m_HitTestProfile.maximumDisplaySizeCacheCapacity =
+                static_cast<quint64>(
+                    m_HitTestMaximumDisplaySizeCache.capacity());
+#endif
         const auto cachedValue = m_HitTestMaximumDisplaySizeCache.constFind(id);
         if (cachedValue == m_HitTestMaximumDisplaySizeCache.constEnd()
                 || !std::isfinite(static_cast<double>(cachedValue.value()))

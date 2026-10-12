@@ -148,12 +148,12 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 
 ## 7. API 一致性与维护性
 
-### MG-016 · P2 · 实体样式校验与文档样式校验范围不同
+### MG-016 · P2 · 实体样式校验与文档样式校验范围不同【已修复】
 
-- **现象**：`CanvasEntity::SetStyle()` 允许 `pointSize == 0`，且不检查颜色有效性；文档入库使用的校验要求颜色有效、`pointSize > 0`。因此实体层可能返回设置成功，但之后 `CanvasDocument` 拒绝该实体。
-- **影响**：同一个样式在实体 API 与文档 API 下得到不同的有效性结论，调用方容易把入库失败误判为几何问题。
-- **建议**：统一样式校验规则，或在接口文档明确“实体样式设置成功不代表可加入文档”；优先让两层复用同一验证逻辑，并覆盖零尺寸和无效颜色测试。
-- **代码位置**：[CanvasDocument.cpp](src/CanvasDocument.cpp#L15)、[CanvasEntities.cpp](src/CanvasEntities.cpp#L207)
+- **统一规则**：`StruCanvasStyle::IsValid()` 要求描边色和选中描边色有效、线宽为有限非负数、点尺寸为有限正数；`strokeWidth == 0` 仍然有效。
+- **处理**：`CanvasEntity::SetStyle()`、文档实体树校验和 `CanvasDocument::SetItemStyle()` 共用 `StruCanvasStyle::IsValid()`，实体设置与文档入库/更新不再对同一样式给出不同结论。
+- **验证**：新增 `CanvasStyleValidationIsConsistentAcrossEntityAndDocument`，覆盖零点尺寸、两种无效颜色、零线宽，以及失败后实体/文档状态不变且不发出 `Changed()`。Qt 5.12.10 x64 Release 常规版全量 QtTest 为 184 passed、0 failed；性能分析版为 186 passed、0 failed。
+- **代码位置**：[CanvasTypes.h](include/MiniGraph/CanvasTypes.h)、[CanvasEntities.cpp](src/CanvasEntities.cpp#L262)、[CanvasDocument.cpp](src/CanvasDocument.cpp#L15)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L2852)
 
 ### MG-017 · P3 · 视图和核心实现文件职责较集中
 
@@ -240,4 +240,4 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 5. MG-008 已将组嵌套深度限制为 64 层；是否需要为超宽组设置总子项上限，按实际产品/API 契约决定。
 6. MG-007 已明确并记录当前命令格式契约；只有产品需求要求无损表达逗号或空字段时，才另行设计兼容扩展。
 7. MG-009 至 MG-011 的本机 Release 基线已记录；后续对照目标硬件及实际场景决定是否进行定向优化。
-8. 根据实际调用需求补充 MG-012 至 MG-015 的文档和示例；暂不做与需求无关的大重构。
+8. MG-016 样式校验契约已统一并通过回归测试；根据实际调用需求补充 MG-012 至 MG-015 的文档和示例，暂不做与需求无关的大重构。
