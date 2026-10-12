@@ -7,6 +7,7 @@
 #include "MiniGraph/MiniGraph.h"
 #include "BasicCanvasData.h"
 #include "BasicCustomRenderer.h"
+#include "BasicCircleCreationAction.h"
 #include "BasicLineCreationAction.h"
 #include "BasicPointPlacementAction.h"
 #include "GeometryCreateDialog.h"
@@ -177,6 +178,13 @@ int main(int argumentCount, char *argumentValues[])
                      &QAction::triggered,
                      [widCanvas]() {
         widCanvas->SetCurrentAction(new BasicLineCreationAction);
+    });
+
+    QAction *actDrawCircle = tlbCanvas->addAction(QObject::tr("Draw circle"));
+    QObject::connect(actDrawCircle,
+                     &QAction::triggered,
+                     [widCanvas]() {
+        widCanvas->SetCurrentAction(new BasicCircleCreationAction);
     });
 
     QAction *actEditGeometry = tlbCanvas->addAction(QObject::tr("Edit selected"));

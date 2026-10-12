@@ -34,6 +34,7 @@
 #include "MiniGraph/CanvasView.h"
 #include "MiniGraph/CanvasAction.h"
 #include "BasicCustomRenderer.h"
+#include "BasicCircleCreationAction.h"
 #include "BasicLineCreationAction.h"
 #include "BasicPointPlacementAction.h"
 #include "GeometryCreateDialog.h"
@@ -352,6 +353,11 @@ private slots:
     void BasicLineCreationActionCompletesOnDoubleClickEvent();
     void BasicLineCreationActionUsesGeometrySnap();
     void BasicLineCreationActionEscapeCancelsWithoutInsertion();
+    void BasicCircleCreationActionAddsCircleAndPreviews();
+    void BasicCircleCreationActionCompletesOnDoubleClickEvent();
+    void BasicCircleCreationActionUsesGeometrySnap();
+    void BasicCircleCreationActionRejectsZeroRadiusAndCanRetry();
+    void BasicCircleCreationActionEscapeCancelsWithoutInsertion();
     void CanvasViewLifecycleCanBeCreatedAndDestroyed();
     void BasicExampleGeometryDialogCreatesCircle();
     void BasicExampleGeometryDialogCreatesPolyline();
@@ -8511,6 +8517,266 @@ void CanvasCoreTest::BasicLineCreationActionEscapeCancelsWithoutInsertion()
     action->RenderOverlay(cancelledPainter, context);
     cancelledPainter.end();
     QVERIFY(!HasVisiblePixelNear(preview, context.MapFromWorld(midpoint)));
+}
+
+void CanvasCoreTest::BasicCircleCreationActionAddsCircleAndPreviews()
+{
+    mini_graph::CanvasDocument document;
+    CanvasViewHarness view;
+    view.resize(320, 240);
+    view.SetDocument(&document);
+
+    BasicCircleCreationAction *action = new BasicCircleCreationAction;
+    QVERIFY(view.SetCurrentAction(action));
+
+    const mini_graph::CanvasVector center(-20.0, 10.0);
+    const mini_graph::CanvasVector radiusPoint(25.0, 10.0);
+    const QPointF centerPosition = view.MapFromWorld(center);
+    const QPointF radiusPosition = view.MapFromWorld(radiusPoint);
+    QMouseEvent centerClick(QEvent::MouseButtonPress,
+                            centerPosition,
+                            centerPosition,
+                            centerPosition,
+                            Qt::LeftButton,
+                            Qt::LeftButton,
+                            Qt::NoModifier);
+    view.mousePressEvent(&centerClick);
+
+    QCOMPARE(document.GetItemCount(), 0);
+    QCOMPARE(view.GetCurrentAction(), action);
+
+    QMouseEvent move(QEvent::MouseMove,
+                     radiusPosition,
+                     radiusPosition,
+                     radiusPosition,
+                     Qt::NoButton,
+                     Qt::NoButton,
+                     Qt::NoModifier);
+    view.mouseMoveEvent(&move);
+
+    const mini_graph::CanvasRenderContext context(
+                &document, view.GetTransform(), view.size());
+    QImage preview(view.size(), QImage::Format_ARGB32_Premultiplied);
+    preview.fill(Qt::transparent);
+    QPainter painter(&preview);
+    action->RenderOverlay(painter, context);
+    painter.end();
+    QVERIFY(HasVisiblePixelNear(preview, context.MapFromWorld(radiusPoint)));
+
+    QMouseEvent radiusClick(QEvent::MouseButtonPress,
+                            radiusPosition,
+                            radiusPosition,
+                            radiusPosition,
+                            Qt::LeftButton,
+                            Qt::LeftButton,
+                            Qt::NoModifier);
+    view.mousePressEvent(&radiusClick);
+
+    QCOMPARE(document.GetItemCount(), 1);
+    QTRY_VERIFY(!view.GetCurrentAction());
+    const QVector<mini_graph::ItemId> itemIds = document.GetItemIds();
+    QCOMPARE(itemIds.size(), 1);
+    mini_graph::StruCircleGeometry geometry;
+    QVERIFY(document.GetCircleGeometry(itemIds.first(), &geometry));
+    QCOMPARE(geometry.center, center);
+    QCOMPARE(geometry.radius, qreal(45.0));
+}
+
+void CanvasCoreTest::BasicCircleCreationActionCompletesOnDoubleClickEvent()
+{
+    mini_graph::CanvasDocument document;
+    CanvasViewHarness view;
+    view.resize(320, 240);
+    view.SetDocument(&document);
+    QVERIFY(view.SetCurrentAction(new BasicCircleCreationAction));
+
+    const mini_graph::CanvasVector center(-10.0, -5.0);
+    const mini_graph::CanvasVector radiusPoint(25.0, -5.0);
+    const QPointF centerPosition = view.MapFromWorld(center);
+    const QPointF radiusPosition = view.MapFromWorld(radiusPoint);
+    QMouseEvent centerClick(QEvent::MouseButtonPress,
+                            centerPosition,
+                            centerPosition,
+                            centerPosition,
+                            Qt::LeftButton,
+                            Qt::LeftButton,
+                            Qt::NoModifier);
+    view.mousePressEvent(&centerClick);
+    QMouseEvent radiusDoubleClick(QEvent::MouseButtonDblClick,
+                                  radiusPosition,
+                                  radiusPosition,
+                                  radiusPosition,
+                                  Qt::LeftButton,
+                                  Qt::LeftButton,
+                                  Qt::NoModifier);
+    view.mouseDoubleClickEvent(&radiusDoubleClick);
+
+    QCOMPARE(document.GetItemCount(), 1);
+    QTRY_VERIFY(!view.GetCurrentAction());
+    mini_graph::StruCircleGeometry geometry;
+    QVERIFY(document.GetCircleGeometry(document.GetItemIds().first(), &geometry));
+    QCOMPARE(geometry.center, center);
+    QCOMPARE(geometry.radius, qreal(35.0));
+}
+
+void CanvasCoreTest::BasicCircleCreationActionUsesGeometrySnap()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::CanvasVector center(40.0, 20.0);
+    const mini_graph::CanvasVector radiusPoint(100.0, 20.0);
+    document.AddPoint(center);
+    document.AddPoint(radiusPoint);
+
+    CanvasViewHarness view;
+    view.resize(320, 240);
+    view.SetDocument(&document);
+    view.SetSnapEnabled(true);
+    view.SetGeometrySnapEnabled(true);
+    view.SetGridSnapEnabled(false);
+    QVERIFY(view.SetCurrentAction(new BasicCircleCreationAction));
+
+    const mini_graph::CanvasVector nearCenter(
+                center.GetX() + 3.0, center.GetY() + 2.0);
+    const QPointF nearCenterPosition = view.MapFromWorld(nearCenter);
+    QMouseEvent centerClick(QEvent::MouseButtonPress,
+                            nearCenterPosition,
+                            nearCenterPosition,
+                            nearCenterPosition,
+                            Qt::LeftButton,
+                            Qt::LeftButton,
+                            Qt::NoModifier);
+    view.mousePressEvent(&centerClick);
+
+    const mini_graph::CanvasVector nearRadiusPoint(
+                radiusPoint.GetX() - 4.0, radiusPoint.GetY() + 3.0);
+    const QPointF nearRadiusPosition = view.MapFromWorld(nearRadiusPoint);
+    QMouseEvent move(QEvent::MouseMove,
+                     nearRadiusPosition,
+                     nearRadiusPosition,
+                     nearRadiusPosition,
+                     Qt::NoButton,
+                     Qt::NoButton,
+                     Qt::NoModifier);
+    view.mouseMoveEvent(&move);
+    QMouseEvent radiusClick(QEvent::MouseButtonPress,
+                            nearRadiusPosition,
+                            nearRadiusPosition,
+                            nearRadiusPosition,
+                            Qt::LeftButton,
+                            Qt::LeftButton,
+                            Qt::NoModifier);
+    view.mousePressEvent(&radiusClick);
+
+    QCOMPARE(document.GetItemCount(), 3);
+    QTRY_VERIFY(!view.GetCurrentAction());
+    const QVector<mini_graph::ItemId> itemIds = document.GetItemIds();
+    mini_graph::StruCircleGeometry geometry;
+    QVERIFY(document.GetCircleGeometry(itemIds.last(), &geometry));
+    QCOMPARE(geometry.center, center);
+    QCOMPARE(geometry.radius, qreal(60.0));
+}
+
+void CanvasCoreTest::BasicCircleCreationActionRejectsZeroRadiusAndCanRetry()
+{
+    mini_graph::CanvasDocument document;
+    CanvasViewHarness view;
+    view.resize(320, 240);
+    view.SetDocument(&document);
+    BasicCircleCreationAction *action = new BasicCircleCreationAction;
+    QVERIFY(view.SetCurrentAction(action));
+
+    const mini_graph::CanvasVector center(15.0, -10.0);
+    const QPointF centerPosition = view.MapFromWorld(center);
+    QMouseEvent centerClick(QEvent::MouseButtonPress,
+                            centerPosition,
+                            centerPosition,
+                            centerPosition,
+                            Qt::LeftButton,
+                            Qt::LeftButton,
+                            Qt::NoModifier);
+    view.mousePressEvent(&centerClick);
+    QMouseEvent zeroRadiusClick(QEvent::MouseButtonPress,
+                                centerPosition,
+                                centerPosition,
+                                centerPosition,
+                                Qt::LeftButton,
+                                Qt::LeftButton,
+                                Qt::NoModifier);
+    view.mousePressEvent(&zeroRadiusClick);
+
+    QCOMPARE(document.GetItemCount(), 0);
+    QCOMPARE(view.GetCurrentAction(), action);
+
+    const mini_graph::CanvasVector radiusPoint(15.0, 30.0);
+    const QPointF radiusPosition = view.MapFromWorld(radiusPoint);
+    QMouseEvent radiusClick(QEvent::MouseButtonPress,
+                            radiusPosition,
+                            radiusPosition,
+                            radiusPosition,
+                            Qt::LeftButton,
+                            Qt::LeftButton,
+                            Qt::NoModifier);
+    view.mousePressEvent(&radiusClick);
+
+    QCOMPARE(document.GetItemCount(), 1);
+    QTRY_VERIFY(!view.GetCurrentAction());
+    mini_graph::StruCircleGeometry geometry;
+    QVERIFY(document.GetCircleGeometry(document.GetItemIds().last(), &geometry));
+    QCOMPARE(geometry.center, center);
+    QCOMPARE(geometry.radius, qreal(40.0));
+}
+
+void CanvasCoreTest::BasicCircleCreationActionEscapeCancelsWithoutInsertion()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId selectedId = document.AddPoint(
+                mini_graph::CanvasVector(0.0, 0.0));
+    document.SelectItem(selectedId);
+
+    CanvasViewHarness view;
+    view.resize(320, 240);
+    view.SetDocument(&document);
+    BasicCircleCreationAction *action = new BasicCircleCreationAction;
+    QVERIFY(view.SetCurrentAction(action));
+
+    const mini_graph::CanvasVector center(10.0, 15.0);
+    const QPointF centerPosition = view.MapFromWorld(center);
+    QMouseEvent centerClick(QEvent::MouseButtonPress,
+                            centerPosition,
+                            centerPosition,
+                            centerPosition,
+                            Qt::LeftButton,
+                            Qt::LeftButton,
+                            Qt::NoModifier);
+    view.mousePressEvent(&centerClick);
+    const QPointF previewPosition = view.MapFromWorld(
+                mini_graph::CanvasVector(50.0, 15.0));
+    QMouseEvent move(QEvent::MouseMove,
+                     previewPosition,
+                     previewPosition,
+                     previewPosition,
+                     Qt::NoButton,
+                     Qt::NoButton,
+                     Qt::NoModifier);
+    view.mouseMoveEvent(&move);
+
+    QKeyEvent escape(QEvent::KeyPress, Qt::Key_Escape, Qt::NoModifier);
+    view.keyPressEvent(&escape);
+
+    QVERIFY(escape.isAccepted());
+    QCOMPARE(document.GetItemCount(), 1);
+    QVERIFY(document.IsItemSelected(selectedId));
+    QVERIFY(!view.GetCurrentAction());
+
+    const mini_graph::CanvasRenderContext context(
+                &document, view.GetTransform(), view.size());
+    QImage preview(view.size(), QImage::Format_ARGB32_Premultiplied);
+    preview.fill(Qt::transparent);
+    QPainter painter(&preview);
+    action->RenderOverlay(painter, context);
+    painter.end();
+    QVERIFY(!HasVisiblePixelNear(
+                preview, context.MapFromWorld(mini_graph::CanvasVector(50.0, 15.0))));
 }
 
 void CanvasCoreTest::CanvasViewLifecycleCanBeCreatedAndDestroyed()

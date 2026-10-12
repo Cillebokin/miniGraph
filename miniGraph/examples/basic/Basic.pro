@@ -16,6 +16,7 @@ SOURCES += \
     $$PWD/Main.cpp \
     $$PWD/BasicCanvasData.cpp \
     $$PWD/BasicCustomRenderer.cpp \
+    $$PWD/BasicCircleCreationAction.cpp \
     $$PWD/BasicLineCreationAction.cpp \
     $$PWD/BasicPointPlacementAction.cpp \
     $$PWD/GeometryCreateDialog.cpp \
@@ -24,6 +25,7 @@ SOURCES += \
 HEADERS += \
     $$PWD/BasicCanvasData.h \
     $$PWD/BasicCustomRenderer.h \
+    $$PWD/BasicCircleCreationAction.h \
     $$PWD/BasicLineCreationAction.h \
     $$PWD/BasicPointPlacementAction.h \
     $$PWD/GeometryCreateDialog.h \

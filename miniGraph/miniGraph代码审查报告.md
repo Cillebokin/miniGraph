@@ -127,12 +127,14 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 - **影响**：适合装饰、辅助线和预览；如果调用方希望自定义内容可选、可捕捉或可持久化，需要自行实现对应模型和交互。
 - **建议**：在公共 API 文档和示例中明确此边界；只有在确有用户需求时，再设计 renderer 与交互代理的接入点。
 
-### MG-013 · P3 · Action 示例尚未覆盖全部实体创建流程
+### MG-013 · P3 · Action 示例尚未覆盖全部实体创建流程【部分补充】
 
-- **现状**：基础示例展示点和直线创建 Action；圆弧、圆、椭圆、多段线、样条和组容器尚没有对应的交互闭环示例。正交模式由画布提供状态，具体 Action 仍需自行读取并实现约束。
+- **现状**：基础示例展示点、直线和圆创建 Action；圆弧、椭圆、多段线、样条和组容器尚没有对应的交互闭环示例。正交模式由画布提供状态，具体 Action 仍需自行读取并实现约束。
 - **影响**：库具备相应的几何/实体 API，不等于调用层已经具备可直接使用的创建工具。
-- **建议**：按实际调用需求逐步补建模 Action 和最小示例，并分别验证预览、取消、完成、捕捉和非法参数处理。
-- **代码位置**：[BasicPointPlacementAction.cpp](examples/basic/BasicPointPlacementAction.cpp)、[BasicLineCreationAction.cpp](examples/basic/BasicLineCreationAction.cpp)、[CanvasAction.h](include/MiniGraph/CanvasAction.h)
+- **已补充**：`examples/basic` 增加两点式圆创建 Action，覆盖圆心/半径输入、临时预览、几何捕捉、非法半径重试和 `Esc` 取消；核心库 API 未变。
+- **建议**：后续仍按实际调用需求逐步补建模 Action 和最小示例，并分别验证预览、取消、完成、捕捉和非法参数处理。
+- **代码位置**：[BasicPointPlacementAction.cpp](examples/basic/BasicPointPlacementAction.cpp)、[BasicLineCreationAction.cpp](examples/basic/BasicLineCreationAction.cpp)、[BasicCircleCreationAction.cpp](examples/basic/BasicCircleCreationAction.cpp)、[CanvasAction.h](include/MiniGraph/CanvasAction.h)
+- **验证**：Qt 5.12.10 x64 Release 下动态库、测试程序和基础示例均构建成功；新增 5 个圆创建 Action 测试通过，全量 QtTest 为 189 通过、0 失败。全量运行另有 37 条现存测试环境警告，涉及缺失 Qt 字体目录和 `QSignalSpy` 参数注册；新增圆 Action 测试未产生警告。
 
 ### MG-014 · P3 · 元数据字段不等于完整图层系统；持久化由调用方承担
 
@@ -244,4 +246,4 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 5. MG-008 已将组嵌套深度限制为 64 层；是否需要为超宽组设置总子项上限，按实际产品/API 契约决定。
 6. MG-007 已明确并记录当前命令格式契约；只有产品需求要求无损表达逗号或空字段时，才另行设计兼容扩展。
 7. MG-009 至 MG-011 的本机 Release 基线已记录；后续对照目标硬件及实际场景决定是否进行定向优化。
-8. MG-012、MG-014、MG-015 的调用边界和数据使用契约已记录；后续根据实际需求补充 MG-013 的创建 Action 示例，暂不做与需求无关的大重构。
+8. MG-012、MG-014、MG-015 的调用边界和数据使用契约已记录；MG-013 已增加圆创建 Action 示例，其他创建流程仍按实际需求补充，暂不做与需求无关的大重构。

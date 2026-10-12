@@ -16,6 +16,7 @@ INCLUDEPATH += $$PWD/../include \
 SOURCES += \
     $$PWD/TstCanvasCore.cpp \
     $$PWD/../examples/basic/BasicCustomRenderer.cpp \
+    $$PWD/../examples/basic/BasicCircleCreationAction.cpp \
     $$PWD/../examples/basic/BasicLineCreationAction.cpp \
     $$PWD/../examples/basic/BasicPointPlacementAction.cpp \
     $$PWD/../examples/basic/GeometryCreateDialog.cpp \
@@ -23,6 +24,7 @@ SOURCES += \
 
 HEADERS += \
     $$PWD/../examples/basic/BasicCustomRenderer.h \
+    $$PWD/../examples/basic/BasicCircleCreationAction.h \
     $$PWD/../examples/basic/BasicLineCreationAction.h \
     $$PWD/../examples/basic/BasicPointPlacementAction.h \
     $$PWD/../examples/basic/GeometryCreateDialog.h \
