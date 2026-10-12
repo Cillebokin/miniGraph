@@ -760,6 +760,13 @@ void PrepareLayer(QImage *layer, const QSize &pixelSize, qreal devicePixelRatio)
 class CanvasViewPrivate
 {
 public:
+    struct AdditionalRendererEntry
+    {
+        QPointer<CanvasRenderer> renderer;
+        QMetaObject::Connection destroyedConnection;
+        QMetaObject::Connection updateConnection;
+    };
+
     CanvasViewPrivate()
         : m_DefaultRenderer(new CanvasPainterRenderer)
     {
@@ -769,6 +776,7 @@ public:
     QImage m_GeometryLayer;
     QImage m_OverlayLayer;
     std::unique_ptr<CanvasPainterRenderer> m_DefaultRenderer;
+    QVector<AdditionalRendererEntry> m_AdditionalCustomRenderers;
     QHash<ItemId, qreal> m_HitTestMaximumDisplaySizeCache;
     bool m_HitTestMaximumDisplaySizeCacheValid = false;
 
@@ -889,6 +897,16 @@ CanvasView::~CanvasView()
 {
     KillAllActions();
     ResetDefaultAction();
+
+    QObject::disconnect(m_CustomRendererDestroyedConnection);
+    QObject::disconnect(m_CustomRendererUpdateConnection);
+    m_CustomRenderer = nullptr;
+    for (const CanvasViewPrivate::AdditionalRendererEntry &entry :
+         m_PrivateData->m_AdditionalCustomRenderers) {
+        QObject::disconnect(entry.destroyedConnection);
+        QObject::disconnect(entry.updateConnection);
+    }
+    m_PrivateData->m_AdditionalCustomRenderers.clear();
 }
 
 void CanvasView::SetInteractionMode(InteractionMode mode)
@@ -968,17 +986,36 @@ void CanvasView::SetDocument(CanvasDocument *document)
 
 CanvasRenderer *CanvasView::GetCustomRenderer() const
 {
-    return m_CustomRenderer.data();
+    if (m_CustomRenderer) {
+        return m_CustomRenderer.data();
+    }
+
+    for (const CanvasViewPrivate::AdditionalRendererEntry &entry :
+         m_PrivateData->m_AdditionalCustomRenderers) {
+        if (entry.renderer) {
+            return entry.renderer.data();
+        }
+    }
+    return nullptr;
 }
 
 void CanvasView::SetCustomRenderer(CanvasRenderer *renderer)
 {
-    if (m_CustomRenderer.data() == renderer) {
+    if (m_CustomRenderer.data() == renderer
+            && m_PrivateData->m_AdditionalCustomRenderers.isEmpty()) {
         return;
     }
 
     QObject::disconnect(m_CustomRendererDestroyedConnection);
     QObject::disconnect(m_CustomRendererUpdateConnection);
+
+    for (const CanvasViewPrivate::AdditionalRendererEntry &entry :
+         m_PrivateData->m_AdditionalCustomRenderers) {
+        QObject::disconnect(entry.destroyedConnection);
+        QObject::disconnect(entry.updateConnection);
+    }
+    m_PrivateData->m_AdditionalCustomRenderers.clear();
+
     m_CustomRenderer = renderer;
 
     if (m_CustomRenderer) {
@@ -1004,6 +1041,110 @@ void CanvasView::SetCustomRenderer(CanvasRenderer *renderer)
         m_CustomRendererUpdateConnection = QMetaObject::Connection();
     }
     update();
+}
+
+QVector<CanvasRenderer *> CanvasView::GetCustomRenderers() const
+{
+    QVector<CanvasRenderer *> renderers;
+    if (m_CustomRenderer) {
+        renderers.append(m_CustomRenderer.data());
+    }
+
+    for (const CanvasViewPrivate::AdditionalRendererEntry &entry :
+         m_PrivateData->m_AdditionalCustomRenderers) {
+        if (entry.renderer) {
+            renderers.append(entry.renderer.data());
+        }
+    }
+    return renderers;
+}
+
+bool CanvasView::AddCustomRenderer(CanvasRenderer *renderer)
+{
+    if (!renderer) {
+        return false;
+    }
+
+    const QVector<CanvasRenderer *> renderers = GetCustomRenderers();
+    if (renderers.contains(renderer)) {
+        return false;
+    }
+
+    if (renderers.isEmpty()) {
+        SetCustomRenderer(renderer);
+        return true;
+    }
+
+    CanvasViewPrivate::AdditionalRendererEntry entry;
+    entry.renderer = renderer;
+    entry.destroyedConnection = connect(
+                renderer,
+                &QObject::destroyed,
+                this,
+                [this]() {
+        bool removed = false;
+        QVector<CanvasViewPrivate::AdditionalRendererEntry> &entries =
+                m_PrivateData->m_AdditionalCustomRenderers;
+        for (int index = entries.size() - 1; index >= 0; --index) {
+            if (!entries.at(index).renderer) {
+                QObject::disconnect(entries.at(index).destroyedConnection);
+                QObject::disconnect(entries.at(index).updateConnection);
+                entries.removeAt(index);
+                removed = true;
+            }
+        }
+        if (removed) {
+            update();
+        }
+    });
+    entry.updateConnection = connect(
+                renderer,
+                &CanvasRenderer::UpdateRequested,
+                this,
+                [this]() {
+        update();
+    });
+    m_PrivateData->m_AdditionalCustomRenderers.append(entry);
+    update();
+    return true;
+}
+
+bool CanvasView::RemoveCustomRenderer(CanvasRenderer *renderer)
+{
+    if (!renderer) {
+        return false;
+    }
+
+    if (m_CustomRenderer.data() == renderer) {
+        QObject::disconnect(m_CustomRendererDestroyedConnection);
+        QObject::disconnect(m_CustomRendererUpdateConnection);
+        m_CustomRenderer = nullptr;
+        m_CustomRendererDestroyedConnection = QMetaObject::Connection();
+        m_CustomRendererUpdateConnection = QMetaObject::Connection();
+        update();
+        return true;
+    }
+
+    QVector<CanvasViewPrivate::AdditionalRendererEntry> &entries =
+            m_PrivateData->m_AdditionalCustomRenderers;
+    for (int index = 0; index < entries.size(); ++index) {
+        CanvasViewPrivate::AdditionalRendererEntry &entry = entries[index];
+        if (entry.renderer.data() != renderer) {
+            continue;
+        }
+
+        QObject::disconnect(entry.destroyedConnection);
+        QObject::disconnect(entry.updateConnection);
+        entries.removeAt(index);
+        update();
+        return true;
+    }
+    return false;
+}
+
+void CanvasView::ClearCustomRenderers()
+{
+    SetCustomRenderer(nullptr);
 }
 
 CanvasAction *CanvasView::GetCurrentAction() const
@@ -1908,6 +2049,18 @@ void CanvasView::paintEvent(QPaintEvent *event)
     const CanvasRenderContext renderContext(m_Document.data(),
                                             m_Transform,
                                             size());
+    // 固定本帧的 Renderer 顺序；绘制回调中的集合变更从下一帧生效。
+    QVector<QPointer<CanvasRenderer>> customRenderers;
+    if (m_CustomRenderer) {
+        customRenderers.append(m_CustomRenderer);
+    }
+    for (const CanvasViewPrivate::AdditionalRendererEntry &entry :
+         m_PrivateData->m_AdditionalCustomRenderers) {
+        if (entry.renderer) {
+            customRenderers.append(entry.renderer);
+        }
+    }
+
     const qreal devicePixelRatio = devicePixelRatioF();
     const QSize layerSize(qMax(1, qRound(width() * devicePixelRatio)),
                           qMax(1, qRound(height() * devicePixelRatio)));
@@ -1916,9 +2069,12 @@ void CanvasView::paintEvent(QPaintEvent *event)
     {
         QPainter painter(&m_PrivateData->m_BackgroundLayer);
         painter.setRenderHint(QPainter::Antialiasing, true);
-        if (m_CustomRenderer) {
+        for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
+            if (!renderer) {
+                continue;
+            }
             painter.save();
-            m_CustomRenderer->RenderBackground(painter, renderContext);
+            renderer->RenderBackground(painter, renderContext);
             painter.restore();
         }
         if (m_GridVisible) {
@@ -1945,9 +2101,12 @@ void CanvasView::paintEvent(QPaintEvent *event)
             painter.restore();
         }
         m_PrivateData->m_DefaultRenderer->Render(painter, renderContext);
-        if (m_CustomRenderer) {
+        for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
+            if (!renderer) {
+                continue;
+            }
             painter.save();
-            m_CustomRenderer->Render(painter, renderContext);
+            renderer->Render(painter, renderContext);
             painter.restore();
         }
         if (globalData) {
@@ -1965,9 +2124,12 @@ void CanvasView::paintEvent(QPaintEvent *event)
         QPainter painter(&m_PrivateData->m_OverlayLayer);
         painter.setRenderHint(QPainter::Antialiasing, true);
         DrawOverlayLayer(painter);
-        if (m_CustomRenderer) {
+        for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
+            if (!renderer) {
+                continue;
+            }
             painter.save();
-            m_CustomRenderer->RenderOverlay(painter, renderContext);
+            renderer->RenderOverlay(painter, renderContext);
             painter.restore();
         }
         if (CanvasAction *action = ActiveAction()) {

@@ -19,6 +19,7 @@
 
 #include <limits>
 #include <cmath>
+#include <functional>
 #include <memory>
 #include <type_traits>
 
@@ -56,6 +57,15 @@ public:
     using CanvasView::DrawSnapMarker;
     using CanvasView::DrawSelectionBox;
     using CanvasView::wheelEvent;
+
+    int paintEventCount = 0;
+
+protected:
+    void paintEvent(QPaintEvent *event) override
+    {
+        ++paintEventCount;
+        CanvasView::paintEvent(event);
+    }
 };
 
 static bool HasVisiblePixelNear(const QImage &image,
@@ -343,6 +353,14 @@ private slots:
     void CanvasViewMovesWholeGroupFromReferencePoint();
     void CanvasViewDrawsPolylineVertexHandles();
     void CanvasViewSupportsCustomRendererAssignment();
+    void CanvasViewRendersCustomRenderersInRegistrationOrder();
+    void CanvasViewSetCustomRendererReplacesRendererCollection();
+    void CanvasViewCanRemoveAndClearCustomRenderers();
+    void CanvasViewDefersRendererCollectionChangesUntilNextFrame();
+    void CanvasViewRemovesDestroyedCustomRenderers();
+    void CanvasViewCanBeDestroyedWithParentedCustomRenderers();
+    void CanvasViewRefreshesForEachCustomRenderer();
+    void CanvasViewIsolatesPainterStateBetweenCustomRenderers();
     void CanvasViewDispatchesCurrentActionAndRefreshesPreview();
     void CanvasViewEscapeCancelsCurrentActionWithoutClearingSelection();
     void CanvasViewDefaultActionCanBeOverriddenAndReset();
@@ -578,6 +596,61 @@ public:
         Q_UNUSED(context)
         painter.setClipRect(QRect(0, 0, 1, 1));
         painter.translate(40.0, 0.0);
+    }
+};
+
+class RecordingCanvasRenderer : public mini_graph::CanvasRenderer
+{
+public:
+    RecordingCanvasRenderer(const QString &name, QStringList *events)
+        : m_Name(name)
+        , m_Events(events)
+    {
+    }
+
+    void RenderBackground(
+            QPainter &painter,
+            const mini_graph::CanvasRenderContext &context) override
+    {
+        Q_UNUSED(painter)
+        Q_UNUSED(context)
+        m_Events->append(m_Name + QStringLiteral(".background"));
+    }
+
+    void Render(QPainter &painter,
+                const mini_graph::CanvasRenderContext &context) override
+    {
+        Q_UNUSED(painter)
+        Q_UNUSED(context)
+        m_Events->append(m_Name + QStringLiteral(".geometry"));
+        if (geometryCallback) {
+            geometryCallback();
+        }
+    }
+
+    void RenderOverlay(QPainter &painter,
+                       const mini_graph::CanvasRenderContext &context) override
+    {
+        Q_UNUSED(painter)
+        Q_UNUSED(context)
+        m_Events->append(m_Name + QStringLiteral(".overlay"));
+    }
+
+    std::function<void()> geometryCallback;
+
+private:
+    QString m_Name;
+    QStringList *m_Events;
+};
+
+class SolidGeometryCanvasRenderer : public mini_graph::CanvasRenderer
+{
+public:
+    void Render(QPainter &painter,
+                const mini_graph::CanvasRenderContext &context) override
+    {
+        Q_UNUSED(context)
+        painter.fillRect(QRect(20, 20, 12, 12), QColor(Qt::cyan));
     }
 };
 
@@ -7967,6 +8040,271 @@ void CanvasCoreTest::CanvasViewSupportsCustomRendererAssignment()
 
     view.SetCustomRenderer(nullptr);
     QCOMPARE(view.GetCustomRenderer(), static_cast<mini_graph::CanvasRenderer *>(nullptr));
+}
+
+void CanvasCoreTest::CanvasViewRendersCustomRenderersInRegistrationOrder()
+{
+    QStringList events;
+    CanvasViewHarness view;
+    view.resize(160, 120);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+
+    RecordingCanvasRenderer first(QStringLiteral("first"), &events);
+    RecordingCanvasRenderer second(QStringLiteral("second"), &events);
+
+    QVERIFY(!view.AddCustomRenderer(nullptr));
+    QVERIFY(view.AddCustomRenderer(&first));
+    QVERIFY(!view.AddCustomRenderer(&first));
+    QVERIFY(view.AddCustomRenderer(&second));
+
+    QVector<mini_graph::CanvasRenderer *> renderers;
+    renderers << &first << &second;
+    QCOMPARE(view.GetCustomRenderers(), renderers);
+    QCOMPARE(view.GetCustomRenderer(),
+             static_cast<mini_graph::CanvasRenderer *>(&first));
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    QStringList expectedEvents;
+    expectedEvents << QStringLiteral("first.background")
+                   << QStringLiteral("second.background")
+                   << QStringLiteral("first.geometry")
+                   << QStringLiteral("second.geometry")
+                   << QStringLiteral("first.overlay")
+                   << QStringLiteral("second.overlay");
+    QCOMPARE(events, expectedEvents);
+}
+
+void CanvasCoreTest::CanvasViewSetCustomRendererReplacesRendererCollection()
+{
+    CanvasViewHarness view;
+    TestCanvasRenderer first;
+    TestCanvasRenderer second;
+    TestCanvasRenderer replacement;
+
+    view.SetCustomRenderer(&first);
+    QCOMPARE(view.GetCustomRenderer(),
+             static_cast<mini_graph::CanvasRenderer *>(&first));
+    QCOMPARE(view.GetCustomRenderers().size(), 1);
+
+    QVERIFY(view.AddCustomRenderer(&second));
+    QCOMPARE(view.GetCustomRenderers().size(), 2);
+
+    view.SetCustomRenderer(&replacement);
+    QCOMPARE(view.GetCustomRenderer(),
+             static_cast<mini_graph::CanvasRenderer *>(&replacement));
+    QCOMPARE(view.GetCustomRenderers().size(), 1);
+    QCOMPARE(view.GetCustomRenderers().first(),
+             static_cast<mini_graph::CanvasRenderer *>(&replacement));
+
+    view.SetCustomRenderer(nullptr);
+    QCOMPARE(view.GetCustomRenderer(),
+             static_cast<mini_graph::CanvasRenderer *>(nullptr));
+    QVERIFY(view.GetCustomRenderers().isEmpty());
+}
+
+void CanvasCoreTest::CanvasViewCanRemoveAndClearCustomRenderers()
+{
+    QStringList events;
+    CanvasViewHarness view;
+    view.resize(160, 120);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+
+    RecordingCanvasRenderer first(QStringLiteral("first"), &events);
+    RecordingCanvasRenderer second(QStringLiteral("second"), &events);
+    QVERIFY(view.AddCustomRenderer(&first));
+    QVERIFY(view.AddCustomRenderer(&second));
+    QVERIFY(view.RemoveCustomRenderer(&first));
+    QVERIFY(!view.RemoveCustomRenderer(&first));
+    QCOMPARE(view.GetCustomRenderers().size(), 1);
+    QCOMPARE(view.GetCustomRenderer(),
+             static_cast<mini_graph::CanvasRenderer *>(&second));
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    QStringList expectedEvents;
+    expectedEvents << QStringLiteral("second.background")
+                   << QStringLiteral("second.geometry")
+                   << QStringLiteral("second.overlay");
+    QCOMPARE(events, expectedEvents);
+
+    view.ClearCustomRenderers();
+    QVERIFY(view.GetCustomRenderers().isEmpty());
+    QCOMPARE(view.GetCustomRenderer(),
+             static_cast<mini_graph::CanvasRenderer *>(nullptr));
+}
+
+void CanvasCoreTest::CanvasViewDefersRendererCollectionChangesUntilNextFrame()
+{
+    QStringList events;
+    CanvasViewHarness view;
+    view.resize(160, 120);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+
+    RecordingCanvasRenderer first(QStringLiteral("first"), &events);
+    RecordingCanvasRenderer second(QStringLiteral("second"), &events);
+    RecordingCanvasRenderer third(QStringLiteral("third"), &events);
+    QVERIFY(view.AddCustomRenderer(&first));
+    QVERIFY(view.AddCustomRenderer(&second));
+
+    bool changedCollection = false;
+    first.geometryCallback = [&]() {
+        if (changedCollection) {
+            return;
+        }
+        changedCollection = true;
+        QVERIFY(view.RemoveCustomRenderer(&second));
+        QVERIFY(view.AddCustomRenderer(&third));
+    };
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    QStringList firstFrameEvents;
+    firstFrameEvents << QStringLiteral("first.background")
+                     << QStringLiteral("second.background")
+                     << QStringLiteral("first.geometry")
+                     << QStringLiteral("second.geometry")
+                     << QStringLiteral("first.overlay")
+                     << QStringLiteral("second.overlay");
+    QCOMPARE(events, firstFrameEvents);
+
+    QVector<mini_graph::CanvasRenderer *> renderers;
+    renderers << &first << &third;
+    QCOMPARE(view.GetCustomRenderers(), renderers);
+
+    events.clear();
+    view.render(&image);
+
+    QStringList secondFrameEvents;
+    secondFrameEvents << QStringLiteral("first.background")
+                      << QStringLiteral("third.background")
+                      << QStringLiteral("first.geometry")
+                      << QStringLiteral("third.geometry")
+                      << QStringLiteral("first.overlay")
+                      << QStringLiteral("third.overlay");
+    QCOMPARE(events, secondFrameEvents);
+}
+
+void CanvasCoreTest::CanvasViewRemovesDestroyedCustomRenderers()
+{
+    QStringList events;
+    CanvasViewHarness view;
+    view.resize(160, 120);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+
+    RecordingCanvasRenderer survivor(QStringLiteral("survivor"), &events);
+    {
+        RecordingCanvasRenderer primary(QStringLiteral("primary"), &events);
+        QVERIFY(view.AddCustomRenderer(&primary));
+        QVERIFY(view.AddCustomRenderer(&survivor));
+        QCOMPARE(view.GetCustomRenderers().size(), 2);
+    }
+
+    QCOMPARE(view.GetCustomRenderers().size(), 1);
+    QCOMPARE(view.GetCustomRenderer(),
+             static_cast<mini_graph::CanvasRenderer *>(&survivor));
+    {
+        RecordingCanvasRenderer temporary(QStringLiteral("temporary"), &events);
+        QVERIFY(view.AddCustomRenderer(&temporary));
+        QCOMPARE(view.GetCustomRenderers().size(), 2);
+    }
+    QCOMPARE(view.GetCustomRenderers().size(), 1);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    QStringList expectedEvents;
+    expectedEvents << QStringLiteral("survivor.background")
+                   << QStringLiteral("survivor.geometry")
+                   << QStringLiteral("survivor.overlay");
+    QCOMPARE(events, expectedEvents);
+}
+
+void CanvasCoreTest::CanvasViewCanBeDestroyedWithParentedCustomRenderers()
+{
+    int destroyedCount = 0;
+    std::unique_ptr<CanvasViewHarness> view(new CanvasViewHarness);
+    TestCanvasRenderer *first = new TestCanvasRenderer(view.get());
+    TestCanvasRenderer *second = new TestCanvasRenderer(view.get());
+    connect(first, &QObject::destroyed, [&destroyedCount]() {
+        ++destroyedCount;
+    });
+    connect(second, &QObject::destroyed, [&destroyedCount]() {
+        ++destroyedCount;
+    });
+
+    QVERIFY(view->AddCustomRenderer(first));
+    QVERIFY(view->AddCustomRenderer(second));
+    view.reset();
+
+    QCOMPARE(destroyedCount, 2);
+}
+
+void CanvasCoreTest::CanvasViewRefreshesForEachCustomRenderer()
+{
+    CanvasViewHarness view;
+    view.resize(120, 90);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+
+    TestCanvasRenderer first;
+    TestCanvasRenderer second;
+    QVERIFY(view.AddCustomRenderer(&first));
+    QVERIFY(view.AddCustomRenderer(&second));
+
+    view.show();
+    QTRY_VERIFY(view.paintEventCount > 0);
+    QCoreApplication::processEvents();
+
+    int previousPaintEventCount = view.paintEventCount;
+    first.RequestUpdate();
+    QTRY_VERIFY(view.paintEventCount > previousPaintEventCount);
+
+    QCoreApplication::processEvents();
+    previousPaintEventCount = view.paintEventCount;
+    second.RequestUpdate();
+    QTRY_VERIFY(view.paintEventCount > previousPaintEventCount);
+}
+
+void CanvasCoreTest::CanvasViewIsolatesPainterStateBetweenCustomRenderers()
+{
+    CanvasViewHarness view;
+    view.resize(100, 80);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+
+    PainterStateMutatingRenderer mutatingRenderer;
+    SolidGeometryCanvasRenderer drawingRenderer;
+    QVERIFY(view.AddCustomRenderer(&mutatingRenderer));
+    QVERIFY(view.AddCustomRenderer(&drawingRenderer));
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    QCOMPARE(image.pixelColor(25, 25), QColor(Qt::cyan));
 }
 
 void CanvasCoreTest::CanvasViewDispatchesCurrentActionAndRefreshesPreview()

@@ -174,12 +174,26 @@ public:
     // 设置画布文档，传入 nullptr 可解除当前关联。
     void SetDocument(CanvasDocument *document);
 
-    // 返回当前附加的自定义渲染器，未设置时返回 nullptr。
+    // 返回注册顺序最前的自定义渲染器；没有渲染器时返回 nullptr。
     CanvasRenderer *GetCustomRenderer() const;
 
-    // 设置附加的自定义渲染器，传入 nullptr 可恢复为仅使用默认渲染器。
+    // 将自定义渲染器集合替换为传入的单个渲染器；nullptr 表示清空集合。
     // CanvasView 不接管渲染器的所有权，渲染器必须在使用期间保持有效。
+    // 每帧开始时固定渲染器集合；在渲染回调内更改集合从下一帧影响绘制。
     void SetCustomRenderer(CanvasRenderer *renderer);
+
+    // 按注册顺序返回当前所有自定义渲染器。
+    QVector<CanvasRenderer *> GetCustomRenderers() const;
+
+    // 在集合末尾添加渲染器；空指针或重复注册时返回 false。
+    // CanvasView 不接管渲染器的所有权。
+    bool AddCustomRenderer(CanvasRenderer *renderer);
+
+    // 移除指定渲染器；该渲染器不在集合中时返回 false。
+    bool RemoveCustomRenderer(CanvasRenderer *renderer);
+
+    // 清空所有自定义渲染器。
+    void ClearCustomRenderers();
 
     // 返回当前临时 Action；没有临时 Action 时返回 nullptr。
     CanvasAction *GetCurrentAction() const;
