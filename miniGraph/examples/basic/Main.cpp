@@ -5,11 +5,14 @@
 #include <QToolBar>
 
 #include "MiniGraph/MiniGraph.h"
+#include "BasicCanvasData.h"
 #include "BasicCustomRenderer.h"
 #include "BasicLineCreationAction.h"
 #include "BasicPointPlacementAction.h"
 #include "GeometryCreateDialog.h"
 #include "GeometryEditDialog.h"
+
+#include <memory>
 
 int main(int argumentCount, char *argumentValues[])
 {
@@ -17,7 +20,17 @@ int main(int argumentCount, char *argumentValues[])
     app.setWindowIcon(QIcon(QStringLiteral(":/branding/minigraph-icon.png")));
 
     mini_graph::CanvasDocument canvasDocument;
-    canvasDocument.AddPoint(mini_graph::CanvasVector(0.0, 0.0));
+    mini_graph::CanvasPoint originPoint(mini_graph::CanvasVector(0.0, 0.0));
+    originPoint.SetCanvasData(std::make_shared<BasicCanvasData>());
+    const mini_graph::ItemId itemDataId = canvasDocument.AddEntity(originPoint);
+    const std::shared_ptr<BasicCanvasData> itemCanvasData =
+            std::dynamic_pointer_cast<BasicCanvasData>(
+                canvasDocument.GetItemCanvasData(itemDataId));
+
+    const std::shared_ptr<BasicCanvasGlobalData> globalCanvasData =
+            std::make_shared<BasicCanvasGlobalData>();
+    canvasDocument.SetCanvasGlobalData(globalCanvasData);
+
     canvasDocument.AddLine(mini_graph::CanvasVector(-140.0, -80.0),
                            mini_graph::CanvasVector(140.0, -80.0),
                            QColor(255, 220, 80));
@@ -96,6 +109,25 @@ int main(int argumentCount, char *argumentValues[])
                      &QAction::triggered,
                      [&customRenderer]() {
         customRenderer.Advance();
+    });
+
+    QAction *actAdvanceItemData = tlbCanvas->addAction(QObject::tr("Update item data"));
+    QObject::connect(actAdvanceItemData,
+                     &QAction::triggered,
+                     [&canvasDocument, itemCanvasData, itemDataId]() {
+        if (!itemCanvasData) {
+            return;
+        }
+        itemCanvasData->AdvanceRevision();
+        canvasDocument.NotifyItemCanvasDataChanged(itemDataId);
+    });
+
+    QAction *actAdvanceGlobalData = tlbCanvas->addAction(QObject::tr("Update global data"));
+    QObject::connect(actAdvanceGlobalData,
+                     &QAction::triggered,
+                     [&canvasDocument, globalCanvasData]() {
+        globalCanvasData->AdvanceRevision();
+        canvasDocument.NotifyCanvasGlobalDataChanged();
     });
 
     QAction *actReset = tlbCanvas->addAction(QObject::tr("Reset view"));

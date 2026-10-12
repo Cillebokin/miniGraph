@@ -36,7 +36,8 @@ class CanvasViewPrivate;
 // 基于 QWidget 和 QPainter 的二维画布视图。
 // CanvasView 负责画布背景、网格、坐标轴和图元的显示，并处理缩放、
 // 平移以及基础鼠标键盘交互。图元数据由 CanvasDocument 提供，坐标换算
-// 由 CanvasTransform 管理。
+// 由 CanvasTransform 管理。本类遵循 QWidget 的 GUI 线程约束，
+// 不提供跨线程调用封装。
 class MINIGRAPH_EXPORT CanvasView : public QWidget
 {
     Q_OBJECT

@@ -140,11 +140,14 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 - **影响**：调用方需要自行实现文档保存、加载以及图层业务逻辑。应避免把“可设置 layerName”描述成已经提供完整图层功能。
 - **建议**：在功能清单中继续把库能力和调用层责任分开；只有在明确要求由 miniGraph 接管持久化或图层管理时，再扩展公共 API。
 
-### MG-015 · P3 · 线程、安全和变更通知契约需要更明确
+### MG-015 · P3 · 线程、安全和变更通知契约需要更明确【已明确】
 
-- **现状**：`CanvasView` 属于 Qt GUI 控件；文档和扩展数据会被绘制/交互回调读取，接口没有提供并发保护。调用方直接修改 `CanvasData` 后还需显式通知文档刷新。`CanvasGlobalData::Clone()` 当前没有对应的文档克隆流程使用。
-- **影响**：若调用方从工作线程同时读写数据，可能出现数据竞争；忘记变更通知会导致画面不刷新；克隆接口也容易让使用者误解其生命周期用途。
-- **建议**：明确“画布、文档和绑定数据应在 GUI 线程修改”的约定；给 `CanvasData`/`CanvasGlobalData` 增加最小使用示例，并说明通知责任和 Clone 的适用场景。
+- **契约**：`CanvasView`、关联的 `CanvasDocument` 及附加数据不提供并发保护，应在 GUI 线程访问和修改；扩展绘制回调在绘制期间同步执行，不能与工作线程并发读写。普通 QObject 成员函数调用不会自动排队到对象线程。
+- **通知**：替换数据通过 `SetItemCanvasData()` / `SetCanvasGlobalData()`；原地修改后须在 GUI 线程调用对应 `Notify...Changed()`，成功时由文档发出 `Changed()`，关联视图据此刷新。
+- **克隆**：实体克隆会调用 `CanvasData::Clone()`，要求非空、不同于源对象且隔离可变状态，之后框架重新绑定副本。`CanvasGlobalData::Clone()` 当前没有自动调用路径，只由需要独立文档状态的调用方显式调用。
+- **处理**：更新公共头文件注释、功能清单与 [Canvas扩展数据使用契约.md](Canvas扩展数据使用契约.md)，并在基础示例中展示实体数据克隆、两类数据的原地修改和刷新通知；不新增锁或线程断言，不改变库运行时行为。
+- **验证**：Qt 5.12.10 x64 Release 下重新构建动态库、测试程序及基础示例，并运行全量 QtTest；结果记录在本节验证项。
+- **代码位置**：[CanvasView.h](include/MiniGraph/CanvasView.h)、[CanvasDocument.h](include/MiniGraph/CanvasDocument.h)、[CanvasData.h](include/MiniGraph/CanvasData.h)、[CanvasGlobalData.h](include/MiniGraph/CanvasGlobalData.h)、[BasicCanvasData.h](examples/basic/BasicCanvasData.h)、[BasicCanvasData.cpp](examples/basic/BasicCanvasData.cpp)、[Main.cpp](examples/basic/Main.cpp#L114)、[Canvas扩展数据使用契约.md](Canvas扩展数据使用契约.md)
 
 ## 7. API 一致性与维护性
 
@@ -227,6 +230,7 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 - 本次 MG-005 修复后，Qt 5.12.10 x64 Debug 动态库和测试程序均重新构建；三项 MG-005 专项测试通过，全量 QtTest 为 179 passed、0 failed、0 skipped。专项测试覆盖不安全坐标索引、10000 刻度上限及非有限网格间距。
 - 本次复核 MG-006 的捕捉/命中非有限距离保护及 MG-022 的圆弧角差溢出保护均已存在；两项 MG-006 专项测试和一项 MG-022 专项测试通过，全量 QtTest 为 179 passed、0 failed、0 skipped。
 - 本次 MG-008 增加 64 层边界与深层克隆/文档接入测试；Qt 5.12.10 x64 Debug、Release 动态库和测试程序均重新构建，全量 QtTest 各为 180 passed、0 failed、0 skipped。新测试先确认原实现会接受第 65 层，再验证追加/替换拒绝和失败时状态保持。
+- 本次 MG-015 明确扩展数据的 GUI 线程访问、原地修改后的通知责任与两类 Clone 的调用边界；Qt 5.12.10 x64 Release 动态库、测试程序和基础示例重新构建，全量 QtTest 为 184 passed、0 failed、0 skipped。该项仅补契约、文档和示例，不改变库运行时逻辑。
 - 当前专项覆盖 MG-004 变换入口的非有限输入、非法视口尺寸、映射/拟合溢出及失败时状态保持，MG-005 网格/标尺的刻度范围和间距边界，MG-006 命中/捕捉非有限距离，以及 MG-022 几何 API 与实体层对圆弧角差溢出的共同拒绝；也覆盖此前的 MG-003 圆弧有效性容差、MG-002 多段线绘制/选择/编辑柄/捕捉。Qt 6.5.3 本次未重跑；MG-008 的 Qt 5.12.10 x64 Debug/Release 全量验证见上一条。
 - 剩余验证/需求项：组的总子图元数量尚无硬上限；若命令格式承诺支持任意文本/路径，再补带逗号和空字段用例；以及不同实体数量下的性能基准。
 - 目前没有足够基准数据来承诺可支持的最大图元数或帧率。
@@ -240,4 +244,4 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 5. MG-008 已将组嵌套深度限制为 64 层；是否需要为超宽组设置总子项上限，按实际产品/API 契约决定。
 6. MG-007 已明确并记录当前命令格式契约；只有产品需求要求无损表达逗号或空字段时，才另行设计兼容扩展。
 7. MG-009 至 MG-011 的本机 Release 基线已记录；后续对照目标硬件及实际场景决定是否进行定向优化。
-8. MG-016 样式校验契约已统一并通过回归测试；根据实际调用需求补充 MG-012 至 MG-015 的文档和示例，暂不做与需求无关的大重构。
+8. MG-012、MG-014、MG-015 的调用边界和数据使用契约已记录；后续根据实际需求补充 MG-013 的创建 Action 示例，暂不做与需求无关的大重构。

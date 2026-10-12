@@ -19,7 +19,8 @@ class CanvasGlobalData;
 
 // 画布图元文档。
 // CanvasDocument 负责保存和管理画布中的基础图元，并在内容发生变化时
-// 通过 Changed() 通知关联的视图或其他观察者。
+// 通过 Changed() 通知关联的视图或其他观察者。与 CanvasView 配合时，文档应在 GUI
+// 线程访问和修改；本类不提供并发保护，跨线程直接调用不会自动切换到对象所属线程。
 class MINIGRAPH_EXPORT CanvasDocument : public QObject
 {
     Q_OBJECT
@@ -135,25 +136,28 @@ public:
     bool SetItemStyle(ItemId id, const StruCanvasStyle &style);
 
     // 返回指定图元的附加数据；图元不存在或未设置数据时返回空指针。
+    // 返回的是同一个共享对象，不会创建副本；绑定数据应在 GUI 线程访问。
     std::shared_ptr<CanvasData> GetItemCanvasData(ItemId id) const;
 
     // 设置指定图元的附加数据。
+    // 文档保存传入的共享对象，不会调用 Clone()。
     // 图元不存在或数据已绑定到其他图元时返回 false，且不发出 Changed()；成功时发出 Changed()。
     bool SetItemCanvasData(ItemId id,
                            const std::shared_ptr<CanvasData> &data);
 
-    // 调用方原地修改图元附加数据后，通知文档刷新关联视图。
-    // 图元不存在或未设置 CanvasData 时返回 false。
+    // 调用方在 GUI 线程原地修改图元附加数据后，通知文档刷新关联视图。
+    // 应在一组修改完成后调用；图元不存在或未设置 CanvasData 时返回 false。
     bool NotifyItemCanvasDataChanged(ItemId id);
 
     // 返回当前文档的全局附加数据；未设置时返回空指针。
+    // 返回的是同一个共享对象，不会创建副本；数据应在 GUI 线程访问。
     std::shared_ptr<CanvasGlobalData> GetCanvasGlobalData() const;
 
-    // 设置当前文档的全局附加数据，并发出 Changed()。
+    // 设置当前文档的全局附加数据；文档保存传入的共享对象，不会调用 Clone()，并发出 Changed()。
     void SetCanvasGlobalData(const std::shared_ptr<CanvasGlobalData> &data);
 
-    // 调用方原地修改全局附加数据后，通知文档刷新关联视图。
-    // 当前未设置 CanvasGlobalData 时返回 false。
+    // 调用方在 GUI 线程原地修改全局附加数据后，通知文档刷新关联视图。
+    // 应在一组修改完成后调用；当前未设置 CanvasGlobalData 时返回 false。
     bool NotifyCanvasGlobalDataChanged();
 
     // 返回指定点图元的几何数据，图元类型不匹配或 geometry 为空时返回 false。
