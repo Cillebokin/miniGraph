@@ -37,30 +37,12 @@ bool IsFinite(qreal value)
 QColor GetDisplayColor(const StruCanvasStyle &style, bool selected)
 {
     const QColor background(Qt::black);
-    const QColor black(Qt::black);
     QColor color = style.strokeColor;
     const bool sameAsBackground = color.red() == background.red()
             && color.green() == background.green()
             && color.blue() == background.blue();
-    const bool isBlack = color.red() == black.red()
-            && color.green() == black.green()
-            && color.blue() == black.blue();
 
-    bool useForeground = sameAsBackground;
-    if (!useForeground && isBlack) {
-        const int redMean = (color.red() + background.red()) / 2;
-        const qreal redDifference = color.red() - background.red();
-        const qreal greenDifference = color.green() - background.green();
-        const qreal blueDifference = color.blue() - background.blue();
-        const qreal colorDistance = std::sqrt(
-                    redDifference * redDifference * (512 + redMean) / 256.0
-                    + greenDifference * greenDifference * 4.0
-                    + blueDifference * blueDifference * (767 - redMean)
-                    / 256.0) / 7.64834;
-        useForeground = colorDistance < 20.0;
-    }
-
-    if (color.alpha() > 0 && useForeground) {
+    if (color.alpha() > 0 && sameAsBackground) {
         color.setRgb(255, 255, 255, color.alpha());
     }
 
@@ -1037,8 +1019,33 @@ void RenderCanvasData(QPainter &painter,
     painter.restore();
 }
 
-qreal GetPolylineSegmentDisplayLength(const CanvasEntity &segment,
-                                      const CanvasRenderContext &context)
+qreal GetPolylineDisplayPathLength(
+        const QVector<CanvasVector> &worldPoints,
+        const CanvasRenderContext &context)
+{
+    if (worldPoints.size() < 2) {
+        return 0.0;
+    }
+
+    QPointF previousPoint = context.MapFromWorld(worldPoints.first());
+    qreal length = 0.0;
+    for (int index = 1; index < worldPoints.size(); ++index) {
+        const QPointF currentPoint = context.MapFromWorld(worldPoints.at(index));
+        const qreal segmentLength = QLineF(previousPoint, currentPoint).length();
+        if (!IsFinite(segmentLength) || !IsFinite(length + segmentLength)) {
+            return 0.0;
+        }
+        length += segmentLength;
+        previousPoint = currentPoint;
+    }
+    return length;
+}
+
+qreal GetPolylineSegmentDisplayLength(
+        const CanvasEntity &segment,
+        const CanvasRenderContext &context,
+        qreal maximumError,
+        QVector<CanvasVector> *tessellatedArcPoints)
 {
     if (const CanvasLine *line =
             dynamic_cast<const CanvasLine *>(&segment)) {
@@ -1050,15 +1057,18 @@ qreal GetPolylineSegmentDisplayLength(const CanvasEntity &segment,
 
     if (const CanvasArc *arc =
             dynamic_cast<const CanvasArc *>(&segment)) {
-        if (!arc->IsValid()) {
+        if (!arc->IsValid() || !tessellatedArcPoints) {
             return 0.0;
         }
-        const qreal sweep = CalculateDirectedSweep(arc->GetStartAngle(),
-                                                   arc->GetEndAngle(),
-                                                   arc->IsReversed());
-        const qreal length = arc->GetRadius() * sweep
-                * context.transform.GetZoom();
-        return IsFinite(length) ? length : 0.0;
+
+        StruArcGeometry geometry;
+        geometry.center = arc->GetCenter();
+        geometry.radius = arc->GetRadius();
+        geometry.startAngle = arc->GetStartAngle();
+        geometry.endAngle = arc->GetEndAngle();
+        geometry.reversed = arc->IsReversed();
+        *tessellatedArcPoints = TessellateArc(geometry, maximumError);
+        return GetPolylineDisplayPathLength(*tessellatedArcPoints, context);
     }
 
     return 0.0;
@@ -1072,7 +1082,8 @@ void DrawEntityGeometry(QPainter &painter,
                         qreal maximumError,
                         qreal logicalDpiX,
                         bool lineWidthVisible,
-                        qreal dashOffsetPixels = 0.0)
+                        qreal dashOffsetPixels = 0.0,
+                        const QVector<CanvasVector> *preTessellatedArcPoints = nullptr)
 {
     switch (entity.GetType()) {
     case CanvasEntityType::Point: {
@@ -1114,7 +1125,13 @@ void DrawEntityGeometry(QPainter &painter,
         geometry.startAngle = arc->GetStartAngle();
         geometry.endAngle = arc->GetEndAngle();
         geometry.reversed = arc->IsReversed();
-        DrawWorldPath(painter, TessellateArc(geometry, maximumError),
+        QVector<CanvasVector> generatedPoints;
+        const QVector<CanvasVector> *arcPoints = preTessellatedArcPoints;
+        if (!arcPoints) {
+            generatedPoints = TessellateArc(geometry, maximumError);
+            arcPoints = &generatedPoints;
+        }
+        DrawWorldPath(painter, *arcPoints,
                       context, style, selected, false,
                       logicalDpiX, lineWidthVisible, dashOffsetPixels);
         return;
@@ -1159,8 +1176,10 @@ void DrawEntityGeometry(QPainter &painter,
             if (!segment) {
                 continue;
             }
+            QVector<CanvasVector> tessellatedArcPoints;
             const qreal segmentLength = GetPolylineSegmentDisplayLength(
-                        *segment, context);
+                        *segment, context, maximumError,
+                        &tessellatedArcPoints);
             if (segment->GetStyle().visible) {
                 RenderCanvasData(painter, context, *segment, style, selected,
                                  logicalDpiX, lineWidthVisible,
@@ -1168,7 +1187,7 @@ void DrawEntityGeometry(QPainter &painter,
                 DrawEntityGeometry(painter, context, *segment, style,
                                    selected, maximumError,
                                    logicalDpiX, lineWidthVisible,
-                                   dashOffsetPixels);
+                                   dashOffsetPixels, &tessellatedArcPoints);
             }
             if (IsFinite(segmentLength) && segmentLength > 0.0
                     && IsFinite(dashOffsetPixels + segmentLength)) {

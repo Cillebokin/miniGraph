@@ -170,9 +170,9 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 ### MG-023 · P2 · CADLab 实体画笔样式覆盖不完整【已补齐；图层解析不在本项范围】
 
 - **原状**：实体样式只有颜色和视口像素线宽，默认渲染器没有 CADLab 线型图案、毫米线宽换算、线宽显示开关及选中虚线覆盖。
-- **处理**：新增与 CADLab `RS2::LineType` 数值一致的 `CanvasLineType`（`0–25`），复现其点线/虚线/中心线等屏幕图案与最小一像素段长；默认像素宽度保持兼容，另支持按视图逻辑 DPI 将毫米线宽换算为固定屏幕宽度。`CanvasView::SetLineWidthVisible()` 默认关闭，关闭毫米宽线时显示细线。选中实体使用选中颜色和 `DashLine2`，黑色画布上的背景同色描边执行对比色回退；多段线沿连续路径延续线型相位。
+- **处理**：新增与 CADLab `RS2::LineType` 数值一致的 `CanvasLineType`（`0–25`），复现其点线/虚线/中心线等屏幕图案与最小一像素段长；默认像素宽度保持兼容，另支持按视图逻辑 DPI 将毫米线宽换算为固定屏幕宽度。`CanvasView::SetLineWidthVisible()` 默认关闭，关闭毫米宽线时显示细线。选中实体使用选中颜色和 `DashLine2`；黑色画布上的精确同色描边执行对比色回退，并移除不可达的近黑距离计算。多段线相位按实际屏幕绘制长度累计，圆弧复用同一组细分点计算相位和绘制，避免理论弧长与弦长不一致造成漂移。
 - **调用边界**：`strokeColor` 和 `selectedStrokeColor` 必须是调用方已解析的具体颜色；miniGraph 不处理图层、`ByLayer`、`ByBlock` 或颜色继承。
-- **验证**：新增线型/单位校验、选中覆盖、毫米线宽及开关、点标记线宽、黑色对比回退和多段线线型相位测试。Qt 5.12.10 x64 Debug、Release 均全量通过 207 项。
+- **验证**：新增线型/单位校验、选中覆盖、毫米线宽及开关、点标记线宽、黑色对比回退和直线/圆弧多段线线型相位测试。Qt 5.12.10 x64 Debug、Release 均全量通过 208 项。
 - **代码位置**：[CanvasTypes.h](include/MiniGraph/CanvasTypes.h)、[CanvasView.h](include/MiniGraph/CanvasView.h)、[CanvasPainterRenderer.cpp](src/CanvasPainterRenderer.cpp)、[CanvasView.cpp](src/CanvasView.cpp)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp)
 
 ## 8. 安全边界说明

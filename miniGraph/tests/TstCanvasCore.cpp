@@ -31,6 +31,7 @@
 #include "MiniGraph/CanvasRenderer.h"
 #include "MiniGraph/CanvasData.h"
 #include "MiniGraph/CanvasGlobalData.h"
+#include "MiniGraph/CanvasGeometry.h"
 #include "MiniGraph/CanvasTransform.h"
 #include "MiniGraph/CanvasView.h"
 #include "MiniGraph/CanvasAction.h"
@@ -331,6 +332,7 @@ private slots:
     void CanvasViewRendersDocumentWithPainter();
     void CanvasViewRendersCadLabLineTypeAndSelectionOverride();
     void CanvasViewPreservesLineTypePhaseAcrossPolylineSegments();
+    void CanvasViewPreservesLineTypePhaseAcrossPolylineArcSegments();
     void CanvasViewUsesMillimeterLineWidthAndVisibilitySwitch();
     void CanvasViewUsesMillimeterLineWidthForPointMarker();
     void CanvasViewKeepsBlackEntityVisibleOnDarkCanvas();
@@ -4186,6 +4188,100 @@ void CanvasCoreTest::CanvasViewPreservesLineTypePhaseAcrossPolylineSegments()
     QVERIFY2(sampleColor.red() < 50 && sampleColor.green() < 50
              && sampleColor.blue() < 50,
              "A polyline must carry the CADLab line-pattern phase through vertices");
+}
+
+void CanvasCoreTest::CanvasViewPreservesLineTypePhaseAcrossPolylineArcSegments()
+{
+    CanvasViewHarness arcView;
+    CanvasViewHarness chordView;
+    CanvasViewHarness *views[] = {&arcView, &chordView};
+    for (CanvasViewHarness *view : views) {
+        view->resize(600, 400);
+        view->setUpdatesEnabled(false);
+        view->SetGridVisible(false);
+        view->SetAxisVisible(false);
+        view->SetRulerVisible(false);
+    }
+
+    const mini_graph::CanvasVector center(0.0, 0.0);
+    const qreal radius = 32.0;
+    const qreal quarterTurn = 1.57079632679489661923;
+    const qreal maximumWorldError = qMax<qreal>(
+                1.0e-6, 0.5 / arcView.GetZoom());
+    mini_graph::CanvasPolyline arcPolyline;
+    mini_graph::CanvasPolyline chordPolyline;
+
+    for (int loop = 0; loop < 8; ++loop) {
+        for (int quadrant = 0; quadrant < 4; ++quadrant) {
+            const qreal startAngle = quadrant * quarterTurn;
+            const qreal endAngle = (quadrant + 1) * quarterTurn;
+            const mini_graph::CanvasArc arc(
+                        center, radius, startAngle, endAngle);
+            QVERIFY(arcPolyline.AddSegment(arc));
+
+            mini_graph::StruArcGeometry geometry;
+            geometry.center = center;
+            geometry.radius = radius;
+            geometry.startAngle = startAngle;
+            geometry.endAngle = endAngle;
+            const QVector<mini_graph::CanvasVector> points =
+                    mini_graph::TessellateArc(geometry, maximumWorldError);
+            QVERIFY(points.size() >= 2);
+            for (int pointIndex = 1; pointIndex < points.size(); ++pointIndex) {
+                QVERIFY(chordPolyline.AddSegment(mini_graph::CanvasLine(
+                                                     points.at(pointIndex - 1),
+                                                     points.at(pointIndex))));
+            }
+        }
+    }
+
+    const mini_graph::CanvasLine tail(
+                mini_graph::CanvasVector(radius, 0.0),
+                mini_graph::CanvasVector(radius + 220.0, 0.0));
+    QVERIFY(arcPolyline.AddSegment(tail));
+    QVERIFY(chordPolyline.AddSegment(tail));
+
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.lineType = mini_graph::CanvasLineType::DashLine2;
+    QVERIFY(arcPolyline.SetStyle(style));
+    QVERIFY(chordPolyline.SetStyle(style));
+
+    mini_graph::CanvasDocument arcDocument;
+    mini_graph::CanvasDocument chordDocument;
+    QVERIFY(arcDocument.AddEntity(arcPolyline) != 0);
+    QVERIFY(chordDocument.AddEntity(chordPolyline) != 0);
+    arcView.SetDocument(&arcDocument);
+    chordView.SetDocument(&chordDocument);
+
+    QImage arcImage(arcView.size(), QImage::Format_ARGB32_Premultiplied);
+    QImage chordImage(chordView.size(), QImage::Format_ARGB32_Premultiplied);
+    arcImage.fill(Qt::black);
+    chordImage.fill(Qt::black);
+    arcView.render(&arcImage);
+    chordView.render(&chordImage);
+
+    const int startX = qRound(arcView.MapFromWorld(
+                                  mini_graph::CanvasVector(radius + 8.0,
+                                                           0.0)).x());
+    const int endX = qRound(arcView.MapFromWorld(
+                                mini_graph::CanvasVector(radius + 180.0,
+                                                         0.0)).x());
+    const int centerY = qRound(arcView.MapFromWorld(
+                                   mini_graph::CanvasVector(radius + 80.0,
+                                                            0.0)).y());
+    int differingPixels = 0;
+    for (int x = startX; x <= endX; ++x) {
+        for (int y = centerY - 1; y <= centerY + 1; ++y) {
+            if (arcImage.pixelColor(x, y) != chordImage.pixelColor(x, y)) {
+                ++differingPixels;
+            }
+        }
+    }
+
+    QVERIFY2(differingPixels == 0,
+             "Arc line-pattern phase must match the rendered tessellated chord length");
 }
 
 void CanvasCoreTest::CanvasViewUsesMillimeterLineWidthAndVisibilitySwitch()
