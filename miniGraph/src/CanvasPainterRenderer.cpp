@@ -36,7 +36,160 @@ bool IsFinite(qreal value)
 
 QColor GetDisplayColor(const StruCanvasStyle &style, bool selected)
 {
-    return selected ? style.selectedStrokeColor : style.strokeColor;
+    const QColor background(Qt::black);
+    const QColor black(Qt::black);
+    QColor color = style.strokeColor;
+    const bool sameAsBackground = color.red() == background.red()
+            && color.green() == background.green()
+            && color.blue() == background.blue();
+    const bool isBlack = color.red() == black.red()
+            && color.green() == black.green()
+            && color.blue() == black.blue();
+
+    bool useForeground = sameAsBackground;
+    if (!useForeground && isBlack) {
+        const int redMean = (color.red() + background.red()) / 2;
+        const qreal redDifference = color.red() - background.red();
+        const qreal greenDifference = color.green() - background.green();
+        const qreal blueDifference = color.blue() - background.blue();
+        const qreal colorDistance = std::sqrt(
+                    redDifference * redDifference * (512 + redMean) / 256.0
+                    + greenDifference * greenDifference * 4.0
+                    + blueDifference * blueDifference * (767 - redMean)
+                    / 256.0) / 7.64834;
+        useForeground = colorDistance < 20.0;
+    }
+
+    if (color.alpha() > 0 && useForeground) {
+        color.setRgb(255, 255, 255, color.alpha());
+    }
+
+    // CADLab 在背景对比回退之后应用选中颜色。
+    return selected ? style.selectedStrokeColor : color;
+}
+
+struct CadLabLineTypePattern
+{
+    qreal values[6];
+    int count;
+};
+
+const CadLabLineTypePattern *GetCadLabLineTypePattern(CanvasLineType lineType)
+{
+    static const CadLabLineTypePattern patterns[] = {
+        {{0.2, -6.2, 0.0, 0.0, 0.0, 0.0}, 2},
+        {{0.15, -1.0, 0.0, 0.0, 0.0, 0.0}, 2},
+        {{0.2, -3.1, 0.0, 0.0, 0.0, 0.0}, 2},
+        {{0.2, -12.4, 0.0, 0.0, 0.0, 0.0}, 2},
+        {{12.0, -6.0, 0.0, 0.0, 0.0, 0.0}, 2},
+        {{2.0, -1.0, 0.0, 0.0, 0.0, 0.0}, 2},
+        {{6.0, -3.0, 0.0, 0.0, 0.0, 0.0}, 2},
+        {{24.0, -12.0, 0.0, 0.0, 0.0, 0.0}, 2},
+        {{12.0, -5.0, 0.2, -5.95, 0.0, 0.0}, 4},
+        {{2.0, -0.7, 0.15, -2.0, 0.0, 0.0}, 4},
+        {{6.0, -2.0, 0.2, -2.0, 0.0, 0.0}, 4},
+        {{24.0, -8.0, 0.2, -8.0, 0.0, 0.0}, 4},
+        {{12.0, -4.9, 0.2, -4.9, 0.2, -4.9}, 6},
+        {{2.0, -0.7, 0.15, -0.7, 0.15, -0.7}, 6},
+        {{6.0, -1.9, 0.2, -1.9, 0.2, -1.9}, 6},
+        {{24.0, -8.0, 0.2, -8.0, 0.2, -8.0}, 6},
+        {{32.0, -6.0, 6.0, -6.0, 0.0, 0.0}, 4},
+        {{5.0, -1.0, 1.0, -1.0, 0.0, 0.0}, 4},
+        {{16.0, -3.0, 3.0, -3.0, 0.0, 0.0}, 4},
+        {{64.0, -12.0, 12.0, -12.0, 0.0, 0.0}, 4},
+        {{12.0, -4.0, 12.0, -4.0, 0.2, -4.0}, 6},
+        {{2.0, -1.0, 2.0, -1.0, 0.15, -1.0}, 6},
+        {{6.0, -3.0, 6.0, -3.0, 0.2, -3.0}, 6},
+        {{24.0, -8.0, 24.0, -8.0, 0.2, -8.0}, 6}
+    };
+
+    const int value = static_cast<int>(lineType);
+    if (value < static_cast<int>(CanvasLineType::DotLine)
+            || value > static_cast<int>(CanvasLineType::BorderLineX2)) {
+        return nullptr;
+    }
+    return &patterns[value - static_cast<int>(CanvasLineType::DotLine)];
+}
+
+qreal GetEffectiveLogicalDpi(qreal logicalDpiX)
+{
+    return IsFinite(logicalDpiX) && logicalDpiX > 0.0
+            ? logicalDpiX : 96.0;
+}
+
+qreal GetPenWidth(const StruCanvasStyle &style,
+                  qreal logicalDpiX,
+                  bool lineWidthVisible)
+{
+    if (style.strokeWidthUnit == CanvasLineWidthUnit::ViewportPixels) {
+        return qMax<qreal>(1.0, style.strokeWidth);
+    }
+    if (!lineWidthVisible || style.strokeWidth <= 0.0) {
+        return 0.0;
+    }
+
+    const qreal widthPixels = style.strokeWidth
+            * GetEffectiveLogicalDpi(logicalDpiX) / 25.4;
+    if (!IsFinite(widthPixels)) {
+        return 0.0;
+    }
+
+    const qreal roundedWidth = std::floor(widthPixels + 0.5);
+    // CADLab uses a cosmetic one-pixel pen for rounded width 1.
+    return roundedWidth == 1.0 ? 0.0 : roundedWidth;
+}
+
+QPen CreateEntityPen(const StruCanvasStyle &style,
+                     bool selected,
+                     qreal logicalDpiX,
+                     bool lineWidthVisible,
+                     qreal dashOffsetPixels = 0.0)
+{
+    const CanvasLineType lineType = selected
+            ? CanvasLineType::DashLine2 : style.lineType;
+    const QColor color = GetDisplayColor(style, selected);
+    const qreal width = GetPenWidth(style, logicalDpiX, lineWidthVisible);
+    QPen pen(color, width, Qt::SolidLine);
+    pen.setCapStyle(Qt::RoundCap);
+    pen.setJoinStyle(Qt::RoundJoin);
+
+    if (lineType == CanvasLineType::NoPen) {
+        pen.setStyle(Qt::NoPen);
+        return pen;
+    }
+    if (lineType == CanvasLineType::SolidLine) {
+        return pen;
+    }
+
+    const CadLabLineTypePattern *pattern = GetCadLabLineTypePattern(lineType);
+    if (!pattern || pattern->count <= 0) {
+        return pen;
+    }
+
+    const qreal pixelsPerMillimeter = GetEffectiveLogicalDpi(logicalDpiX)
+            / 25.4;
+    const qreal patternPenWidth = width > 0.0 ? width : 1.0;
+    QVector<qreal> dashPattern;
+    dashPattern.reserve(pattern->count);
+    qreal patternLengthPixels = 0.0;
+    for (int index = 0; index < pattern->count; ++index) {
+        const qreal segmentPixels = qMax<qreal>(
+                    1.0, std::fabs(pattern->values[index])
+                    * pixelsPerMillimeter);
+        patternLengthPixels += segmentPixels;
+        dashPattern.append(segmentPixels / patternPenWidth);
+    }
+    pen.setStyle(Qt::CustomDashLine);
+    pen.setDashPattern(dashPattern);
+    if (IsFinite(dashOffsetPixels) && patternLengthPixels > 0.0) {
+        qreal normalizedOffset = std::fmod(dashOffsetPixels,
+                                           patternLengthPixels);
+        if (normalizedOffset < 0.0) {
+            normalizedOffset += patternLengthPixels;
+        }
+        pen.setDashOffset(normalizedOffset / patternPenWidth);
+    }
+    return pen;
 }
 
 QPolygonF MapPolyline(const QVector<CanvasVector> &worldPoints,
@@ -55,15 +208,18 @@ void DrawWorldPath(QPainter &painter,
                    const CanvasRenderContext &context,
                    const StruCanvasStyle &style,
                    bool selected,
-                   bool closed)
+                   bool closed,
+                   qreal logicalDpiX,
+                   bool lineWidthVisible,
+                   qreal dashOffsetPixels = 0.0)
 {
     if (worldPoints.size() < 2) {
         return;
     }
 
     painter.setBrush(Qt::NoBrush);
-    painter.setPen(QPen(GetDisplayColor(style, selected),
-                        qMax<qreal>(1.0, style.strokeWidth)));
+    painter.setPen(CreateEntityPen(style, selected, logicalDpiX,
+                                   lineWidthVisible, dashOffsetPixels));
     const QPolygonF viewportPoints = MapPolyline(worldPoints, context);
     if (closed && viewportPoints.size() >= 3) {
         painter.drawPolygon(viewportPoints);
@@ -862,7 +1018,10 @@ void RenderCanvasData(QPainter &painter,
                       const CanvasRenderContext &context,
                       const CanvasEntity &entity,
                       const StruCanvasStyle &style,
-                      bool selected)
+                      bool selected,
+                      qreal logicalDpiX,
+                      bool lineWidthVisible,
+                      qreal dashOffsetPixels = 0.0)
 {
     const std::shared_ptr<CanvasData> &data = entity.GetCanvasData();
     if (!data) {
@@ -870,12 +1029,39 @@ void RenderCanvasData(QPainter &painter,
     }
 
     painter.save();
-    painter.setPen(QPen(GetDisplayColor(style, selected),
-                        qMax<qreal>(1.0, style.strokeWidth)));
+    painter.setPen(CreateEntityPen(style, selected, logicalDpiX,
+                                   lineWidthVisible, dashOffsetPixels));
     painter.setBrush(Qt::NoBrush);
     detail::RenderCanvasDataCommands(painter, context,
                                      data->CalculateToQStringList());
     painter.restore();
+}
+
+qreal GetPolylineSegmentDisplayLength(const CanvasEntity &segment,
+                                      const CanvasRenderContext &context)
+{
+    if (const CanvasLine *line =
+            dynamic_cast<const CanvasLine *>(&segment)) {
+        const QPointF start = context.MapFromWorld(line->GetStartPoint());
+        const QPointF end = context.MapFromWorld(line->GetEndPoint());
+        const qreal length = QLineF(start, end).length();
+        return IsFinite(length) ? length : 0.0;
+    }
+
+    if (const CanvasArc *arc =
+            dynamic_cast<const CanvasArc *>(&segment)) {
+        if (!arc->IsValid()) {
+            return 0.0;
+        }
+        const qreal sweep = CalculateDirectedSweep(arc->GetStartAngle(),
+                                                   arc->GetEndAngle(),
+                                                   arc->IsReversed());
+        const qreal length = arc->GetRadius() * sweep
+                * context.transform.GetZoom();
+        return IsFinite(length) ? length : 0.0;
+    }
+
+    return 0.0;
 }
 
 void DrawEntityGeometry(QPainter &painter,
@@ -883,7 +1069,10 @@ void DrawEntityGeometry(QPainter &painter,
                         const CanvasEntity &entity,
                         const StruCanvasStyle &style,
                         bool selected,
-                        qreal maximumError)
+                        qreal maximumError,
+                        qreal logicalDpiX,
+                        bool lineWidthVisible,
+                        qreal dashOffsetPixels = 0.0)
 {
     switch (entity.GetType()) {
     case CanvasEntityType::Point: {
@@ -895,7 +1084,8 @@ void DrawEntityGeometry(QPainter &painter,
         painter.setPen(Qt::NoPen);
         painter.setBrush(GetDisplayColor(style, selected));
         const QPointF viewportPosition = context.MapFromWorld(point->GetPosition());
-        const qreal radius = qMax<qreal>(1.0, style.pointSize) * 0.5;
+        const qreal radius = detail::GetDisplayPointSize(
+                    style, logicalDpiX, lineWidthVisible) * 0.5;
         painter.drawEllipse(viewportPosition, radius, radius);
         return;
     }
@@ -906,8 +1096,8 @@ void DrawEntityGeometry(QPainter &painter,
         }
 
         painter.setBrush(Qt::NoBrush);
-        painter.setPen(QPen(GetDisplayColor(style, selected),
-                            qMax<qreal>(1.0, style.strokeWidth)));
+        painter.setPen(CreateEntityPen(style, selected, logicalDpiX,
+                                       lineWidthVisible, dashOffsetPixels));
         painter.drawLine(context.MapFromWorld(line->GetStartPoint()),
                          context.MapFromWorld(line->GetEndPoint()));
         return;
@@ -925,7 +1115,8 @@ void DrawEntityGeometry(QPainter &painter,
         geometry.endAngle = arc->GetEndAngle();
         geometry.reversed = arc->IsReversed();
         DrawWorldPath(painter, TessellateArc(geometry, maximumError),
-                      context, style, selected, false);
+                      context, style, selected, false,
+                      logicalDpiX, lineWidthVisible, dashOffsetPixels);
         return;
     }
     case CanvasEntityType::Circle: {
@@ -938,7 +1129,8 @@ void DrawEntityGeometry(QPainter &painter,
         geometry.center = circle->GetCenter();
         geometry.radius = circle->GetRadius();
         DrawWorldPath(painter, TessellateCircle(geometry, maximumError),
-                      context, style, selected, true);
+                      context, style, selected, true,
+                      logicalDpiX, lineWidthVisible, dashOffsetPixels);
         return;
     }
     case CanvasEntityType::Ellipse: {
@@ -950,7 +1142,8 @@ void DrawEntityGeometry(QPainter &painter,
         bool closed = false;
         const QVector<CanvasVector> points = TessellateEllipse(
                     *ellipse, maximumError, &closed);
-        DrawWorldPath(painter, points, context, style, selected, closed);
+        DrawWorldPath(painter, points, context, style, selected, closed,
+                      logicalDpiX, lineWidthVisible, dashOffsetPixels);
         return;
     }
     case CanvasEntityType::Polyline: {
@@ -960,14 +1153,27 @@ void DrawEntityGeometry(QPainter &painter,
             return;
         }
 
+        qreal dashOffsetPixels = 0.0;
         for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
             const CanvasEntity *segment = polyline->GetSegment(index);
-            if (!segment || !segment->GetStyle().visible) {
+            if (!segment) {
                 continue;
             }
-            RenderCanvasData(painter, context, *segment, style, selected);
-            DrawEntityGeometry(painter, context, *segment, style,
-                               selected, maximumError);
+            const qreal segmentLength = GetPolylineSegmentDisplayLength(
+                        *segment, context);
+            if (segment->GetStyle().visible) {
+                RenderCanvasData(painter, context, *segment, style, selected,
+                                 logicalDpiX, lineWidthVisible,
+                                 dashOffsetPixels);
+                DrawEntityGeometry(painter, context, *segment, style,
+                                   selected, maximumError,
+                                   logicalDpiX, lineWidthVisible,
+                                   dashOffsetPixels);
+            }
+            if (IsFinite(segmentLength) && segmentLength > 0.0
+                    && IsFinite(dashOffsetPixels + segmentLength)) {
+                dashOffsetPixels += segmentLength;
+            }
         }
         return;
     }
@@ -981,7 +1187,7 @@ void DrawEntityGeometry(QPainter &painter,
                     *spline, maximumError);
         for (int index = 0; index < paths.size(); ++index) {
             DrawWorldPath(painter, paths.at(index), context, style, selected,
-                          false);
+                          false, logicalDpiX, lineWidthVisible);
         }
         return;
     }
@@ -996,7 +1202,9 @@ void RenderEntity(QPainter &painter,
                   const CanvasDocument &document,
                   const CanvasEntity *entity,
                   bool inheritedSelection,
-                  qreal maximumError)
+                  qreal maximumError,
+                  qreal logicalDpiX,
+                  bool lineWidthVisible)
 {
     if (!entity || !entity->GetStyle().visible) {
         return;
@@ -1013,17 +1221,21 @@ void RenderEntity(QPainter &painter,
         if (!group) {
             return;
         }
-        RenderCanvasData(painter, context, *entity, entity->GetStyle(), selected);
+        RenderCanvasData(painter, context, *entity, entity->GetStyle(), selected,
+                         logicalDpiX, lineWidthVisible);
         for (int index = 0; index < group->GetChildCount(); ++index) {
             RenderEntity(painter, context, document, group->GetChild(index),
-                         selected, maximumError);
+                         selected, maximumError,
+                         logicalDpiX, lineWidthVisible);
         }
         return;
     }
 
-    RenderCanvasData(painter, context, *entity, entity->GetStyle(), selected);
+    RenderCanvasData(painter, context, *entity, entity->GetStyle(), selected,
+                     logicalDpiX, lineWidthVisible);
     DrawEntityGeometry(painter, context, *entity, entity->GetStyle(),
-                       selected, maximumError);
+                       selected, maximumError,
+                       logicalDpiX, lineWidthVisible);
 }
 
 } // namespace
@@ -1072,11 +1284,30 @@ QVector<QVector<CanvasVector>> TessellateSplineForSelection(
     return TessellateSpline(spline, maximumError);
 }
 
+qreal GetDisplayStrokeWidth(const StruCanvasStyle &style,
+                            qreal logicalDpiX,
+                            bool lineWidthVisible)
+{
+    return qMax<qreal>(1.0, GetPenWidth(style, logicalDpiX,
+                                        lineWidthVisible));
+}
+
+qreal GetDisplayPointSize(const StruCanvasStyle &style,
+                          qreal logicalDpiX,
+                          bool lineWidthVisible)
+{
+    return style.strokeWidthUnit == CanvasLineWidthUnit::Millimeters
+            ? GetDisplayStrokeWidth(style, logicalDpiX, lineWidthVisible)
+            : qMax<qreal>(1.0, style.pointSize);
+}
+
 } // namespace detail
 
 void CanvasPainterRenderer::Render(
         QPainter &painter,
-        const CanvasRenderContext &context) const
+        const CanvasRenderContext &context,
+        qreal logicalDpiX,
+        bool lineWidthVisible) const
 {
     const CanvasDocument *document = context.document;
     if (!document) {
@@ -1091,7 +1322,8 @@ void CanvasPainterRenderer::Render(
     painter.setRenderHint(QPainter::Antialiasing, true);
     for (const ItemId id : document->GetItemIds()) {
         RenderEntity(painter, context, *document, document->GetEntity(id),
-                     false, maximumWorldError);
+                     false, maximumWorldError,
+                     logicalDpiX, lineWidthVisible);
     }
     painter.restore();
 }

@@ -42,7 +42,7 @@ public:
 
     // 向文档中添加一条线段。
     // start 和 end 为线段端点的世界坐标。
-    // color 为线段颜色，width 为线段宽度，小于 0 的宽度会被限制为 0。
+    // color 为线段颜色，width 为视口像素宽度，小于 0 时限制为 0。
     // 返回新建图元的唯一标识。
     ItemId AddLine(const CanvasVector &start,
                    const CanvasVector &end,
@@ -50,7 +50,7 @@ public:
                    qreal width = 1.0);
 
     // 按几何数据向文档中添加一条线段。
-    // color 和 width 仅用于兼容当前线段绘制，width 小于 0 时会被限制为 0。
+    // color 和 width 用于兼容当前线段绘制；width 按视口像素解释并限制为非负值。
     ItemId AddLine(const StruLineGeometry &geometry,
                    const QColor &color = QColor(Qt::white),
                    qreal width = 1.0);

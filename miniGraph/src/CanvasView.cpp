@@ -205,8 +205,21 @@ qreal CalculateHitToleranceSquared(qreal zoom, qreal displaySize)
     return worldTolerance * worldTolerance;
 }
 
+qreal GetEntityDisplaySize(const CanvasEntity &entity,
+                           qreal logicalDpiX,
+                           bool lineWidthVisible)
+{
+    return entity.GetType() == CanvasEntityType::Point
+            ? detail::GetDisplayPointSize(entity.GetStyle(), logicalDpiX,
+                                          lineWidthVisible)
+            : detail::GetDisplayStrokeWidth(entity.GetStyle(), logicalDpiX,
+                                            lineWidthVisible);
+}
+
 bool TryGetMaximumHitDisplaySize(const CanvasEntity &root,
-                                qreal *maximumDisplaySize)
+                                 qreal logicalDpiX,
+                                 bool lineWidthVisible,
+                                 qreal *maximumDisplaySize)
 {
     if (!maximumDisplaySize) {
         return false;
@@ -221,9 +234,8 @@ bool TryGetMaximumHitDisplaySize(const CanvasEntity &root,
             return false;
         }
 
-        const StruCanvasStyle &style = entity->GetStyle();
-        const qreal displaySize = entity->GetType() == CanvasEntityType::Point
-                ? style.pointSize : style.strokeWidth;
+        const qreal displaySize = GetEntityDisplaySize(*entity, logicalDpiX,
+                                                       lineWidthVisible);
         if (!std::isfinite(static_cast<double>(displaySize))
                 || displaySize < 0.0) {
             return false;
@@ -359,6 +371,8 @@ void AppendSelectionPath(const QVector<CanvasVector> &points,
 
 void CollectEntitySelectionPaths(const CanvasEntity &entity,
                                  qreal maximumWorldError,
+                                 qreal logicalDpiX,
+                                 bool lineWidthVisible,
                                  QVector<EntitySelectionPath> *paths)
 {
     if (!paths || !entity.GetStyle().visible || !entity.IsValid()) {
@@ -371,7 +385,9 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
         const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(&entity);
         if (point) {
             AppendSelectionPath(QVector<CanvasVector>() << point->GetPosition(),
-                                style.pointSize, paths);
+                                detail::GetDisplayPointSize(
+                                    style, logicalDpiX, lineWidthVisible),
+                                paths);
         }
         return;
     }
@@ -381,7 +397,8 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
             AppendSelectionPath(QVector<CanvasVector>()
                                 << line->GetStartPoint()
                                 << line->GetEndPoint(),
-                                style.strokeWidth, paths);
+                                detail::GetDisplayStrokeWidth(
+                                    style, logicalDpiX, lineWidthVisible), paths);
         }
         return;
     }
@@ -395,7 +412,8 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
             geometry.endAngle = arc->GetEndAngle();
             geometry.reversed = arc->IsReversed();
             AppendSelectionPath(TessellateArc(geometry, maximumWorldError),
-                                style.strokeWidth, paths);
+                                detail::GetDisplayStrokeWidth(
+                                    style, logicalDpiX, lineWidthVisible), paths);
         }
         return;
     }
@@ -406,7 +424,8 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
             geometry.center = circle->GetCenter();
             geometry.radius = circle->GetRadius();
             AppendSelectionPath(TessellateCircle(geometry, maximumWorldError),
-                                style.strokeWidth, paths);
+                                detail::GetDisplayStrokeWidth(
+                                    style, logicalDpiX, lineWidthVisible), paths);
         }
         return;
     }
@@ -416,7 +435,8 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
         if (ellipse) {
             AppendSelectionPath(detail::TessellateEllipseForSelection(
                                     *ellipse, maximumWorldError, nullptr),
-                                style.strokeWidth, paths);
+                                detail::GetDisplayStrokeWidth(
+                                    style, logicalDpiX, lineWidthVisible), paths);
         }
         return;
     }
@@ -436,7 +456,9 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
                 AppendSelectionPath(QVector<CanvasVector>()
                                     << line->GetStartPoint()
                                     << line->GetEndPoint(),
-                                    style.strokeWidth, paths);
+                                    detail::GetDisplayStrokeWidth(
+                                        style, logicalDpiX,
+                                        lineWidthVisible), paths);
             } else if (const CanvasArc *arc =
                        dynamic_cast<const CanvasArc *>(segment)) {
                 StruArcGeometry geometry;
@@ -447,7 +469,9 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
                 geometry.reversed = arc->IsReversed();
                 AppendSelectionPath(TessellateArc(geometry,
                                                    maximumWorldError),
-                                    style.strokeWidth, paths);
+                                    detail::GetDisplayStrokeWidth(
+                                        style, logicalDpiX,
+                                        lineWidthVisible), paths);
             }
         }
         return;
@@ -461,7 +485,10 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
                 detail::TessellateSplineForSelection(*spline,
                                                      maximumWorldError);
         for (const QVector<CanvasVector> &splinePath : splinePaths) {
-            AppendSelectionPath(splinePath, style.strokeWidth, paths);
+            AppendSelectionPath(splinePath,
+                                detail::GetDisplayStrokeWidth(
+                                    style, logicalDpiX, lineWidthVisible),
+                                paths);
         }
         return;
     }
@@ -474,7 +501,9 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
         for (int index = 0; index < group->GetChildCount(); ++index) {
             const CanvasEntity *child = group->GetChild(index);
             if (child) {
-                CollectEntitySelectionPaths(*child, maximumWorldError, paths);
+                CollectEntitySelectionPaths(*child, maximumWorldError,
+                                            logicalDpiX, lineWidthVisible,
+                                            paths);
             }
         }
         return;
@@ -779,6 +808,8 @@ public:
     QVector<AdditionalRendererEntry> m_AdditionalCustomRenderers;
     QHash<ItemId, qreal> m_HitTestMaximumDisplaySizeCache;
     bool m_HitTestMaximumDisplaySizeCacheValid = false;
+    qreal m_HitTestMaximumDisplaySizeCacheLogicalDpiX = 0.0;
+    bool m_HitTestMaximumDisplaySizeCacheLineWidthVisible = false;
 
     void InvalidateHitTestMaximumDisplaySizeCache()
     {
@@ -787,11 +818,18 @@ public:
     }
 
     bool EnsureHitTestMaximumDisplaySizeCache(
-            const CanvasDocument *document)
+            const CanvasDocument *document,
+            qreal logicalDpiX,
+            bool lineWidthVisible)
     {
-        if (m_HitTestMaximumDisplaySizeCacheValid) {
+        if (m_HitTestMaximumDisplaySizeCacheValid
+                && qFuzzyCompare(m_HitTestMaximumDisplaySizeCacheLogicalDpiX
+                                 + 1.0, logicalDpiX + 1.0)
+                && m_HitTestMaximumDisplaySizeCacheLineWidthVisible
+                   == lineWidthVisible) {
             return true;
         }
+        InvalidateHitTestMaximumDisplaySizeCache();
         if (!document) {
             return false;
         }
@@ -806,6 +844,8 @@ public:
 
             qreal maximumDisplaySize = 0.0;
             if (TryGetMaximumHitDisplaySize(*entity,
+                                            logicalDpiX,
+                                            lineWidthVisible,
                                             &maximumDisplaySize)) {
                 candidateCache.insert(id, maximumDisplaySize);
             }
@@ -813,16 +853,21 @@ public:
 
         m_HitTestMaximumDisplaySizeCache.swap(candidateCache);
         m_HitTestMaximumDisplaySizeCacheValid = true;
+        m_HitTestMaximumDisplaySizeCacheLogicalDpiX = logicalDpiX;
+        m_HitTestMaximumDisplaySizeCacheLineWidthVisible = lineWidthVisible;
         return true;
     }
 
     bool TryGetCachedHitDisplaySize(const CanvasDocument *document,
                                     ItemId id,
                                     const CanvasEntity &entity,
+                                    qreal logicalDpiX,
+                                    bool lineWidthVisible,
                                     qreal *maximumDisplaySize)
     {
         if (!maximumDisplaySize || !UsesRecursiveHitDisplaySize(entity)
-                || !EnsureHitTestMaximumDisplaySizeCache(document)) {
+                || !EnsureHitTestMaximumDisplaySizeCache(
+                    document, logicalDpiX, lineWidthVisible)) {
             return false;
         }
 
@@ -861,6 +906,7 @@ CanvasView::CanvasView(QWidget *parent)
     : QWidget(parent)
     , m_InteractionMode(InteractionMode::Edit)
     , m_GridVisible(true)
+    , m_LineWidthVisible(false)
     , m_GridSpacing(10.0)
     , m_AxisVisible(true)
     , m_AxisFlipX(false)
@@ -1340,6 +1386,23 @@ void CanvasView::SetGridVisible(bool visible)
 
     m_GridVisible = visible;
     emit GridVisibleChanged(m_GridVisible);
+    update();
+}
+
+bool CanvasView::IsLineWidthVisible() const
+{
+    return m_LineWidthVisible;
+}
+
+void CanvasView::SetLineWidthVisible(bool visible)
+{
+    if (m_LineWidthVisible == visible) {
+        return;
+    }
+
+    m_LineWidthVisible = visible;
+    m_PrivateData->InvalidateHitTestMaximumDisplaySizeCache();
+    emit LineWidthVisibleChanged(m_LineWidthVisible);
     update();
 }
 
@@ -2139,7 +2202,8 @@ void CanvasView::paintEvent(QPaintEvent *event)
                         globalData->CalToQStringListPre(), true);
             painter.restore();
         }
-        m_PrivateData->m_DefaultRenderer->Render(painter, renderContext);
+        m_PrivateData->m_DefaultRenderer->Render(
+                    painter, renderContext, logicalDpiX(), m_LineWidthVisible);
         for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
             if (!renderer) {
                 continue;
@@ -3287,6 +3351,8 @@ bool CanvasView::BuildHitTestMaximumDisplaySizeCacheForProfiling(
         qreal maximumDisplaySize = 0.0;
         if (!entity
                 || !TryGetMaximumHitDisplaySize(*entity,
+                                                logicalDpiX(),
+                                                m_LineWidthVisible,
                                                 &maximumDisplaySize)) {
             displaySizeCache->clear();
             return false;
@@ -3496,6 +3562,7 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
                     maximumDisplaySizeAvailable =
                             m_PrivateData->TryGetCachedHitDisplaySize(
                                 m_Document.data(), id, *entity,
+                                logicalDpiX(), m_LineWidthVisible,
                                 &maximumDisplaySize);
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
                     if (!maximumDisplaySizeAvailable) {
@@ -3521,7 +3588,8 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
                     }
 #endif
                     maximumDisplaySizeAvailable = TryGetMaximumHitDisplaySize(
-                                *entity, &maximumDisplaySize);
+                                *entity, logicalDpiX(), m_LineWidthVisible,
+                                &maximumDisplaySize);
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
                     if (sampleBoundsStages) {
                         m_PrivateData->m_HitTestProfile
@@ -3584,7 +3652,8 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
         ++m_PrivateData->m_HitTestProfile.pathCollectionCallCount;
 #endif
         QVector<EntitySelectionPath> paths;
-        CollectEntitySelectionPaths(*entity, maximumWorldError, &paths);
+        CollectEntitySelectionPaths(*entity, maximumWorldError,
+                                    logicalDpiX(), m_LineWidthVisible, &paths);
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
         if (profileSampleEntity) {
             const qint64 pathCollectionNanoseconds =
@@ -3671,7 +3740,8 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
         }
 
         QVector<EntitySelectionPath> paths;
-        CollectEntitySelectionPaths(*entity, maximumWorldError, &paths);
+        CollectEntitySelectionPaths(*entity, maximumWorldError,
+                                    logicalDpiX(), m_LineWidthVisible, &paths);
         const bool selected = crossing
                 ? DoEntityPathsIntersectRect(paths, normalizedRect)
                 : AreEntityPathsContained(paths, normalizedRect);

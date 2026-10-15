@@ -28,7 +28,7 @@ public:
     // 返回图元的只读显示样式。
     const StruCanvasStyle &GetStyle() const;
 
-    // 设置显示样式；颜色必须有效，线宽有限且非负，点尺寸有限且大于零。
+    // 设置显示样式；颜色、线型和线宽单位有效，线宽有限非负，点尺寸有限正值。
     bool SetStyle(const StruCanvasStyle &style);
 
     // 返回图元附加数据；未设置时为空。

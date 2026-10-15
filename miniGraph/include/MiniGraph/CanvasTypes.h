@@ -29,6 +29,44 @@ enum class CanvasEntityType : quint8
     GroupContainer
 };
 
+// 画布图元线型，数值与 CADLab 的 RS2::LineType 对齐。
+enum class CanvasLineType : quint8
+{
+    NoPen = 0,
+    SolidLine = 1,
+    DotLine = 2,
+    DotLineTiny = 3,
+    DotLine2 = 4,
+    DotLineX2 = 5,
+    DashLine = 6,
+    DashLineTiny = 7,
+    DashLine2 = 8,
+    DashLineX2 = 9,
+    DashDotLine = 10,
+    DashDotLineTiny = 11,
+    DashDotLine2 = 12,
+    DashDotLineX2 = 13,
+    DivideLine = 14,
+    DivideLineTiny = 15,
+    DivideLine2 = 16,
+    DivideLineX2 = 17,
+    CenterLine = 18,
+    CenterLineTiny = 19,
+    CenterLine2 = 20,
+    CenterLineX2 = 21,
+    BorderLine = 22,
+    BorderLineTiny = 23,
+    BorderLine2 = 24,
+    BorderLineX2 = 25
+};
+
+// 画布图元线宽的单位。
+enum class CanvasLineWidthUnit : quint8
+{
+    ViewportPixels,
+    Millimeters
+};
+
 // 画布中的点几何数据。
 struct StruPointGeometry
 {
@@ -129,19 +167,27 @@ struct StruCanvasStyle
         : strokeColor(Qt::white)
         , selectedStrokeColor(165, 71, 71)
         , strokeWidth(1.0)
+        , lineType(CanvasLineType::SolidLine)
+        , strokeWidthUnit(CanvasLineWidthUnit::ViewportPixels)
         , pointSize(6.0)
         , visible(true)
     {
     }
 
-    // 图元未选中时使用的颜色。
+    // 图元未选中时使用的实际颜色；图层继承等解析由调用方完成。
     QColor strokeColor;
 
-    // 图元选中时使用的颜色。
+    // 图元选中时使用的实际颜色；图层继承等解析由调用方完成。
     QColor selectedStrokeColor;
 
-    // 图元线宽，单位为视口像素。
+    // 图元线宽；单位由 strokeWidthUnit 指定，毫米宽度按视图逻辑 DPI 映射。
     qreal strokeWidth;
+
+    // 图元线型。
+    CanvasLineType lineType;
+
+    // 图元线宽单位；默认视口像素，Millimeters 按屏幕逻辑 DPI 映射。
+    CanvasLineWidthUnit strokeWidthUnit;
 
     // 点图元的显示尺寸，单位为视口像素。
     qreal pointSize;
@@ -156,6 +202,10 @@ struct StruCanvasStyle
                 && selectedStrokeColor.isValid()
                 && std::isfinite(static_cast<double>(strokeWidth))
                 && strokeWidth >= 0.0
+                && static_cast<quint8>(lineType)
+                   <= static_cast<quint8>(CanvasLineType::BorderLineX2)
+                && (strokeWidthUnit == CanvasLineWidthUnit::ViewportPixels
+                    || strokeWidthUnit == CanvasLineWidthUnit::Millimeters)
                 && std::isfinite(static_cast<double>(pointSize))
                 && pointSize > 0.0;
     }
@@ -166,6 +216,8 @@ struct StruCanvasStyle
         return strokeColor == other.strokeColor
                 && selectedStrokeColor == other.selectedStrokeColor
                 && strokeWidth == other.strokeWidth
+                && lineType == other.lineType
+                && strokeWidthUnit == other.strokeWidthUnit
                 && pointSize == other.pointSize
                 && visible == other.visible;
     }
@@ -191,7 +243,7 @@ struct StruPointPrimitive
 };
 
 // 画布中的线段图元存储数据。
-// 坐标使用画布世界坐标系表示，颜色和线宽用于兼容现有线段绘制。
+// 坐标使用画布世界坐标系表示；样式以 style 为准。
 struct StruLinePrimitive
 {
     // 图元唯一标识，由 CanvasDocument 分配。
@@ -207,8 +259,8 @@ struct StruLinePrimitive
     // 新代码应通过 style.strokeColor 访问和修改显示样式。
     QColor color = QColor(Qt::white);
 
-    // 兼容旧接口的线段宽度镜像值。
-    // 新代码应通过 style.strokeWidth 访问和修改显示样式。
+    // 兼容旧接口的线段宽度数值镜像；单位跟随 style.strokeWidthUnit。
+    // 新代码应通过 style.strokeWidth 和 style.strokeWidthUnit 访问样式。
     qreal width = 1.0;
 };
 
@@ -254,6 +306,8 @@ struct StruPolylinePrimitive
 } // namespace mini_graph
 
 Q_DECLARE_METATYPE(mini_graph::CanvasEntityType)
+Q_DECLARE_METATYPE(mini_graph::CanvasLineType)
+Q_DECLARE_METATYPE(mini_graph::CanvasLineWidthUnit)
 Q_DECLARE_METATYPE(mini_graph::StruPointGeometry)
 Q_DECLARE_METATYPE(mini_graph::StruLineGeometry)
 Q_DECLARE_METATYPE(mini_graph::StruArcGeometry)

@@ -101,6 +101,62 @@ static int CountYellowPixels(const QImage &image)
     return count;
 }
 
+static int CountColorPixelsAlongHorizontal(const QImage &image,
+                                           int y,
+                                           const QColor &target)
+{
+    if (y < 0 || y >= image.height()) {
+        return 0;
+    }
+
+    int count = 0;
+    for (int x = 0; x < image.width(); ++x) {
+        const QColor color = image.pixelColor(x, y);
+        if ((target.red() > target.green()
+             && target.red() > target.blue()
+             && color.red() > 50 && color.green() < 100 && color.blue() < 100)
+                || (target.green() > target.red()
+                    && target.green() > target.blue()
+                    && color.green() > 50 && color.red() < 100
+                    && color.blue() < 100)
+                || (target.blue() > target.red()
+                    && target.blue() > target.green()
+                    && color.blue() > 50 && color.red() < 100
+                    && color.green() < 100)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
+static int CountColorPixelsAlongVertical(const QImage &image,
+                                         int x,
+                                         const QColor &target)
+{
+    if (x < 0 || x >= image.width()) {
+        return 0;
+    }
+
+    int count = 0;
+    for (int y = 0; y < image.height(); ++y) {
+        const QColor color = image.pixelColor(x, y);
+        if ((target.red() > target.green()
+             && target.red() > target.blue()
+             && color.red() > 50 && color.green() < 100 && color.blue() < 100)
+                || (target.green() > target.red()
+                    && target.green() > target.blue()
+                    && color.green() > 50 && color.red() < 100
+                    && color.blue() < 100)
+                || (target.blue() > target.red()
+                    && target.blue() > target.green()
+                    && color.blue() > 50 && color.red() < 100
+                    && color.green() < 100)) {
+            ++count;
+        }
+    }
+    return count;
+}
+
 class TestCanvasAction final : public mini_graph::CanvasAction
 {
 public:
@@ -244,6 +300,7 @@ private slots:
     void DocumentSupportsParameterizedCreation();
     void CanvasStyleHasStableDefaultsAndValueSemantics();
     void CanvasStyleValidationIsConsistentAcrossEntityAndDocument();
+    void CanvasStyleRejectsUnsupportedLineTypesAndWidthUnits();
     void DocumentStoresAndUpdatesItemStyle();
     void DocumentNormalizesLineStyleCompatibilityFields();
     void DocumentRejectsNonFiniteLineWidths();
@@ -272,6 +329,11 @@ private slots:
     void CanvasViewReportsCurrentSnap();
     void CanvasViewDrawsSnapMarker();
     void CanvasViewRendersDocumentWithPainter();
+    void CanvasViewRendersCadLabLineTypeAndSelectionOverride();
+    void CanvasViewPreservesLineTypePhaseAcrossPolylineSegments();
+    void CanvasViewUsesMillimeterLineWidthAndVisibilitySwitch();
+    void CanvasViewUsesMillimeterLineWidthForPointMarker();
+    void CanvasViewKeepsBlackEntityVisibleOnDarkCanvas();
     void CanvasViewRendersCanvasDataInLayerOrder();
     void CanvasViewRendersCanvasDataBeforeEntityGeometry();
     void CanvasViewRendersGlobalDataAroundEntityGeometry();
@@ -2999,12 +3061,24 @@ void CanvasCoreTest::CanvasStyleHasStableDefaultsAndValueSemantics()
     QCOMPARE(style.strokeColor, QColor(Qt::white));
     QCOMPARE(style.selectedStrokeColor, QColor(165, 71, 71));
     QCOMPARE(style.strokeWidth, 1.0);
+    QCOMPARE(static_cast<int>(style.lineType),
+             static_cast<int>(mini_graph::CanvasLineType::SolidLine));
+    QCOMPARE(static_cast<int>(style.strokeWidthUnit),
+             static_cast<int>(mini_graph::CanvasLineWidthUnit::ViewportPixels));
     QCOMPARE(style.pointSize, 6.0);
     QVERIFY(style.visible);
     QVERIFY(style == mini_graph::StruCanvasStyle());
 
     mini_graph::StruCanvasStyle changedStyle = style;
     changedStyle.strokeWidth = 2.0;
+    QVERIFY(changedStyle != style);
+
+    changedStyle = style;
+    changedStyle.lineType = mini_graph::CanvasLineType::DashLine;
+    QVERIFY(changedStyle != style);
+
+    changedStyle = style;
+    changedStyle.strokeWidthUnit = mini_graph::CanvasLineWidthUnit::Millimeters;
     QVERIFY(changedStyle != style);
 }
 
@@ -3019,10 +3093,20 @@ void CanvasCoreTest::CanvasStyleValidationIsConsistentAcrossEntityAndDocument()
     mini_graph::StruCanvasStyle invalidSelectedColorStyle;
     invalidSelectedColorStyle.selectedStrokeColor = QColor();
 
+    mini_graph::StruCanvasStyle invalidLineTypeStyle;
+    invalidLineTypeStyle.lineType =
+            static_cast<mini_graph::CanvasLineType>(26);
+
+    mini_graph::StruCanvasStyle invalidWidthUnitStyle;
+    invalidWidthUnitStyle.strokeWidthUnit =
+            static_cast<mini_graph::CanvasLineWidthUnit>(255);
+
     const mini_graph::StruCanvasStyle invalidStyles[] = {
         zeroPointSizeStyle,
         invalidStrokeColorStyle,
-        invalidSelectedColorStyle
+        invalidSelectedColorStyle,
+        invalidLineTypeStyle,
+        invalidWidthUnitStyle
     };
 
     for (int index = 0;
@@ -3059,6 +3143,24 @@ void CanvasCoreTest::CanvasStyleValidationIsConsistentAcrossEntityAndDocument()
     mini_graph::StruCanvasStyle storedStyle;
     QVERIFY(document.GetItemStyle(pointId, &storedStyle));
     QCOMPARE(storedStyle.strokeWidth, 0.0);
+}
+
+void CanvasCoreTest::CanvasStyleRejectsUnsupportedLineTypesAndWidthUnits()
+{
+    for (int value = 0; value <= 25; ++value) {
+        mini_graph::StruCanvasStyle style;
+        style.lineType = static_cast<mini_graph::CanvasLineType>(value);
+        QVERIFY2(style.IsValid(), "A CADLab-compatible line type should be accepted");
+    }
+
+    mini_graph::StruCanvasStyle invalidLineType;
+    invalidLineType.lineType = static_cast<mini_graph::CanvasLineType>(26);
+    QVERIFY(!invalidLineType.IsValid());
+
+    mini_graph::StruCanvasStyle invalidWidthUnit;
+    invalidWidthUnit.strokeWidthUnit =
+            static_cast<mini_graph::CanvasLineWidthUnit>(255);
+    QVERIFY(!invalidWidthUnit.IsValid());
 }
 
 void CanvasCoreTest::DocumentStoresAndUpdatesItemStyle()
@@ -4000,6 +4102,229 @@ void CanvasCoreTest::CanvasViewRendersDocumentWithPainter()
         }
     }
     QVERIFY(foundRedPixel);
+}
+
+void CanvasCoreTest::CanvasViewRendersCadLabLineTypeAndSelectionOverride()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-90.0, 0.0),
+                mini_graph::CanvasVector(90.0, 0.0),
+                QColor(Qt::red),
+                1.0);
+    QVERIFY(lineId != 0);
+
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = QColor(0, 255, 0);
+    style.lineType = mini_graph::CanvasLineType::DotLineTiny;
+    QVERIFY(document.SetItemStyle(lineId, style));
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+    const int unselectedPixelCount = CountColorPixelsAlongHorizontal(
+                image, 100, QColor(Qt::red));
+    QVERIFY(unselectedPixelCount > 0);
+    QVERIFY(unselectedPixelCount < 110);
+
+    document.SelectItem(lineId);
+    image.fill(Qt::black);
+    view.render(&image);
+    const int selectedPixelCount = CountColorPixelsAlongHorizontal(
+                image, 100, QColor(0, 255, 0));
+    QVERIFY(selectedPixelCount > unselectedPixelCount + 20);
+    QVERIFY(selectedPixelCount < 170);
+    QCOMPARE(CountColorPixelsAlongHorizontal(image, 100, QColor(Qt::red)), 0);
+}
+
+void CanvasCoreTest::CanvasViewPreservesLineTypePhaseAcrossPolylineSegments()
+{
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+
+    const qreal pixelsPerMillimeter = view.logicalDpiX() / 25.4;
+    const qreal firstSegmentLength = 7.5 * pixelsPerMillimeter;
+    const qreal vertexX = -50.0 + firstSegmentLength;
+    const QVector<mini_graph::CanvasVector> vertices = {
+        mini_graph::CanvasVector(-50.0, 0.0),
+        mini_graph::CanvasVector(vertexX, 0.0),
+        mini_graph::CanvasVector(vertexX + 40.0, 0.0)
+    };
+
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId polylineId = document.AddPolyline(vertices);
+    QVERIFY(polylineId != 0);
+
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.lineType = mini_graph::CanvasLineType::DashLine2;
+    QVERIFY(document.SetItemStyle(polylineId, style));
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const QPointF samplePosition = view.MapFromWorld(
+                mini_graph::CanvasVector(vertexX + 2.0, 0.0));
+    const QColor sampleColor = image.pixelColor(qRound(samplePosition.x()),
+                                                qRound(samplePosition.y()));
+    QVERIFY2(sampleColor.red() < 50 && sampleColor.green() < 50
+             && sampleColor.blue() < 50,
+             "A polyline must carry the CADLab line-pattern phase through vertices");
+}
+
+void CanvasCoreTest::CanvasViewUsesMillimeterLineWidthAndVisibilitySwitch()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-60.0, 0.0),
+                mini_graph::CanvasVector(60.0, 0.0),
+                QColor(Qt::red),
+                1.0);
+    QVERIFY(lineId != 0);
+
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.strokeWidth = 2.0;
+    style.strokeWidthUnit = mini_graph::CanvasLineWidthUnit::Millimeters;
+    QVERIFY(document.SetItemStyle(lineId, style));
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+    QVERIFY(!view.IsLineWidthVisible());
+
+    view.SetLineWidthVisible(true);
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+    const int visibleWidthPixels = CountColorPixelsAlongVertical(
+                image, 100, QColor(Qt::red));
+    const int expectedWidthPixels = qRound(
+                2.0 * view.logicalDpiX() / 25.4);
+    QVERIFY(visibleWidthPixels >= expectedWidthPixels - 1);
+
+    view.SetLineWidthVisible(false);
+    image.fill(Qt::black);
+    view.render(&image);
+    const int hiddenWidthPixels = CountColorPixelsAlongVertical(
+                image, 100, QColor(Qt::red));
+    QVERIFY(hiddenWidthPixels <= 2);
+    QVERIFY(visibleWidthPixels > hiddenWidthPixels + 3);
+
+    style.strokeWidthUnit = mini_graph::CanvasLineWidthUnit::ViewportPixels;
+    style.strokeWidth = 4.0;
+    QVERIFY(document.SetItemStyle(lineId, style));
+    view.SetLineWidthVisible(true);
+    image.fill(Qt::black);
+    view.render(&image);
+    const int pixelWidthShown = CountColorPixelsAlongVertical(
+                image, 100, QColor(Qt::red));
+    view.SetLineWidthVisible(false);
+    image.fill(Qt::black);
+    view.render(&image);
+    const int pixelWidthHidden = CountColorPixelsAlongVertical(
+                image, 100, QColor(Qt::red));
+    QVERIFY(pixelWidthShown >= 3);
+    QCOMPARE(pixelWidthShown, pixelWidthHidden);
+}
+
+void CanvasCoreTest::CanvasViewUsesMillimeterLineWidthForPointMarker()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(0.0, 0.0));
+    QVERIFY(pointId != 0);
+
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.lineType = mini_graph::CanvasLineType::NoPen;
+    style.strokeWidth = 1.0;
+    style.strokeWidthUnit = mini_graph::CanvasLineWidthUnit::Millimeters;
+    style.pointSize = 30.0;
+    QVERIFY(document.SetItemStyle(pointId, style));
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    view.SetLineWidthVisible(true);
+    image.fill(Qt::black);
+    view.render(&image);
+    const int visibleMarkerPixels = CountColorPixelsAlongHorizontal(
+                image, 100, QColor(Qt::red));
+    QVERIFY(visibleMarkerPixels >= 2);
+    QVERIFY(visibleMarkerPixels < 10);
+
+    view.SetLineWidthVisible(false);
+    image.fill(Qt::black);
+    view.render(&image);
+    const int hiddenMarkerPixels = CountColorPixelsAlongHorizontal(
+                image, 100, QColor(Qt::red));
+    QVERIFY(hiddenMarkerPixels <= 2);
+}
+
+void CanvasCoreTest::CanvasViewKeepsBlackEntityVisibleOnDarkCanvas()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-30.0, 0.0),
+                mini_graph::CanvasVector(30.0, 0.0),
+                QColor(Qt::black),
+                1.0);
+    QVERIFY(lineId != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    bool foundBrightPixel = false;
+    for (int y = 97; y <= 103 && !foundBrightPixel; ++y) {
+        for (int x = 97; x <= 103; ++x) {
+            const QColor color = image.pixelColor(x, y);
+            if (color.red() > 100 && color.green() > 100
+                    && color.blue() > 100) {
+                foundBrightPixel = true;
+                break;
+            }
+        }
+    }
+    QVERIFY2(foundBrightPixel,
+             "A black entity should use the contrasting foreground on a black canvas");
 }
 
 void CanvasCoreTest::CanvasViewRendersCanvasDataInLayerOrder()

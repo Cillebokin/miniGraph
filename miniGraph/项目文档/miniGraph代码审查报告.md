@@ -1,10 +1,10 @@
 # miniGraph 代码与功能审查报告
 
-> 审查/更新日期：2026-10-09  
+> 审查/更新日期：2026-10-15  
 > 审查对象：`D:\MyWorks\ProQt\miniGraph\miniGraph`  画布动态库、测试和基础示例  
 > 审查方式：源码静态检查；本报告不等同于安全渗透测试或大场景性能测试
 >
-> 本次更新：核验 Gemini 3.8 Flash 的部分技术判断，纳入已确认或带条件的补充项，并标明不受源码支持的结论；后续复核并修复 MG-004、MG-005，确认 MG-001、MG-006、MG-022 已由当前源码和测试覆盖，并同步修正文档记录。按用户要求，不评价其“CAD 交互体验与功能缺失（UX Gaps）”部分，也不据此要求改变当前交互效果。
+> 本次更新：补齐实体颜色对比、CADLab 线型与毫米线宽显示；图层/ByLayer/ByBlock 解析仍由调用方负责。本报告同时保留此前 MG-004、MG-005 修复及 MG-001、MG-006、MG-022 源码核验记录。按用户要求，不评价其“CAD 交互体验与功能缺失（UX Gaps）”部分，也不据此要求改变当前交互效果。
 
 ## 1. 总体结论
 
@@ -156,9 +156,9 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 
 ### MG-016 · P2 · 实体样式校验与文档样式校验范围不同【已修复】
 
-- **统一规则**：`StruCanvasStyle::IsValid()` 要求描边色和选中描边色有效、线宽为有限非负数、点尺寸为有限正数；`strokeWidth == 0` 仍然有效。
+- **统一规则**：`StruCanvasStyle::IsValid()` 要求描边色和选中描边色有效、线宽为有限非负数、线型和线宽单位为受支持值、点尺寸为有限正数；`strokeWidth == 0` 仍然有效。
 - **处理**：`CanvasEntity::SetStyle()`、文档实体树校验和 `CanvasDocument::SetItemStyle()` 共用 `StruCanvasStyle::IsValid()`，实体设置与文档入库/更新不再对同一样式给出不同结论。
-- **验证**：新增 `CanvasStyleValidationIsConsistentAcrossEntityAndDocument`，覆盖零点尺寸、两种无效颜色、零线宽，以及失败后实体/文档状态不变且不发出 `Changed()`。Qt 5.12.10 x64 Release 常规版全量 QtTest 为 184 passed、0 failed；性能分析版为 186 passed、0 failed。
+- **验证**：`CanvasStyleValidationIsConsistentAcrossEntityAndDocument` 覆盖几何样式约束及拒绝后的状态保持；`CanvasStyleRejectsUnsupportedLineTypesAndWidthUnits` 覆盖 CADLab 线型编号范围和非法单位。当前 Qt 5.12.10 x64 Debug/Release 全量 QtTest 各为 207 passed、0 failed。
 - **代码位置**：[CanvasTypes.h](include/MiniGraph/CanvasTypes.h)、[CanvasEntities.cpp](src/CanvasEntities.cpp#L262)、[CanvasDocument.cpp](src/CanvasDocument.cpp#L15)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp#L2852)
 
 ### MG-017 · P3 · 视图和核心实现文件职责较集中
@@ -166,6 +166,14 @@ miniGraph 已形成较完整的画布基础闭环：`CanvasDocument` 管理实�
 - **现状**：`CanvasView.cpp` 承担绘制、导航、选择、捕捉、编辑和 Action 调度等多种职责；`CanvasDocument.cpp` 和默认渲染器也包含较多逻辑；测试集中在一个较大的测试源文件中。
 - **影响**：后续增加交互时更容易产生回归，审查和定位成本上升。
 - **建议**：当前不建议为“拆文件”而做大规模重构。先修复确定性问题并补齐针对性测试；当某一职责持续扩展或难以独立验证时，再做小步提取。
+
+### MG-023 · P2 · CADLab 实体画笔样式覆盖不完整【已补齐；图层解析不在本项范围】
+
+- **原状**：实体样式只有颜色和视口像素线宽，默认渲染器没有 CADLab 线型图案、毫米线宽换算、线宽显示开关及选中虚线覆盖。
+- **处理**：新增与 CADLab `RS2::LineType` 数值一致的 `CanvasLineType`（`0–25`），复现其点线/虚线/中心线等屏幕图案与最小一像素段长；默认像素宽度保持兼容，另支持按视图逻辑 DPI 将毫米线宽换算为固定屏幕宽度。`CanvasView::SetLineWidthVisible()` 默认关闭，关闭毫米宽线时显示细线。选中实体使用选中颜色和 `DashLine2`，黑色画布上的背景同色描边执行对比色回退；多段线沿连续路径延续线型相位。
+- **调用边界**：`strokeColor` 和 `selectedStrokeColor` 必须是调用方已解析的具体颜色；miniGraph 不处理图层、`ByLayer`、`ByBlock` 或颜色继承。
+- **验证**：新增线型/单位校验、选中覆盖、毫米线宽及开关、点标记线宽、黑色对比回退和多段线线型相位测试。Qt 5.12.10 x64 Debug、Release 均全量通过 207 项。
+- **代码位置**：[CanvasTypes.h](include/MiniGraph/CanvasTypes.h)、[CanvasView.h](include/MiniGraph/CanvasView.h)、[CanvasPainterRenderer.cpp](src/CanvasPainterRenderer.cpp)、[CanvasView.cpp](src/CanvasView.cpp)、[TstCanvasCore.cpp](tests/TstCanvasCore.cpp)
 
 ## 8. 安全边界说明
 

@@ -45,6 +45,9 @@ class MINIGRAPH_EXPORT CanvasView : public QWidget
     // 是否显示背景网格。
     Q_PROPERTY(bool gridVisible READ IsGridVisible WRITE SetGridVisible NOTIFY GridVisibleChanged)
 
+    // 是否显示毫米单位图元的实际线宽；默认关闭，与 CADLab 一致。
+    Q_PROPERTY(bool lineWidthVisible READ IsLineWidthVisible WRITE SetLineWidthVisible NOTIFY LineWidthVisibleChanged)
+
     // 网格的基础世界坐标间距。
     Q_PROPERTY(qreal gridSpacing READ GetGridSpacing WRITE SetGridSpacing NOTIFY GridSpacingChanged)
 
@@ -222,6 +225,12 @@ public:
     // 设置网格可见状态。
     void SetGridVisible(bool visible);
 
+    // 返回是否按毫米线宽显示图元笔画。
+    bool IsLineWidthVisible() const;
+
+    // 设置毫米线宽显示状态；视口像素单位的既有线宽不受此开关影响。
+    void SetLineWidthVisible(bool visible);
+
     // 返回网格基础世界坐标间距。
     qreal GetGridSpacing() const;
 
@@ -342,6 +351,9 @@ public:
 signals:
     // 网格可见状态发生变化时发出。
     void GridVisibleChanged(bool visible);
+
+    // 毫米线宽显示状态发生变化时发出。
+    void LineWidthVisibleChanged(bool visible);
 
     // 网格基础间距发生变化时发出。
     void GridSpacingChanged(qreal spacing);
@@ -586,6 +598,9 @@ private:
 
     // 网格可见状态。
     bool m_GridVisible;
+
+    // 是否显示毫米单位的实际图元线宽。
+    bool m_LineWidthVisible;
 
     // 网格基础世界坐标间距。
     qreal m_GridSpacing;
