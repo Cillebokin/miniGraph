@@ -4,6 +4,7 @@
 #include "CanvasVector.h"
 #include "MiniGraph_global.h"
 
+#include <QColor>
 #include <QObject>
 #include <QPointF>
 #include <QRectF>
@@ -24,7 +25,8 @@ struct MINIGRAPH_EXPORT CanvasRenderContext
     // 按当前画布状态创建渲染上下文。
     CanvasRenderContext(const CanvasDocument *document,
                         const CanvasTransform &transform,
-                        const QSize &viewportSize);
+                        const QSize &viewportSize,
+                        const QColor &backgroundColor = QColor(Qt::black));
 
     // 当前画布文档，只读访问；可能为空。
     const CanvasDocument *document;
@@ -34,6 +36,9 @@ struct MINIGRAPH_EXPORT CanvasRenderContext
 
     // 当前视口尺寸。
     QSize viewportSize;
+
+    // 当前视图的背景颜色。
+    QColor backgroundColor;
 
     // 将视口坐标转换为世界坐标。
     CanvasVector MapToWorld(const QPointF &viewportPosition) const;

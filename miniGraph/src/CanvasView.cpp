@@ -451,13 +451,16 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
             if (!segment || !segment->GetStyle().visible) {
                 continue;
             }
+            const StruCanvasStyle &segmentStyle =
+                    segment->HasExplicitStyle()
+                    ? segment->GetStyle() : style;
             if (const CanvasLine *line =
                     dynamic_cast<const CanvasLine *>(segment)) {
                 AppendSelectionPath(QVector<CanvasVector>()
                                     << line->GetStartPoint()
                                     << line->GetEndPoint(),
                                     detail::GetDisplayStrokeWidth(
-                                        style, logicalDpiX,
+                                        segmentStyle, logicalDpiX,
                                         lineWidthVisible), paths);
             } else if (const CanvasArc *arc =
                        dynamic_cast<const CanvasArc *>(segment)) {
@@ -470,7 +473,7 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
                 AppendSelectionPath(TessellateArc(geometry,
                                                    maximumWorldError),
                                     detail::GetDisplayStrokeWidth(
-                                        style, logicalDpiX,
+                                        segmentStyle, logicalDpiX,
                                         lineWidthVisible), paths);
             }
         }
@@ -907,6 +910,7 @@ CanvasView::CanvasView(QWidget *parent)
     , m_InteractionMode(InteractionMode::Edit)
     , m_GridVisible(true)
     , m_LineWidthVisible(false)
+    , m_BackgroundColor(Qt::black)
     , m_GridSpacing(10.0)
     , m_AxisVisible(true)
     , m_AxisFlipX(false)
@@ -1403,6 +1407,22 @@ void CanvasView::SetLineWidthVisible(bool visible)
     m_LineWidthVisible = visible;
     m_PrivateData->InvalidateHitTestMaximumDisplaySizeCache();
     emit LineWidthVisibleChanged(m_LineWidthVisible);
+    update();
+}
+
+QColor CanvasView::GetBackgroundColor() const
+{
+    return m_BackgroundColor;
+}
+
+void CanvasView::SetBackgroundColor(const QColor &color)
+{
+    if (!color.isValid() || m_BackgroundColor == color) {
+        return;
+    }
+
+    m_BackgroundColor = color;
+    emit BackgroundColorChanged(m_BackgroundColor);
     update();
 }
 
@@ -2150,7 +2170,8 @@ void CanvasView::paintEvent(QPaintEvent *event)
 
     const CanvasRenderContext renderContext(m_Document.data(),
                                             m_Transform,
-                                            size());
+                                            size(),
+                                            m_BackgroundColor);
     // 固定本帧的 Renderer 顺序；绘制回调中的集合变更从下一帧生效。
     QVector<QPointer<CanvasRenderer>> customRenderers;
     if (m_CustomRenderer) {
@@ -2243,7 +2264,7 @@ void CanvasView::paintEvent(QPaintEvent *event)
     }
 
     QPainter painter(this);
-    painter.fillRect(rect(), Qt::black);
+    painter.fillRect(rect(), m_BackgroundColor);
     painter.drawImage(QPoint(0, 0), m_PrivateData->m_BackgroundLayer);
     painter.drawImage(QPoint(0, 0), m_PrivateData->m_GeometryLayer);
     painter.drawImage(QPoint(0, 0), m_PrivateData->m_OverlayLayer);

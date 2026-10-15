@@ -67,6 +67,13 @@ enum class CanvasLineWidthUnit : quint8
     Millimeters
 };
 
+// 点图元的屏幕标记形状。
+enum class CanvasPointShape : quint8
+{
+    FilledCircle,
+    Cross
+};
+
 // 画布中的点几何数据。
 struct StruPointGeometry
 {
@@ -169,6 +176,7 @@ struct StruCanvasStyle
         , strokeWidth(1.0)
         , lineType(CanvasLineType::SolidLine)
         , strokeWidthUnit(CanvasLineWidthUnit::ViewportPixels)
+        , pointShape(CanvasPointShape::FilledCircle)
         , pointSize(6.0)
         , visible(true)
     {
@@ -189,6 +197,9 @@ struct StruCanvasStyle
     // 图元线宽单位；默认视口像素，Millimeters 按屏幕逻辑 DPI 映射。
     CanvasLineWidthUnit strokeWidthUnit;
 
+    // 点图元的屏幕标记形状；默认保持填充圆点。
+    CanvasPointShape pointShape;
+
     // 点图元的显示尺寸，单位为视口像素。
     qreal pointSize;
 
@@ -206,6 +217,8 @@ struct StruCanvasStyle
                    <= static_cast<quint8>(CanvasLineType::BorderLineX2)
                 && (strokeWidthUnit == CanvasLineWidthUnit::ViewportPixels
                     || strokeWidthUnit == CanvasLineWidthUnit::Millimeters)
+                && (pointShape == CanvasPointShape::FilledCircle
+                    || pointShape == CanvasPointShape::Cross)
                 && std::isfinite(static_cast<double>(pointSize))
                 && pointSize > 0.0;
     }
@@ -218,6 +231,7 @@ struct StruCanvasStyle
                 && strokeWidth == other.strokeWidth
                 && lineType == other.lineType
                 && strokeWidthUnit == other.strokeWidthUnit
+                && pointShape == other.pointShape
                 && pointSize == other.pointSize
                 && visible == other.visible;
     }

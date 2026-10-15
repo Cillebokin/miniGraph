@@ -8,15 +8,18 @@ CanvasRenderContext::CanvasRenderContext()
     : document(nullptr)
     , transform()
     , viewportSize()
+    , backgroundColor(Qt::black)
 {
 }
 
 CanvasRenderContext::CanvasRenderContext(const CanvasDocument *documentValue,
                                          const CanvasTransform &transformValue,
-                                         const QSize &viewportSizeValue)
+                                         const QSize &viewportSizeValue,
+                                         const QColor &backgroundColorValue)
     : document(documentValue)
     , transform(transformValue)
     , viewportSize(viewportSizeValue)
+    , backgroundColor(backgroundColorValue)
 {
 }
 

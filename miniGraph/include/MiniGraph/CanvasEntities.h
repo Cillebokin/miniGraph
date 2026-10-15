@@ -28,6 +28,9 @@ public:
     // 返回图元的只读显示样式。
     const StruCanvasStyle &GetStyle() const;
 
+    // 返回是否显式设置过样式；折线子段未显式设置时继承父折线样式。
+    bool HasExplicitStyle() const;
+
     // 设置显示样式；颜色、线型和线宽单位有效，线宽有限非负，点尺寸有限正值。
     bool SetStyle(const StruCanvasStyle &style);
 
@@ -86,6 +89,7 @@ private:
 
     ItemId m_Id;
     StruCanvasStyle m_Style;
+    bool m_HasExplicitStyle;
     QString m_LayerName;
     QString m_Tag;
     qint64 m_BusinessId;
@@ -250,7 +254,7 @@ private:
 };
 
 // 由首尾相接的直线段和圆弧段组成的复合图元。
-// 父对象统一控制子段线型样式；子段的 visible 独立控制该段的绘制、命中、框选和捕捉。
+// 子段默认继承父对象样式；显式设置的子段样式可覆盖父样式，visible 始终独立生效。
 class MINIGRAPH_EXPORT CanvasPolyline final : public CanvasEntity
 {
 public:

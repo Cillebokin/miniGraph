@@ -34,16 +34,38 @@ bool IsFinite(qreal value)
     return std::isfinite(static_cast<double>(value));
 }
 
-QColor GetDisplayColor(const StruCanvasStyle &style, bool selected)
+int CalculateColorDistancePercent(const QColor &first, const QColor &second)
 {
-    const QColor background(Qt::black);
-    QColor color = style.strokeColor;
-    const bool sameAsBackground = color.red() == background.red()
-            && color.green() == background.green()
-            && color.blue() == background.blue();
+    const int red = first.red();
+    const int otherRed = second.red();
+    const int redMean = (red + otherRed) / 2;
+    const qreal redDelta = second.red() - red;
+    const qreal greenDelta = second.green() - first.green();
+    const qreal blueDelta = second.blue() - first.blue();
+    const qreal distance = std::sqrt(
+                redDelta * redDelta * (512 + redMean) / 256.0
+                + greenDelta * greenDelta * 4.0
+                + blueDelta * blueDelta * (767 - redMean) / 256.0);
+    return static_cast<int>(std::lround(distance / 7.64834));
+}
 
-    if (color.alpha() > 0 && sameAsBackground) {
-        color.setRgb(255, 255, 255, color.alpha());
+QColor GetDisplayColor(const StruCanvasStyle &style,
+                       bool selected,
+                       const QColor &background)
+{
+    QColor color = style.strokeColor;
+    const bool sameAsBackground = color.rgb() == background.rgb();
+    const bool isBlack = color.red() == 0
+            && color.green() == 0 && color.blue() == 0;
+
+    if (color.alpha() > 0
+            && (sameAsBackground
+                || (isBlack
+                    && CalculateColorDistancePercent(color, background) < 20))) {
+        const QColor foreground = background.lightness() < 128
+                ? QColor(Qt::white) : QColor(Qt::black);
+        color.setRgb(foreground.red(), foreground.green(), foreground.blue(),
+                     color.alpha());
     }
 
     // CADLab 在背景对比回退之后应用选中颜色。
@@ -125,11 +147,12 @@ QPen CreateEntityPen(const StruCanvasStyle &style,
                      bool selected,
                      qreal logicalDpiX,
                      bool lineWidthVisible,
+                     const QColor &backgroundColor,
                      qreal dashOffsetPixels = 0.0)
 {
     const CanvasLineType lineType = selected
             ? CanvasLineType::DashLine2 : style.lineType;
-    const QColor color = GetDisplayColor(style, selected);
+    const QColor color = GetDisplayColor(style, selected, backgroundColor);
     const qreal width = GetPenWidth(style, logicalDpiX, lineWidthVisible);
     QPen pen(color, width, Qt::SolidLine);
     pen.setCapStyle(Qt::RoundCap);
@@ -201,7 +224,8 @@ void DrawWorldPath(QPainter &painter,
 
     painter.setBrush(Qt::NoBrush);
     painter.setPen(CreateEntityPen(style, selected, logicalDpiX,
-                                   lineWidthVisible, dashOffsetPixels));
+                                   lineWidthVisible, context.backgroundColor,
+                                   dashOffsetPixels));
     const QPolygonF viewportPoints = MapPolyline(worldPoints, context);
     if (closed && viewportPoints.size() >= 3) {
         painter.drawPolygon(viewportPoints);
@@ -1012,7 +1036,8 @@ void RenderCanvasData(QPainter &painter,
 
     painter.save();
     painter.setPen(CreateEntityPen(style, selected, logicalDpiX,
-                                   lineWidthVisible, dashOffsetPixels));
+                                   lineWidthVisible, context.backgroundColor,
+                                   dashOffsetPixels));
     painter.setBrush(Qt::NoBrush);
     detail::RenderCanvasDataCommands(painter, context,
                                      data->CalculateToQStringList());
@@ -1092,9 +1117,23 @@ void DrawEntityGeometry(QPainter &painter,
             return;
         }
 
-        painter.setPen(Qt::NoPen);
-        painter.setBrush(GetDisplayColor(style, selected));
         const QPointF viewportPosition = context.MapFromWorld(point->GetPosition());
+        if (style.pointShape == CanvasPointShape::Cross) {
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(CreateEntityPen(style, selected, logicalDpiX,
+                                           lineWidthVisible,
+                                           context.backgroundColor));
+            const qreal halfSize = qMax<qreal>(1.0, style.pointSize) * 0.5;
+            painter.drawLine(viewportPosition + QPointF(-halfSize, 0.0),
+                             viewportPosition + QPointF(halfSize, 0.0));
+            painter.drawLine(viewportPosition + QPointF(0.0, -halfSize),
+                             viewportPosition + QPointF(0.0, halfSize));
+            return;
+        }
+
+        painter.setPen(Qt::NoPen);
+        painter.setBrush(GetDisplayColor(style, selected,
+                                         context.backgroundColor));
         const qreal radius = detail::GetDisplayPointSize(
                     style, logicalDpiX, lineWidthVisible) * 0.5;
         painter.drawEllipse(viewportPosition, radius, radius);
@@ -1108,7 +1147,9 @@ void DrawEntityGeometry(QPainter &painter,
 
         painter.setBrush(Qt::NoBrush);
         painter.setPen(CreateEntityPen(style, selected, logicalDpiX,
-                                       lineWidthVisible, dashOffsetPixels));
+                                       lineWidthVisible,
+                                       context.backgroundColor,
+                                       dashOffsetPixels));
         painter.drawLine(context.MapFromWorld(line->GetStartPoint()),
                          context.MapFromWorld(line->GetEndPoint()));
         return;
@@ -1181,10 +1222,14 @@ void DrawEntityGeometry(QPainter &painter,
                         *segment, context, maximumError,
                         &tessellatedArcPoints);
             if (segment->GetStyle().visible) {
-                RenderCanvasData(painter, context, *segment, style, selected,
+                const StruCanvasStyle &segmentStyle =
+                        segment->HasExplicitStyle()
+                        ? segment->GetStyle() : style;
+                RenderCanvasData(painter, context, *segment, segmentStyle,
+                                 selected,
                                  logicalDpiX, lineWidthVisible,
                                  dashOffsetPixels);
-                DrawEntityGeometry(painter, context, *segment, style,
+                DrawEntityGeometry(painter, context, *segment, segmentStyle,
                                    selected, maximumError,
                                    logicalDpiX, lineWidthVisible,
                                    dashOffsetPixels, &tessellatedArcPoints);

@@ -236,6 +236,7 @@ bool IsValidSplineData(int degree,
 
 CanvasEntity::CanvasEntity()
     : m_Id(0)
+    , m_HasExplicitStyle(false)
     , m_BusinessId(0)
     , m_Reversed(false)
 {
@@ -259,12 +260,18 @@ const StruCanvasStyle &CanvasEntity::GetStyle() const
     return m_Style;
 }
 
+bool CanvasEntity::HasExplicitStyle() const
+{
+    return m_HasExplicitStyle;
+}
+
 bool CanvasEntity::SetStyle(const StruCanvasStyle &style)
 {
     if (!style.IsValid()) {
         return false;
     }
     m_Style = style;
+    m_HasExplicitStyle = true;
     return true;
 }
 
@@ -346,6 +353,7 @@ bool CanvasEntity::CopyCommonPropertiesTo(CanvasEntity *target) const
         return false;
     }
     target->m_Style = m_Style;
+    target->m_HasExplicitStyle = m_HasExplicitStyle;
     target->m_LayerName = m_LayerName;
     target->m_Tag = m_Tag;
     target->m_BusinessId = m_BusinessId;

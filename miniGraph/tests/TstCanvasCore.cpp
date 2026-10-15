@@ -335,6 +335,7 @@ private slots:
     void CanvasViewPreservesLineTypePhaseAcrossPolylineArcSegments();
     void CanvasViewUsesMillimeterLineWidthAndVisibilitySwitch();
     void CanvasViewUsesMillimeterLineWidthForPointMarker();
+    void CanvasViewRendersCrossPointMarker();
     void CanvasViewKeepsBlackEntityVisibleOnDarkCanvas();
     void CanvasViewRendersCanvasDataInLayerOrder();
     void CanvasViewRendersCanvasDataBeforeEntityGeometry();
@@ -352,6 +353,8 @@ private slots:
     void CanvasViewRendersNurbsWithLargeFiniteWeights();
     void CanvasViewRendersNurbsWithExtremeWeightRange();
     void CanvasRendererDrawsOpenAndClosedPolylines();
+    void CanvasRendererUsesEachPolylineSegmentStyle();
+    void CanvasPolylineInheritsParentStyleForUnstyledSegments();
     void CanvasRendererSkipsInvisiblePolylineSegments();
     void CanvasViewWheelUsesCadLabScale();
     void CanvasViewMiddlePanUsesDeadband();
@@ -361,6 +364,7 @@ private slots:
     void CanvasViewPreviewNavigationDoubleClickFitsAll();
     void CanvasViewKeyboardAndContextSignals();
     void CanvasViewDisplayPropertiesAndMapping();
+    void CanvasViewBackgroundColorCanBeChanged();
     void CanvasViewFitAllUsesDocumentBounds();
     void CanvasViewFitSelectionUsesSelectedBounds();
     void CanvasViewFitCommandsRejectEmptyDocument();
@@ -3067,6 +3071,8 @@ void CanvasCoreTest::CanvasStyleHasStableDefaultsAndValueSemantics()
              static_cast<int>(mini_graph::CanvasLineType::SolidLine));
     QCOMPARE(static_cast<int>(style.strokeWidthUnit),
              static_cast<int>(mini_graph::CanvasLineWidthUnit::ViewportPixels));
+    QCOMPARE(static_cast<int>(style.pointShape),
+             static_cast<int>(mini_graph::CanvasPointShape::FilledCircle));
     QCOMPARE(style.pointSize, 6.0);
     QVERIFY(style.visible);
     QVERIFY(style == mini_graph::StruCanvasStyle());
@@ -3077,6 +3083,10 @@ void CanvasCoreTest::CanvasStyleHasStableDefaultsAndValueSemantics()
 
     changedStyle = style;
     changedStyle.lineType = mini_graph::CanvasLineType::DashLine;
+    QVERIFY(changedStyle != style);
+
+    changedStyle = style;
+    changedStyle.pointShape = mini_graph::CanvasPointShape::Cross;
     QVERIFY(changedStyle != style);
 
     changedStyle = style;
@@ -3103,12 +3113,17 @@ void CanvasCoreTest::CanvasStyleValidationIsConsistentAcrossEntityAndDocument()
     invalidWidthUnitStyle.strokeWidthUnit =
             static_cast<mini_graph::CanvasLineWidthUnit>(255);
 
+    mini_graph::StruCanvasStyle invalidPointShapeStyle;
+    invalidPointShapeStyle.pointShape =
+            static_cast<mini_graph::CanvasPointShape>(255);
+
     const mini_graph::StruCanvasStyle invalidStyles[] = {
         zeroPointSizeStyle,
         invalidStrokeColorStyle,
         invalidSelectedColorStyle,
         invalidLineTypeStyle,
-        invalidWidthUnitStyle
+        invalidWidthUnitStyle,
+        invalidPointShapeStyle
     };
 
     for (int index = 0;
@@ -3605,7 +3620,9 @@ void CanvasCoreTest::CanvasRenderContextProvidesWorldHelpers()
 
     const mini_graph::CanvasRenderContext context(nullptr,
                                                   transform,
-                                                  QSize(800, 600));
+                                                  QSize(800, 600),
+                                                  QColor(34, 38, 44));
+    QCOMPARE(context.backgroundColor, QColor(34, 38, 44));
     QVERIFY(context.MapToWorld(QPointF(400.0, 300.0))
             == mini_graph::CanvasVector(10.0, -5.0));
     QCOMPARE(context.MapFromWorld(mini_graph::CanvasVector(10.0, -5.0)),
@@ -4386,6 +4403,40 @@ void CanvasCoreTest::CanvasViewUsesMillimeterLineWidthForPointMarker()
     QVERIFY(hiddenMarkerPixels <= 2);
 }
 
+void CanvasCoreTest::CanvasViewRendersCrossPointMarker()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId pointId = document.AddPoint(
+                mini_graph::CanvasVector(0.0, 0.0));
+    QVERIFY(pointId != 0);
+
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.pointShape = mini_graph::CanvasPointShape::Cross;
+    style.pointSize = 6.0;
+    QVERIFY(document.SetItemStyle(pointId, style));
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const QColor center = image.pixelColor(100, 100);
+    QVERIFY(center.red() > 180);
+    QVERIFY(center.green() < 100);
+
+    const QColor diagonal = image.pixelColor(102, 102);
+    QVERIFY(diagonal.red() < 100);
+}
+
 void CanvasCoreTest::CanvasViewKeepsBlackEntityVisibleOnDarkCanvas()
 {
     mini_graph::CanvasDocument document;
@@ -4403,6 +4454,7 @@ void CanvasCoreTest::CanvasViewKeepsBlackEntityVisibleOnDarkCanvas()
     view.SetAxisVisible(false);
     view.SetRulerVisible(false);
     view.SetDocument(&document);
+    view.SetBackgroundColor(QColor(34, 38, 44));
 
     QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
     image.fill(Qt::black);
@@ -4420,7 +4472,7 @@ void CanvasCoreTest::CanvasViewKeepsBlackEntityVisibleOnDarkCanvas()
         }
     }
     QVERIFY2(foundBrightPixel,
-             "A black entity should use the contrasting foreground on a black canvas");
+             "A black entity should use the contrasting foreground on a dark canvas");
 }
 
 void CanvasCoreTest::CanvasViewRendersCanvasDataInLayerOrder()
@@ -5281,6 +5333,133 @@ void CanvasCoreTest::CanvasRendererDrawsOpenAndClosedPolylines()
                          QColor(Qt::green)));
 }
 
+void CanvasCoreTest::CanvasRendererUsesEachPolylineSegmentStyle()
+{
+    mini_graph::CanvasLine firstSegment(
+                mini_graph::CanvasVector(-60.0, 35.0),
+                mini_graph::CanvasVector(0.0, 35.0));
+    mini_graph::StruCanvasStyle firstStyle = firstSegment.GetStyle();
+    firstStyle.strokeColor = QColor(Qt::red);
+    firstStyle.selectedStrokeColor = firstStyle.strokeColor;
+    firstStyle.strokeWidth = 6.0;
+    QVERIFY(firstSegment.SetStyle(firstStyle));
+
+    mini_graph::CanvasLine secondSegment(
+                mini_graph::CanvasVector(0.0, 35.0),
+                mini_graph::CanvasVector(60.0, 35.0));
+    mini_graph::StruCanvasStyle secondStyle = secondSegment.GetStyle();
+    secondStyle.strokeColor = QColor(Qt::green);
+    secondStyle.selectedStrokeColor = secondStyle.strokeColor;
+    secondStyle.strokeWidth = 6.0;
+    QVERIFY(secondSegment.SetStyle(secondStyle));
+
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(firstSegment));
+    QVERIFY(polyline.AddSegment(secondSegment));
+    mini_graph::StruCanvasStyle parentStyle = polyline.GetStyle();
+    parentStyle.strokeColor = QColor(Qt::blue);
+    parentStyle.selectedStrokeColor = parentStyle.strokeColor;
+    parentStyle.strokeWidth = 6.0;
+    QVERIFY(polyline.SetStyle(parentStyle));
+
+    mini_graph::CanvasDocument document;
+    QVERIFY(document.AddEntity(polyline) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const auto hasColorNear = [&image](const QPointF &position,
+                                       const QColor &expectedColor) {
+        const int centerX = qRound(position.x());
+        const int centerY = qRound(position.y());
+        for (int y = centerY - 2; y <= centerY + 2; ++y) {
+            for (int x = centerX - 2; x <= centerX + 2; ++x) {
+                const QColor color = image.pixelColor(x, y);
+                if (color.red() > expectedColor.red() - 40
+                        && color.red() < expectedColor.red() + 40
+                        && color.green() > expectedColor.green() - 40
+                        && color.green() < expectedColor.green() + 40
+                        && color.blue() > expectedColor.blue() - 40
+                        && color.blue() < expectedColor.blue() + 40) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    QVERIFY(hasColorNear(view.MapFromWorld(mini_graph::CanvasVector(-40.0, 35.0)),
+                         QColor(Qt::red)));
+    QVERIFY(hasColorNear(view.MapFromWorld(mini_graph::CanvasVector(30.0, 35.0)),
+                         QColor(Qt::green)));
+}
+
+void CanvasCoreTest::CanvasPolylineInheritsParentStyleForUnstyledSegments()
+{
+    mini_graph::CanvasPolyline polyline;
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasLine(
+                                    mini_graph::CanvasVector(-60.0, 35.0),
+                                    mini_graph::CanvasVector(0.0, 35.0))));
+    QVERIFY(polyline.AddSegment(mini_graph::CanvasLine(
+                                    mini_graph::CanvasVector(0.0, 35.0),
+                                    mini_graph::CanvasVector(60.0, 35.0))));
+
+    mini_graph::StruCanvasStyle parentStyle = polyline.GetStyle();
+    parentStyle.strokeColor = QColor(Qt::blue);
+    parentStyle.selectedStrokeColor = parentStyle.strokeColor;
+    parentStyle.strokeWidth = 6.0;
+    QVERIFY(polyline.SetStyle(parentStyle));
+
+    mini_graph::CanvasDocument document;
+    QVERIFY(document.AddEntity(polyline) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    const auto hasColorNear = [&image](const QPointF &position,
+                                       const QColor &expectedColor) {
+        const int centerX = qRound(position.x());
+        const int centerY = qRound(position.y());
+        for (int y = centerY - 2; y <= centerY + 2; ++y) {
+            for (int x = centerX - 2; x <= centerX + 2; ++x) {
+                const QColor color = image.pixelColor(x, y);
+                if (color.red() > expectedColor.red() - 40
+                        && color.red() < expectedColor.red() + 40
+                        && color.green() > expectedColor.green() - 40
+                        && color.green() < expectedColor.green() + 40
+                        && color.blue() > expectedColor.blue() - 40
+                        && color.blue() < expectedColor.blue() + 40) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+
+    QVERIFY(hasColorNear(view.MapFromWorld(mini_graph::CanvasVector(-40.0, 35.0)),
+                         QColor(Qt::blue)));
+    QVERIFY(hasColorNear(view.MapFromWorld(mini_graph::CanvasVector(30.0, 35.0)),
+                         QColor(Qt::blue)));
+}
+
 void CanvasCoreTest::CanvasRendererSkipsInvisiblePolylineSegments()
 {
     const qreal pi = std::acos(-1.0);
@@ -5736,6 +5915,75 @@ void CanvasCoreTest::CanvasViewDisplayPropertiesAndMapping()
             == mini_graph::CanvasVector(0.0, 0.0));
     QCOMPARE(view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0)),
              QPointF(400.0, 300.0));
+}
+
+void CanvasCoreTest::CanvasViewBackgroundColorCanBeChanged()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId blackLineId = document.AddLine(
+                mini_graph::CanvasVector(-30.0, 15.0),
+                mini_graph::CanvasVector(-10.0, 15.0));
+    const mini_graph::ItemId whiteLineId = document.AddLine(
+                mini_graph::CanvasVector(10.0, 15.0),
+                mini_graph::CanvasVector(30.0, 15.0));
+    QVERIFY(blackLineId != 0);
+    QVERIFY(whiteLineId != 0);
+
+    mini_graph::StruCanvasStyle blackStyle;
+    blackStyle.strokeColor = QColor(Qt::black);
+    blackStyle.selectedStrokeColor = blackStyle.strokeColor;
+    blackStyle.strokeWidth = 4.0;
+    QVERIFY(document.SetItemStyle(blackLineId, blackStyle));
+
+    mini_graph::StruCanvasStyle whiteStyle;
+    whiteStyle.strokeColor = QColor(Qt::white);
+    whiteStyle.selectedStrokeColor = whiteStyle.strokeColor;
+    whiteStyle.strokeWidth = 4.0;
+    QVERIFY(document.SetItemStyle(whiteLineId, whiteStyle));
+
+    CanvasViewHarness view;
+    view.resize(80, 60);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    const QColor backgroundColor(Qt::white);
+    view.SetBackgroundColor(backgroundColor);
+    QCOMPARE(view.GetBackgroundColor(), backgroundColor);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+    QCOMPARE(image.pixelColor(0, 0), backgroundColor);
+
+    const auto hasDarkPixelNear = [&image](const QPointF &position) {
+        const int centerX = qRound(position.x());
+        const int centerY = qRound(position.y());
+        for (int y = centerY - 2; y <= centerY + 2; ++y) {
+            for (int x = centerX - 2; x <= centerX + 2; ++x) {
+                const QColor pixel = image.pixelColor(x, y);
+                if (pixel.red() < 64 && pixel.green() < 64
+                        && pixel.blue() < 64) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    };
+    const QPointF blackSample = view.MapFromWorld(
+                mini_graph::CanvasVector(-20.0, 15.0));
+    const QPointF whiteSample = view.MapFromWorld(
+                mini_graph::CanvasVector(20.0, 15.0));
+    QVERIFY2(hasDarkPixelNear(blackSample),
+             qPrintable(QStringLiteral("black sample at %1,%2 is %3")
+                        .arg(blackSample.x()).arg(blackSample.y())
+                        .arg(image.pixelColor(blackSample.toPoint()).name())));
+    QVERIFY2(hasDarkPixelNear(whiteSample),
+             qPrintable(QStringLiteral("white sample at %1,%2 is %3")
+                        .arg(whiteSample.x()).arg(whiteSample.y())
+                        .arg(image.pixelColor(whiteSample.toPoint()).name())));
 }
 
 void CanvasCoreTest::CanvasViewFitAllUsesDocumentBounds()
@@ -7037,9 +7285,6 @@ void CanvasCoreTest::CanvasViewMaximumDisplaySizeCacheInvalidatesOnPolylineRepla
     mini_graph::CanvasDocument document;
     mini_graph::CanvasLine originalLine(mini_graph::CanvasVector(0.0, 0.0),
                                         mini_graph::CanvasVector(40.0, 0.0));
-    mini_graph::StruCanvasStyle lineStyle = originalLine.GetStyle();
-    lineStyle.strokeWidth = 2.0;
-    QVERIFY(originalLine.SetStyle(lineStyle));
     mini_graph::CanvasPolyline originalPolyline;
     mini_graph::StruCanvasStyle polylineStyle = originalPolyline.GetStyle();
     polylineStyle.strokeWidth = 2.0;

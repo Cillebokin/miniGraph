@@ -6,6 +6,7 @@
 #include "CanvasAction.h"
 #include "MiniGraph_global.h"
 
+#include <QColor>
 #include <QPoint>
 #include <QPointer>
 #include <QRectF>
@@ -47,6 +48,9 @@ class MINIGRAPH_EXPORT CanvasView : public QWidget
 
     // 是否显示毫米单位图元的实际线宽；默认关闭，与 CADLab 一致。
     Q_PROPERTY(bool lineWidthVisible READ IsLineWidthVisible WRITE SetLineWidthVisible NOTIFY LineWidthVisibleChanged)
+
+    // 画布背景颜色，默认为黑色。
+    Q_PROPERTY(QColor backgroundColor READ GetBackgroundColor WRITE SetBackgroundColor NOTIFY BackgroundColorChanged)
 
     // 网格的基础世界坐标间距。
     Q_PROPERTY(qreal gridSpacing READ GetGridSpacing WRITE SetGridSpacing NOTIFY GridSpacingChanged)
@@ -231,6 +235,12 @@ public:
     // 设置毫米线宽显示状态；视口像素单位的既有线宽不受此开关影响。
     void SetLineWidthVisible(bool visible);
 
+    // 返回画布背景颜色。
+    QColor GetBackgroundColor() const;
+
+    // 设置画布背景颜色；无效颜色会被忽略。
+    void SetBackgroundColor(const QColor &color);
+
     // 返回网格基础世界坐标间距。
     qreal GetGridSpacing() const;
 
@@ -354,6 +364,9 @@ signals:
 
     // 毫米线宽显示状态发生变化时发出。
     void LineWidthVisibleChanged(bool visible);
+
+    // 画布背景颜色发生变化时发出。
+    void BackgroundColorChanged(const QColor &color);
 
     // 网格基础间距发生变化时发出。
     void GridSpacingChanged(qreal spacing);
@@ -601,6 +614,9 @@ private:
 
     // 是否显示毫米单位的实际图元线宽。
     bool m_LineWidthVisible;
+
+    // 画布背景颜色。
+    QColor m_BackgroundColor;
 
     // 网格基础世界坐标间距。
     qreal m_GridSpacing;
