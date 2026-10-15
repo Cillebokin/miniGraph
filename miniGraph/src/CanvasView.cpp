@@ -1406,6 +1406,43 @@ void CanvasView::SetAxisVisible(bool visible)
     update();
 }
 
+bool CanvasView::GetFlipX() const
+{
+    return m_Transform.GetFlipX();
+}
+
+void CanvasView::SetFlipX(bool flipX)
+{
+    SetAxisFlip(flipX, m_Transform.GetFlipY());
+}
+
+bool CanvasView::GetFlipY() const
+{
+    return m_Transform.GetFlipY();
+}
+
+void CanvasView::SetFlipY(bool flipY)
+{
+    SetAxisFlip(m_Transform.GetFlipX(), flipY);
+}
+
+void CanvasView::SetAxisFlip(bool flipX, bool flipY)
+{
+    if (m_Transform.GetFlipX() == flipX
+            && m_Transform.GetFlipY() == flipY
+            && m_AxisFlipX == flipX
+            && m_AxisFlipY == flipY) {
+        return;
+    }
+
+    m_Transform.SetFlipX(flipX);
+    m_Transform.SetFlipY(flipY);
+    m_AxisFlipX = flipX;
+    m_AxisFlipY = flipY;
+    UpdateSnap(MapToWorld(m_CurrentMousePosition));
+    update();
+}
+
 void CanvasView::SetAxisFlips(bool flipX, bool flipY)
 {
     if (m_AxisFlipX == flipX && m_AxisFlipY == flipY) {
@@ -1494,6 +1531,8 @@ CanvasSnapResult CanvasView::GetCurrentSnapResult() const
 void CanvasView::ResetView()
 {
     m_Transform.Reset();
+    m_AxisFlipX = false;
+    m_AxisFlipY = false;
     emit ZoomChanged(m_Transform.GetZoom());
     UpdateSnap(MapToWorld(m_CurrentMousePosition));
     update();

@@ -842,10 +842,16 @@ void DrawCanvasDataCommand(QPainter &painter,
         painter.save();
         const QPointF viewportPosition =
                 context.MapFromWorld(CanvasVector(x, y));
-        QTransform transform;
-        transform.translate(viewportPosition.x(), viewportPosition.y());
-        transform.scale(scaleX, scaleY);
-        transform.rotate(-qRadiansToDegrees(radians));
+        const qreal axisX = context.transform.GetFlipX() ? -1.0 : 1.0;
+        const qreal axisY = context.transform.GetFlipY() ? 1.0 : -1.0;
+        const qreal cosine = std::cos(radians);
+        const qreal sine = std::sin(radians);
+        const QTransform transform(axisX * cosine * scaleX,
+                                   axisY * sine * scaleX,
+                                   axisX * sine * scaleY,
+                                   -axisY * cosine * scaleY,
+                                   viewportPosition.x(),
+                                   viewportPosition.y());
         painter.setWorldTransform(transform);
         painter.drawImage(QPointF(0.0, 0.0), image);
         painter.restore();

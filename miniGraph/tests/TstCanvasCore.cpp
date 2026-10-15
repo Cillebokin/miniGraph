@@ -213,6 +213,8 @@ private slots:
     void MinimumZoomSupportsMicroScale();
     void ZoomAtKeepsTheWorldPointUnderTheCursor();
     void PanByMovesWorldPointWithViewportDelta();
+    void CanvasTransformFlipsPreserveWorldOriginAndRoundTrip();
+    void CanvasTransformFlipKeepsPanAndZoomAnchorsConsistent();
     void CanvasTransformRejectsNonFiniteInputsWithoutMutation();
     void CanvasTransformRejectsInvalidViewportDimensions();
     void FitRectCentersAndFitsViewport();
@@ -277,6 +279,7 @@ private slots:
     void CanvasViewAntialiasesGlobalCanvasData();
     void CanvasDataInheritsOwningEntityPenWhenUnspecified();
     void CanvasViewDrawsAllCadLabCanvasDataCommands();
+    void CanvasDataImageMirrorsAroundMappedInsertionPointWhenViewFlips();
     void CanvasDataBrushHatchFillsClosedShapes();
     void CanvasViewRendersAllCanvasEntityTypes();
     void CanvasViewRendersCompleteSplineAtTessellationLimit();
@@ -306,6 +309,7 @@ private slots:
     void CanvasViewRendersCadLabOverlays();
     void CanvasViewAxesStayAttachedToWorldAfterPan();
     void CanvasViewAxisDirectionsFollowFlipState();
+    void CanvasViewFlipApiMatchesCanvasTransformAndPreservesLegacyAxisFlips();
     void DocumentSelectionTogglesAndSignals();
     void CanvasViewSingleClickSelectionFollowsCadLabRules();
     void CanvasViewSingleClickSelectsAllGeometryTypes();
@@ -1573,6 +1577,82 @@ void CanvasCoreTest::PanByMovesWorldPointWithViewportDelta()
 
     QVERIFY(qAbs((viewportAfter.x() - viewportBefore.x()) - viewportDelta.x()) < 0.000001);
     QVERIFY(qAbs((viewportAfter.y() - viewportBefore.y()) - viewportDelta.y()) < 0.000001);
+}
+
+void CanvasCoreTest::CanvasTransformFlipsPreserveWorldOriginAndRoundTrip()
+{
+    mini_graph::CanvasTransform transform;
+    const QSizeF viewport(400.0, 300.0);
+    const mini_graph::CanvasVector center(10.0, 20.0);
+    const mini_graph::CanvasVector point(15.0, 27.0);
+    transform.SetCenter(center);
+    transform.SetZoom(2.0);
+
+    const QPointF originBefore = transform.MapFromWorld(
+                mini_graph::CanvasVector(0.0, 0.0), viewport);
+    const QPointF normalPoint = transform.MapFromWorld(point, viewport);
+    QCOMPARE(normalPoint, QPointF(210.0, 136.0));
+
+    transform.SetFlipX(true);
+    QVERIFY(transform.GetFlipX());
+    QVERIFY(!transform.GetFlipY());
+    QCOMPARE(transform.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0), viewport),
+             originBefore);
+    const QPointF flipXPoint = transform.MapFromWorld(point, viewport);
+    QCOMPARE(flipXPoint, QPointF(150.0, 136.0));
+    QVERIFY(transform.MapToWorld(flipXPoint, viewport) == point);
+
+    transform.SetFlipY(true);
+    QVERIFY(transform.GetFlipX());
+    QVERIFY(transform.GetFlipY());
+    QCOMPARE(transform.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0), viewport),
+             originBefore);
+    const QPointF flipBothPoint = transform.MapFromWorld(point, viewport);
+    QCOMPARE(flipBothPoint, QPointF(150.0, 244.0));
+    QVERIFY(transform.MapToWorld(flipBothPoint, viewport) == point);
+
+    transform.SetFlipX(false);
+    QCOMPARE(transform.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0), viewport),
+             originBefore);
+    QCOMPARE(transform.MapFromWorld(point, viewport), QPointF(210.0, 244.0));
+
+    transform.SetFlipY(false);
+    QVERIFY(!transform.GetFlipX());
+    QVERIFY(!transform.GetFlipY());
+    QCOMPARE(transform.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0), viewport),
+             originBefore);
+    QCOMPARE(transform.MapFromWorld(point, viewport), normalPoint);
+}
+
+void CanvasCoreTest::CanvasTransformFlipKeepsPanAndZoomAnchorsConsistent()
+{
+    const QSizeF viewport(800.0, 600.0);
+    const QPointF cursor(625.0, 225.0);
+    const mini_graph::CanvasVector point(35.0, -20.0);
+    const QPointF panDelta(45.0, -18.0);
+
+    for (int flipMask = 0; flipMask < 4; ++flipMask) {
+        mini_graph::CanvasTransform transform;
+        transform.SetCenter(mini_graph::CanvasVector(18.0, -9.0));
+        transform.SetZoom(3.0);
+        transform.SetFlipX((flipMask & 1) != 0);
+        transform.SetFlipY((flipMask & 2) != 0);
+
+        const QPointF beforePan = transform.MapFromWorld(point, viewport);
+        transform.PanBy(panDelta);
+        const QPointF afterPan = transform.MapFromWorld(point, viewport);
+        QVERIFY(qAbs((afterPan.x() - beforePan.x()) - panDelta.x()) < 0.000001);
+        QVERIFY(qAbs((afterPan.y() - beforePan.y()) - panDelta.y()) < 0.000001);
+
+        const mini_graph::CanvasVector cursorWorldBefore =
+                transform.MapToWorld(cursor, viewport);
+        transform.ZoomAt(cursor, viewport, 1.75);
+        const mini_graph::CanvasVector cursorWorldAfter =
+                transform.MapToWorld(cursor, viewport);
+        QVERIFY(cursorWorldBefore == cursorWorldAfter);
+        QCOMPARE(transform.GetFlipX(), (flipMask & 1) != 0);
+        QCOMPARE(transform.GetFlipY(), (flipMask & 2) != 0);
+    }
 }
 
 void CanvasCoreTest::CanvasTransformRejectsNonFiniteInputsWithoutMutation()
@@ -4144,6 +4224,63 @@ void CanvasCoreTest::CanvasViewDrawsAllCadLabCanvasDataCommands()
     QVERIFY(foundMagentaPixel);
 }
 
+void CanvasCoreTest::CanvasDataImageMirrorsAroundMappedInsertionPointWhenViewFlips()
+{
+    QTemporaryDir temporaryDirectory;
+    QVERIFY(temporaryDirectory.isValid());
+
+    QImage stamp(4, 4, QImage::Format_ARGB32_Premultiplied);
+    stamp.fill(QColor(255, 0, 255));
+    const QString imagePath = temporaryDirectory.filePath(QStringLiteral("stamp.png"));
+    QVERIFY(stamp.save(imagePath));
+
+    const QStringList commands = QStringList()
+            << QStringLiteral("Image,%1,0,0,1.5707963267948966,1,1,0").arg(imagePath);
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasLine line(mini_graph::CanvasVector(-500.0, -500.0),
+                                mini_graph::CanvasVector(-400.0, -500.0));
+    line.SetCanvasData(std::make_shared<TestCanvasData>(nullptr, commands));
+    QVERIFY(document.AddEntity(line) != 0);
+
+    CanvasViewHarness view;
+    view.resize(100, 100);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+
+    const auto render = [&view]() {
+        QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+        image.fill(Qt::black);
+        view.render(&image);
+        return image;
+    };
+    const auto countMagenta = [](const QImage &image, const QRect &rect) {
+        int count = 0;
+        for (int y = rect.top(); y <= rect.bottom(); ++y) {
+            for (int x = rect.left(); x <= rect.right(); ++x) {
+                if (image.pixelColor(x, y) == QColor(255, 0, 255)) {
+                    ++count;
+                }
+            }
+        }
+        return count;
+    };
+
+    QCOMPARE(countMagenta(render(), QRect(50, 46, 4, 4)), 16);
+
+    view.SetFlipX(true);
+    QCOMPARE(countMagenta(render(), QRect(46, 46, 4, 4)), 16);
+
+    view.SetFlipX(false);
+    view.SetFlipY(true);
+    QCOMPARE(countMagenta(render(), QRect(50, 50, 4, 4)), 16);
+
+    view.SetFlipX(true);
+    QCOMPARE(countMagenta(render(), QRect(46, 50, 4, 4)), 16);
+}
+
 void CanvasCoreTest::CanvasDataBrushHatchFillsClosedShapes()
 {
     const QStringList commands = QStringList()
@@ -5524,6 +5661,58 @@ void CanvasCoreTest::CanvasViewAxisDirectionsFollowFlipState()
     QVERIFY(isAxisArrowPixel(flipY.pixelColor(200, 240)));
     QVERIFY(isAxisArrowPixel(flipBoth.pixelColor(110, 150)));
     QVERIFY(isAxisArrowPixel(flipBoth.pixelColor(200, 240)));
+}
+
+void CanvasCoreTest::CanvasViewFlipApiMatchesCanvasTransformAndPreservesLegacyAxisFlips()
+{
+    CanvasViewHarness view;
+    view.resize(400, 300);
+    const mini_graph::CanvasVector worldPoint(20.0, 10.0);
+    const QPointF normalPosition = view.MapFromWorld(worldPoint);
+    QCOMPARE(normalPosition, QPointF(220.0, 140.0));
+
+    view.SetFlipX(true);
+    QVERIFY(view.GetFlipX());
+    QVERIFY(!view.GetFlipY());
+    QCOMPARE(view.MapFromWorld(worldPoint), QPointF(180.0, 140.0));
+    QVERIFY(view.MapToWorld(view.MapFromWorld(worldPoint)) == worldPoint);
+
+    view.SetFlipY(true);
+    QVERIFY(view.GetFlipX());
+    QVERIFY(view.GetFlipY());
+    QCOMPARE(view.MapFromWorld(worldPoint), QPointF(180.0, 160.0));
+    QVERIFY(view.MapToWorld(view.MapFromWorld(worldPoint)) == worldPoint);
+
+    // The pre-existing API continues to control only the axis indicator.
+    view.SetAxisFlips(false, false);
+    QVERIFY(view.GetFlipX());
+    QVERIFY(view.GetFlipY());
+    QCOMPARE(view.MapFromWorld(worldPoint), QPointF(180.0, 160.0));
+
+    // The combined API changes the same view transform as CADLab's per-axis setters.
+    view.SetAxisFlip(false, true);
+    QVERIFY(!view.GetFlipX());
+    QVERIFY(view.GetFlipY());
+    QCOMPARE(view.MapFromWorld(worldPoint), QPointF(220.0, 160.0));
+
+    QImage image(view.size(), QImage::Format_ARGB32);
+    image.fill(Qt::black);
+    QPainter painter(&image);
+    view.DrawAxes(painter);
+    painter.end();
+    const QColor positiveXAxisTip = image.pixelColor(290, 150);
+    const QColor negativeYAxisTip = image.pixelColor(200, 240);
+    QVERIFY(positiveXAxisTip.red() > 50
+            && positiveXAxisTip.red() == positiveXAxisTip.green()
+            && positiveXAxisTip.green() == positiveXAxisTip.blue());
+    QVERIFY(negativeYAxisTip.red() > 50
+            && negativeYAxisTip.red() == negativeYAxisTip.green()
+            && negativeYAxisTip.green() == negativeYAxisTip.blue());
+
+    view.ResetView();
+    QVERIFY(!view.GetFlipX());
+    QVERIFY(!view.GetFlipY());
+    QCOMPARE(view.MapFromWorld(worldPoint), normalPosition);
 }
 
 void CanvasCoreTest::DocumentSelectionTogglesAndSignals()

@@ -246,7 +246,22 @@ public:
     // 设置坐标轴的可见状态。
     void SetAxisVisible(bool visible);
 
-    // 设置坐标轴指示的 X/Y 翻转方向，不影响文档图元的几何坐标。
+    // 返回当前画布的 X 轴翻转状态。
+    bool GetFlipX() const;
+
+    // 设置当前画布的 X 轴翻转状态，接口和行为与 CADLab 的 SetFlipX 一致。
+    void SetFlipX(bool flipX);
+
+    // 返回当前画布的 Y 轴翻转状态。
+    bool GetFlipY() const;
+
+    // 设置当前画布的 Y 轴翻转状态，接口和行为与 CADLab 的 SetFlipY 一致。
+    void SetFlipY(bool flipY);
+
+    // 同时设置 X/Y 轴翻转状态。
+    void SetAxisFlip(bool flipX, bool flipY);
+
+    // 设置坐标轴指示箭头方向，不改变画布坐标变换；保留旧接口语义。
     void SetAxisFlips(bool flipX, bool flipY);
 
     // 返回标尺文字是否可见。

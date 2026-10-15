@@ -32,6 +32,8 @@ bool IsValidViewportSize(const QSizeF &viewportSize)
 CanvasTransform::CanvasTransform()
     : m_Zoom(1.0)
     , m_Center(0.0, 0.0)
+    , m_FlipX(false)
+    , m_FlipY(false)
 {
 }
 
@@ -61,6 +63,46 @@ void CanvasTransform::SetCenter(const CanvasVector &center)
     }
 }
 
+bool CanvasTransform::GetFlipX() const
+{
+    return m_FlipX;
+}
+
+void CanvasTransform::SetFlipX(bool flipX)
+{
+    if (m_FlipX == flipX) {
+        return;
+    }
+
+    const CanvasVector nextCenter(-m_Center.GetX(), m_Center.GetY());
+    if (!nextCenter.IsValid()) {
+        return;
+    }
+
+    m_Center = nextCenter;
+    m_FlipX = flipX;
+}
+
+bool CanvasTransform::GetFlipY() const
+{
+    return m_FlipY;
+}
+
+void CanvasTransform::SetFlipY(bool flipY)
+{
+    if (m_FlipY == flipY) {
+        return;
+    }
+
+    const CanvasVector nextCenter(m_Center.GetX(), -m_Center.GetY());
+    if (!nextCenter.IsValid()) {
+        return;
+    }
+
+    m_Center = nextCenter;
+    m_FlipY = flipY;
+}
+
 CanvasVector CanvasTransform::MapToWorld(const QPointF &viewportPoint,
                                          const QSizeF &viewportSize) const
 {
@@ -72,8 +114,11 @@ CanvasVector CanvasTransform::MapToWorld(const QPointF &viewportPoint,
     const QPointF viewportCenter(viewportSize.width() * 0.5,
                                  viewportSize.height() * 0.5);
     const QPointF delta = viewportPoint - viewportCenter;
+    const qreal axisX = m_FlipX ? -1.0 : 1.0;
+    const qreal axisY = m_FlipY ? 1.0 : -1.0;
     const CanvasVector worldPoint = m_Center
-            + CanvasVector(delta.x() / m_Zoom, -delta.y() / m_Zoom);
+            + CanvasVector(delta.x() / (axisX * m_Zoom),
+                           delta.y() / (axisY * m_Zoom));
     return worldPoint.IsValid() ? worldPoint : CanvasVector();
 }
 
@@ -92,8 +137,12 @@ QPointF CanvasTransform::MapFromWorld(const CanvasVector &worldPoint,
         return QPointF();
     }
 
-    const QPointF viewportPoint(viewportCenter.x() + delta.GetX() * m_Zoom,
-                                viewportCenter.y() - delta.GetY() * m_Zoom);
+    const qreal axisX = m_FlipX ? -1.0 : 1.0;
+    const qreal axisY = m_FlipY ? 1.0 : -1.0;
+    const QPointF viewportPoint(viewportCenter.x()
+                                + axisX * delta.GetX() * m_Zoom,
+                                viewportCenter.y()
+                                + axisY * delta.GetY() * m_Zoom);
     return IsFinitePoint(viewportPoint) ? viewportPoint : QPointF();
 }
 
@@ -103,9 +152,11 @@ void CanvasTransform::PanBy(const QPointF &viewportDelta)
         return;
     }
 
+    const qreal axisX = m_FlipX ? -1.0 : 1.0;
+    const qreal axisY = m_FlipY ? 1.0 : -1.0;
     const CanvasVector nextCenter = m_Center
-            + CanvasVector(-viewportDelta.x() / m_Zoom,
-                           viewportDelta.y() / m_Zoom);
+            + CanvasVector(-viewportDelta.x() / (axisX * m_Zoom),
+                           -viewportDelta.y() / (axisY * m_Zoom));
     if (nextCenter.IsValid()) {
         m_Center = nextCenter;
     }
@@ -132,9 +183,11 @@ void CanvasTransform::ZoomAt(const QPointF &viewportPoint,
     const QPointF viewportCenter(viewportSize.width() * 0.5,
                                  viewportSize.height() * 0.5);
     const QPointF viewportDelta = viewportPoint - viewportCenter;
+    const qreal axisX = m_FlipX ? -1.0 : 1.0;
+    const qreal axisY = m_FlipY ? 1.0 : -1.0;
     const CanvasVector worldPointAfterZoom = m_Center
-            + CanvasVector(viewportDelta.x() / nextZoom,
-                           -viewportDelta.y() / nextZoom);
+            + CanvasVector(viewportDelta.x() / (axisX * nextZoom),
+                           viewportDelta.y() / (axisY * nextZoom));
     const CanvasVector centerAdjustment = worldPoint - worldPointAfterZoom;
     const CanvasVector nextCenter = m_Center + centerAdjustment;
     if (!worldPointAfterZoom.IsValid() || !nextCenter.IsValid()) {
@@ -205,6 +258,8 @@ void CanvasTransform::Reset()
 {
     m_Zoom = 1.0;
     m_Center = CanvasVector(0.0, 0.0);
+    m_FlipX = false;
+    m_FlipY = false;
 }
 
 qreal CanvasTransform::GetMinimumZoom()

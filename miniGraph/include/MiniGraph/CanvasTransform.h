@@ -10,8 +10,8 @@
 namespace mini_graph {
 
 // 管理画布世界坐标与视口坐标之间的变换。
-// 变换以中心点和缩放比例描述视图状态，屏幕坐标的 Y 轴方向会转换为
-// 世界坐标系中向上的 Y 轴方向。
+// 变换以中心点、缩放比例和 X/Y 轴显示方向描述视图状态；默认世界坐标
+// X 轴向右、Y 轴向上，也支持分别翻转两个轴的显示方向。
 class MINIGRAPH_EXPORT CanvasTransform
 {
 public:
@@ -29,6 +29,18 @@ public:
 
     // 设置视图中心对应的世界坐标；无效中心不改变当前值。
     void SetCenter(const CanvasVector &center);
+
+    // 返回 X 轴是否按 CADLab 视图语义翻转。
+    bool GetFlipX() const;
+
+    // 设置 X 轴视图翻转；切换时保持世界原点的视口位置不变。
+    void SetFlipX(bool flipX);
+
+    // 返回 Y 轴是否按 CADLab 视图语义翻转。
+    bool GetFlipY() const;
+
+    // 设置 Y 轴视图翻转；切换时保持世界原点的视口位置不变。
+    void SetFlipY(bool flipY);
 
     // 将视口坐标转换为世界坐标，viewportPoint 的原点位于视口左上角。
     // 输入坐标或视口尺寸无效时返回无效的 CanvasVector。
@@ -68,6 +80,12 @@ private:
 
     // 当前视口中心对应的世界坐标。
     CanvasVector m_Center;
+
+    // 世界坐标 X 轴是否映射到视口负方向。
+    bool m_FlipX;
+
+    // 世界坐标 Y 轴是否映射到视口正方向。
+    bool m_FlipY;
 };
 
 } // namespace mini_graph
