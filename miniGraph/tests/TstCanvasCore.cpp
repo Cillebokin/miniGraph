@@ -347,6 +347,11 @@ private slots:
     void CanvasDataImageMirrorsAroundMappedInsertionPointWhenViewFlips();
     void CanvasDataBrushHatchFillsClosedShapes();
     void CanvasViewRendersAllCanvasEntityTypes();
+    void CanvasViewBatchKeepsDisjointSegmentsSeparate();
+    void CanvasViewBatchFlushPreservesEntityDrawOrder();
+    void CanvasViewCullingKeepsCanvasDataWithOffscreenAnchor();
+    void CanvasViewCullingIncludesLargePointMarkerExtent();
+    void CanvasViewCullingIncludesWideGroupedStrokeExtent();
     void CanvasViewRendersCompleteSplineAtTessellationLimit();
     void CanvasViewDoesNotCloseEachDiscontinuousSplinePath();
     void CanvasViewDoesNotCloseNonmatchingPeriodicSplineEndpoints();
@@ -365,6 +370,9 @@ private slots:
     void CanvasViewKeyboardAndContextSignals();
     void CanvasViewDisplayPropertiesAndMapping();
     void CanvasViewBackgroundColorCanBeChanged();
+    void CanvasViewBackgroundColorChangeInvalidatesGeometryCache();
+    void CanvasViewSubpixelNoPenGeometryRemainsInvisible();
+    void CanvasViewSubpixelWideStrokeRetainsWidth();
     void CanvasViewFitAllUsesDocumentBounds();
     void CanvasViewFitSelectionUsesSelectedBounds();
     void CanvasViewFitCommandsRejectEmptyDocument();
@@ -5984,6 +5992,267 @@ void CanvasCoreTest::CanvasViewBackgroundColorCanBeChanged()
              qPrintable(QStringLiteral("white sample at %1,%2 is %3")
                         .arg(whiteSample.x()).arg(whiteSample.y())
                         .arg(image.pixelColor(whiteSample.toPoint()).name())));
+}
+
+void CanvasCoreTest::CanvasViewBackgroundColorChangeInvalidatesGeometryCache()
+{
+    mini_graph::CanvasDocument document;
+    const mini_graph::ItemId lineId = document.AddLine(
+                mini_graph::CanvasVector(-30.0, 0.0),
+                mini_graph::CanvasVector(30.0, 0.0));
+    QVERIFY(lineId != 0);
+
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::black);
+    style.selectedStrokeColor = style.strokeColor;
+    style.strokeWidth = 6.0;
+    QVERIFY(document.SetItemStyle(lineId, style));
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetDocument(&document);
+    view.SetBackgroundColor(QColor(Qt::white));
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+    QCOMPARE(image.pixelColor(100, 100), QColor(Qt::black));
+
+    view.SetBackgroundColor(QColor(20, 20, 20));
+    image.fill(Qt::black);
+    view.render(&image);
+    const QColor renderedLine = image.pixelColor(100, 100);
+    QVERIFY2(renderedLine.red() > 220 && renderedLine.green() > 220
+             && renderedLine.blue() > 220,
+             "A cached black entity must switch to a contrasting color when the background darkens");
+}
+
+void CanvasCoreTest::CanvasViewSubpixelNoPenGeometryRemainsInvisible()
+{
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasLine line(mini_graph::CanvasVector(0.1, 0.1),
+                                mini_graph::CanvasVector(0.4, 0.4));
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.lineType = mini_graph::CanvasLineType::NoPen;
+    QVERIFY(line.SetStyle(style));
+    QVERIFY(document.AddEntity(line) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetBackgroundColor(QColor(Qt::black));
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+    for (int y = 96; y <= 103; ++y) {
+        for (int x = 96; x <= 103; ++x) {
+            const QColor pixel = image.pixelColor(x, y);
+            QVERIFY2(!(pixel.red() > 100 && pixel.green() < 80
+                       && pixel.blue() < 80),
+                     "A subpixel NoPen line must remain invisible");
+        }
+    }
+}
+
+void CanvasCoreTest::CanvasViewSubpixelWideStrokeRetainsWidth()
+{
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasLine line(mini_graph::CanvasVector(0.1, 0.1),
+                                mini_graph::CanvasVector(0.4, 0.4));
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.strokeWidth = 12.0;
+    QVERIFY(line.SetStyle(style));
+    QVERIFY(document.AddEntity(line) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetBackgroundColor(QColor(Qt::black));
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+    const QColor edgePixel = image.pixelColor(105, 100);
+    QVERIFY2(edgePixel.red() > 100 && edgePixel.green() < 80
+             && edgePixel.blue() < 80,
+             "A wide stroke must keep its display width when its path is subpixel-sized");
+}
+
+void CanvasCoreTest::CanvasViewCullingKeepsCanvasDataWithOffscreenAnchor()
+{
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasLine line(mini_graph::CanvasVector(1000.0, 0.0),
+                                mini_graph::CanvasVector(1010.0, 0.0));
+    const QStringList commands = QStringList()
+            << QStringLiteral("pen,255,0,0,255,4,1")
+            << QStringLiteral("line,-10,0,10,0");
+    line.SetCanvasData(std::make_shared<TestCanvasData>(nullptr, commands));
+    QVERIFY(line.GetCanvasData());
+    QVERIFY(document.AddEntity(line) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetBackgroundColor(QColor(Qt::black));
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+    const QColor centerPixel = image.pixelColor(100, 100);
+    QVERIFY2(centerPixel.red() > 180 && centerPixel.green() < 80
+             && centerPixel.blue() < 80,
+             "Visible CanvasData commands must render even when their owning geometry is offscreen");
+}
+
+void CanvasCoreTest::CanvasViewCullingIncludesLargePointMarkerExtent()
+{
+    mini_graph::CanvasDocument document;
+    mini_graph::CanvasPoint point(mini_graph::CanvasVector(250.0, 0.0));
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.pointSize = 400.0;
+    QVERIFY(point.SetStyle(style));
+    QVERIFY(document.AddEntity(point) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetBackgroundColor(QColor(Qt::black));
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+    const QColor edgePixel = image.pixelColor(175, 100);
+    QVERIFY2(edgePixel.red() > 180 && edgePixel.green() < 80
+             && edgePixel.blue() < 80,
+             "A large point marker must not be culled solely because its anchor is outside the view");
+}
+
+void CanvasCoreTest::CanvasViewCullingIncludesWideGroupedStrokeExtent()
+{
+    mini_graph::CanvasLine line(mini_graph::CanvasVector(250.0, -20.0),
+                                mini_graph::CanvasVector(250.0, 20.0));
+    mini_graph::StruCanvasStyle style;
+    style.strokeColor = QColor(Qt::red);
+    style.selectedStrokeColor = style.strokeColor;
+    style.strokeWidth = 400.0;
+    QVERIFY(line.SetStyle(style));
+
+    mini_graph::CanvasGroupContainer group;
+    QVERIFY(group.AddChild(line));
+    mini_graph::CanvasDocument document;
+    QVERIFY(document.AddEntity(group) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetBackgroundColor(QColor(Qt::black));
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+    const QColor edgePixel = image.pixelColor(175, 100);
+    QVERIFY2(edgePixel.red() > 180 && edgePixel.green() < 80
+             && edgePixel.blue() < 80,
+             "Culling must include a group's visible stroke width beyond its geometry bounds");
+}
+
+void CanvasCoreTest::CanvasViewBatchKeepsDisjointSegmentsSeparate()
+{
+    mini_graph::CanvasDocument document;
+    const QColor red(Qt::red);
+    QVERIFY(document.AddLine(mini_graph::CanvasVector(-30.0, -30.0),
+                             mini_graph::CanvasVector(-20.0, -30.0),
+                             red, 4.0) != 0);
+    QVERIFY(document.AddLine(mini_graph::CanvasVector(20.0, 30.0),
+                             mini_graph::CanvasVector(30.0, 30.0),
+                             red, 4.0) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetBackgroundColor(QColor(Qt::white));
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+    QCOMPARE(image.pixelColor(100, 100), QColor(Qt::white));
+}
+
+void CanvasCoreTest::CanvasViewBatchFlushPreservesEntityDrawOrder()
+{
+    mini_graph::CanvasDocument document;
+    mini_graph::StruCanvasStyle redStyle;
+    redStyle.strokeColor = QColor(Qt::red);
+    redStyle.selectedStrokeColor = redStyle.strokeColor;
+    redStyle.strokeWidth = 6.0;
+    mini_graph::CanvasLine firstLine(mini_graph::CanvasVector(-20.0, 0.0),
+                                     mini_graph::CanvasVector(20.0, 0.0));
+    QVERIFY(firstLine.SetStyle(redStyle));
+    QVERIFY(document.AddEntity(firstLine) != 0);
+
+    mini_graph::StruCanvasStyle greenStyle;
+    greenStyle.strokeColor = QColor(Qt::green);
+    greenStyle.selectedStrokeColor = greenStyle.strokeColor;
+    greenStyle.strokeWidth = 8.0;
+    mini_graph::CanvasCircle circle(mini_graph::CanvasVector(0.0, 0.0), 10.0);
+    QVERIFY(circle.SetStyle(greenStyle));
+    QVERIFY(document.AddEntity(circle) != 0);
+
+    mini_graph::CanvasLine lastLine(mini_graph::CanvasVector(0.0, -5.0),
+                                    mini_graph::CanvasVector(0.0, 5.0));
+    QVERIFY(lastLine.SetStyle(redStyle));
+    QVERIFY(document.AddEntity(lastLine) != 0);
+
+    CanvasViewHarness view;
+    view.resize(200, 200);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+    view.SetBackgroundColor(QColor(Qt::white));
+    view.SetDocument(&document);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+    const QColor intersection = image.pixelColor(110, 99);
+    QVERIFY2(intersection.green() > intersection.red(),
+             "The later green circle must remain above the earlier red line at their intersection");
 }
 
 void CanvasCoreTest::CanvasViewFitAllUsesDocumentBounds()

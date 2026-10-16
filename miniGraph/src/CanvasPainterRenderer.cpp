@@ -1336,9 +1336,8 @@ void DrawEntityGeometry(QPainter &painter,
     }
 }
 
-// 判断图元在视口中是否小于 1 像素（包围盒两个方向都小于 1 像素）。
-// 是则输出用于画点的颜色画笔与像素位置，调用方只绘制一个像素。
-// 组容器、带自定义数据（文字、图像等）及不可见图元不参与。
+// 实线图元在视口中小于 1 像素（包围盒两个方向都小于 1 像素），且画笔不超过 1 像素时，
+// 可替换成单像素点；虚线、宽笔画、组容器、自定义数据及不可见图元仍走常规绘制。
 bool TryGetSubPixelDot(const CanvasDocument &document,
                        const CanvasEntity &entity,
                        const CanvasRenderContext &context,
@@ -1378,7 +1377,9 @@ bool TryGetSubPixelDot(const CanvasDocument &document,
     const QPen basePen = CreateEntityPen(entity.GetStyle(), selected,
                                          logicalDpiX, lineWidthVisible,
                                          context.backgroundColor);
-    if (basePen.color().alpha() == 0) {
+    if (basePen.style() != Qt::SolidLine
+            || basePen.color().alpha() == 0
+            || basePen.widthF() > 1.0) {
         return false;
     }
     // 宽度 0 为 1 像素的修饰线宽，保证点只占一个像素
@@ -1491,6 +1492,107 @@ void RenderEntity(QPainter &painter,
                        logicalDpiX, lineWidthVisible);
 }
 
+bool HasCanvasDataInTree(const CanvasEntity &entity)
+{
+    if (entity.GetCanvasData()) {
+        return true;
+    }
+
+    if (entity.GetType() == CanvasEntityType::GroupContainer) {
+        const CanvasGroupContainer *group =
+                dynamic_cast<const CanvasGroupContainer *>(&entity);
+        if (!group) {
+            return false;
+        }
+        for (int index = 0; index < group->GetChildCount(); ++index) {
+            const CanvasEntity *child = group->GetChild(index);
+            if (child && HasCanvasDataInTree(*child)) {
+                return true;
+            }
+        }
+    } else if (entity.GetType() == CanvasEntityType::Polyline) {
+        const CanvasPolyline *polyline =
+                dynamic_cast<const CanvasPolyline *>(&entity);
+        if (!polyline) {
+            return false;
+        }
+        for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+            const CanvasEntity *segment = polyline->GetSegment(index);
+            if (segment && segment->GetCanvasData()) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+qreal GetEntityCullingMarginPixels(const CanvasEntity &entity,
+                                  qreal logicalDpiX,
+                                  bool lineWidthVisible,
+                                  qreal zoom)
+{
+    const StruCanvasStyle &style = entity.GetStyle();
+    switch (entity.GetType()) {
+    case CanvasEntityType::Point: {
+        const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(&entity);
+        if (!point || !point->IsValid()) {
+            return 0.0;
+        }
+        if (zoom < 0.1) {
+            return 0.5;
+        }
+        if (style.pointShape == CanvasPointShape::Cross) {
+            return qMax<qreal>(1.0, style.pointSize) * 0.5
+                    + detail::GetDisplayStrokeWidth(
+                          style, logicalDpiX, lineWidthVisible) * 0.5;
+        }
+        return detail::GetDisplayPointSize(
+                    style, logicalDpiX, lineWidthVisible) * 0.5;
+    }
+    case CanvasEntityType::Polyline: {
+        const CanvasPolyline *polyline =
+                dynamic_cast<const CanvasPolyline *>(&entity);
+        if (!polyline) {
+            return 0.0;
+        }
+        qreal margin = 0.0;
+        for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+            const CanvasEntity *segment = polyline->GetSegment(index);
+            if (!segment || !segment->GetStyle().visible) {
+                continue;
+            }
+            const StruCanvasStyle &segmentStyle = segment->HasExplicitStyle()
+                    ? segment->GetStyle() : style;
+            if (segmentStyle.visible) {
+                margin = qMax(margin, detail::GetDisplayStrokeWidth(
+                                 segmentStyle, logicalDpiX,
+                                 lineWidthVisible) * 0.5);
+            }
+        }
+        return margin;
+    }
+    case CanvasEntityType::GroupContainer: {
+        const CanvasGroupContainer *group =
+                dynamic_cast<const CanvasGroupContainer *>(&entity);
+        if (!group) {
+            return 0.0;
+        }
+        qreal margin = 0.0;
+        for (int index = 0; index < group->GetChildCount(); ++index) {
+            const CanvasEntity *child = group->GetChild(index);
+            if (child && child->GetStyle().visible) {
+                margin = qMax(margin, GetEntityCullingMarginPixels(
+                                 *child, logicalDpiX, lineWidthVisible, zoom));
+            }
+        }
+        return margin;
+    }
+    default:
+        return detail::GetDisplayStrokeWidth(
+                    style, logicalDpiX, lineWidthVisible) * 0.5;
+    }
+}
+
 } // namespace
 
 namespace detail {
@@ -1578,9 +1680,6 @@ void CanvasPainterRenderer::Render(
     constexpr qreal cullingMarginPixels = 32.0;
     const QRectF visibleWorldRect = context.GetVisibleWorldRect();
     const bool cullingEnabled = !visibleWorldRect.isEmpty();
-    const qreal cullingMargin = cullingMarginPixels / zoom;
-    const QRectF cullingRect = visibleWorldRect.adjusted(-cullingMargin, -cullingMargin,
-                                                         cullingMargin, cullingMargin);
     // 批量绘制：连续且画笔相同的实线直线与圆弧合并为一个路径，一次 drawPath 绘制。
     // 遇到画笔变化或其他类型图元时先提交当前批次，保证绘制顺序与逐个绘制一致。
     QPainterPath batchPath;
@@ -1601,11 +1700,21 @@ void CanvasPainterRenderer::Render(
         const CanvasEntity *entity = document->GetEntity(id);
         QRectF bounds;
         if (cullingEnabled && entity && TryGetGeometryBounds(*entity, &bounds)
-                && (bounds.right() < cullingRect.left()
+                && !HasCanvasDataInTree(*entity)) {
+            const qreal visualMarginPixels = qMax(
+                        cullingMarginPixels,
+                        GetEntityCullingMarginPixels(*entity, logicalDpiX,
+                                                     lineWidthVisible, zoom));
+            const qreal cullingMargin = visualMarginPixels / zoom;
+            const QRectF cullingRect = visibleWorldRect.adjusted(
+                        -cullingMargin, -cullingMargin,
+                        cullingMargin, cullingMargin);
+            if (bounds.right() < cullingRect.left()
                     || bounds.left() > cullingRect.right()
                     || bounds.bottom() < cullingRect.top()
-                    || bounds.top() > cullingRect.bottom())) {
-            continue;
+                    || bounds.top() > cullingRect.bottom()) {
+                continue;
+            }
         }
 
         // 亚像素图元：在视口中小于 1 像素时只画一个像素，跳过细分和线宽绘制

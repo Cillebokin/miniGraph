@@ -1577,6 +1577,7 @@ void CanvasView::SetBackgroundColor(const QColor &color)
     }
 
     m_BackgroundColor = color;
+    m_PrivateData->m_GeometryCache.valid = false;
     emit BackgroundColorChanged(m_BackgroundColor);
     update();
 }
