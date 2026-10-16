@@ -143,12 +143,13 @@ qreal GetPenWidth(const StruCanvasStyle &style,
     return roundedWidth == 1.0 ? 0.0 : roundedWidth;
 }
 
-QPen CreateEntityPen(const StruCanvasStyle &style,
-                     bool selected,
-                     qreal logicalDpiX,
-                     bool lineWidthVisible,
-                     const QColor &backgroundColor,
-                     qreal dashOffsetPixels = 0.0)
+// 按全部输入构建画笔（不做缓存），调用方应使用带缓存的 CreateEntityPen。
+QPen BuildEntityPen(const StruCanvasStyle &style,
+                    bool selected,
+                    qreal logicalDpiX,
+                    bool lineWidthVisible,
+                    const QColor &backgroundColor,
+                    qreal dashOffsetPixels)
 {
     const CanvasLineType lineType = selected
             ? CanvasLineType::DashLine2 : style.lineType;
@@ -194,6 +195,71 @@ QPen CreateEntityPen(const StruCanvasStyle &style,
         }
         pen.setDashOffset(normalizedOffset / patternPenWidth);
     }
+    return pen;
+}
+
+// 画笔缓存条目：保存一组完整输入及由其构建的画笔。
+struct EntityPenCacheEntry
+{
+    QRgb strokeColor;
+    QRgb selectedStrokeColor;
+    QRgb backgroundColor;
+    int lineType;
+    int strokeWidthUnit;
+    qreal strokeWidth;
+    qreal logicalDpiX;
+    qreal dashOffsetPixels;
+    bool selected;
+    bool lineWidthVisible;
+    QPen pen;
+};
+
+const int kMaximumEntityPenCacheSize = 64;
+
+// 带缓存的画笔获取：逐图元重复构建画笔（颜色对比度计算、虚线数组分配）是绘制热点。
+// 输入完全相同时直接返回缓存副本；条目超过上限时整体清空，保证缓存规模有界。
+// 仅在 GUI 线程的绘制路径中使用，无需加锁。
+QPen CreateEntityPen(const StruCanvasStyle &style,
+                     bool selected,
+                     qreal logicalDpiX,
+                     bool lineWidthVisible,
+                     const QColor &backgroundColor,
+                     qreal dashOffsetPixels = 0.0)
+{
+    static QVector<EntityPenCacheEntry> cache;
+
+    const QRgb strokeColor = style.strokeColor.rgba();
+    const QRgb selectedStrokeColor = style.selectedStrokeColor.rgba();
+    const QRgb background = backgroundColor.rgba();
+    const int lineType = static_cast<int>(style.lineType);
+    const int strokeWidthUnit = static_cast<int>(style.strokeWidthUnit);
+    const qreal strokeWidth = style.strokeWidth;
+
+    for (const EntityPenCacheEntry &entry : cache) {
+        if (entry.strokeColor == strokeColor
+                && entry.selectedStrokeColor == selectedStrokeColor
+                && entry.backgroundColor == background
+                && entry.lineType == lineType
+                && entry.strokeWidthUnit == strokeWidthUnit
+                && entry.strokeWidth == strokeWidth
+                && entry.logicalDpiX == logicalDpiX
+                && entry.dashOffsetPixels == dashOffsetPixels
+                && entry.selected == selected
+                && entry.lineWidthVisible == lineWidthVisible) {
+            return entry.pen;
+        }
+    }
+
+    const QPen pen = BuildEntityPen(style, selected, logicalDpiX,
+                                    lineWidthVisible, backgroundColor,
+                                    dashOffsetPixels);
+    if (cache.size() >= kMaximumEntityPenCacheSize) {
+        cache.clear();
+    }
+    cache.append(EntityPenCacheEntry{strokeColor, selectedStrokeColor, background,
+                                     lineType, strokeWidthUnit, strokeWidth,
+                                     logicalDpiX, dashOffsetPixels,
+                                     selected, lineWidthVisible, pen});
     return pen;
 }
 
@@ -1118,6 +1184,15 @@ void DrawEntityGeometry(QPainter &painter,
         }
 
         const QPointF viewportPosition = context.MapFromWorld(point->GetPosition());
+        // 点标记的像素尺寸固定，缩放过小时它会压过周围的小图元。低于该缩放时，所有点统一只画一个像素。
+        constexpr qreal kPointSinglePixelZoom = 0.1;
+        if (context.transform.GetZoom() < kPointSinglePixelZoom) {
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(QPen(GetDisplayColor(style, selected,
+                                                context.backgroundColor), 0.0));
+            painter.drawPoint(viewportPosition);
+            return;
+        }
         if (style.pointShape == CanvasPointShape::Cross) {
             painter.setBrush(Qt::NoBrush);
             painter.setPen(CreateEntityPen(style, selected, logicalDpiX,
@@ -1261,6 +1336,120 @@ void DrawEntityGeometry(QPainter &painter,
     }
 }
 
+// 判断图元在视口中是否小于 1 像素（包围盒两个方向都小于 1 像素）。
+// 是则输出用于画点的颜色画笔与像素位置，调用方只绘制一个像素。
+// 组容器、带自定义数据（文字、图像等）及不可见图元不参与。
+bool TryGetSubPixelDot(const CanvasDocument &document,
+                       const CanvasEntity &entity,
+                       const CanvasRenderContext &context,
+                       qreal logicalDpiX,
+                       bool lineWidthVisible,
+                       QPen *pen,
+                       QPointF *position)
+{
+    if (!pen || !position || entity.GetCanvasData() || !entity.GetStyle().visible) {
+        return false;
+    }
+    switch (entity.GetType()) {
+    case CanvasEntityType::GroupContainer:
+    case CanvasEntityType::Point:
+    case CanvasEntityType::Invalid:
+        return false;
+    default:
+        break;
+    }
+
+    QRectF bounds;
+    if (!TryGetGeometryBounds(entity, &bounds) || bounds.isEmpty()) {
+        return false;
+    }
+    const QPointF viewportStart = context.MapFromWorld(
+                CanvasVector(bounds.left(), bounds.top()));
+    const QPointF viewportEnd = context.MapFromWorld(
+                CanvasVector(bounds.right(), bounds.bottom()));
+    const QRectF viewportBounds = QRectF(viewportStart, viewportEnd).normalized();
+    if (!IsFinite(viewportBounds.width()) || !IsFinite(viewportBounds.height())
+            || qMax(viewportBounds.width(), viewportBounds.height()) >= 1.0) {
+        return false;
+    }
+
+    const bool selected = entity.GetId() != 0
+            && document.IsItemSelected(entity.GetId());
+    const QPen basePen = CreateEntityPen(entity.GetStyle(), selected,
+                                         logicalDpiX, lineWidthVisible,
+                                         context.backgroundColor);
+    if (basePen.color().alpha() == 0) {
+        return false;
+    }
+    // 宽度 0 为 1 像素的修饰线宽，保证点只占一个像素
+    *pen = QPen(basePen.color(), 0.0);
+    *position = viewportBounds.center();
+    return true;
+}
+
+// 判断图元能否参与批量绘制：仅限无自定义数据、实线且不透明的直线与圆弧。
+// 能则输出其画笔与已映射到视口的路径，返回 true；否则返回 false，由调用方逐个绘制。
+// 虚线、半透明、选中（虚线样式）、文字、点等图元不参与批量，以保持虚线相位与叠加效果不变。
+bool TryBuildBatchSegment(const CanvasDocument &document,
+                          const CanvasEntity &entity,
+                          const CanvasRenderContext &context,
+                          qreal maximumWorldError,
+                          qreal logicalDpiX,
+                          bool lineWidthVisible,
+                          QPen *pen,
+                          QPainterPath *path)
+{
+    if (!pen || !path || entity.GetCanvasData() || !entity.GetStyle().visible) {
+        return false;
+    }
+
+    const bool isLine = entity.GetType() == CanvasEntityType::Line;
+    const bool isArc = entity.GetType() == CanvasEntityType::Arc;
+    if (!isLine && !isArc) {
+        return false;
+    }
+
+    const bool selected = entity.GetId() != 0
+            && document.IsItemSelected(entity.GetId());
+    const QPen candidate = CreateEntityPen(entity.GetStyle(), selected,
+                                           logicalDpiX, lineWidthVisible,
+                                           context.backgroundColor);
+    if (candidate.style() != Qt::SolidLine || candidate.color().alpha() != 255) {
+        return false;
+    }
+
+    if (isLine) {
+        const CanvasLine *line = dynamic_cast<const CanvasLine *>(&entity);
+        if (!line || !line->IsValid()) {
+            return false;
+        }
+        path->moveTo(context.MapFromWorld(line->GetStartPoint()));
+        path->lineTo(context.MapFromWorld(line->GetEndPoint()));
+    } else {
+        const CanvasArc *arc = dynamic_cast<const CanvasArc *>(&entity);
+        if (!arc || !arc->IsValid()) {
+            return false;
+        }
+        StruArcGeometry geometry;
+        geometry.center = arc->GetCenter();
+        geometry.radius = arc->GetRadius();
+        geometry.startAngle = arc->GetStartAngle();
+        geometry.endAngle = arc->GetEndAngle();
+        geometry.reversed = arc->IsReversed();
+        const QVector<CanvasVector> points = TessellateArc(geometry, maximumWorldError);
+        if (points.size() < 2) {
+            return false;
+        }
+        path->moveTo(context.MapFromWorld(points.first()));
+        for (int index = 1; index < points.size(); ++index) {
+            path->lineTo(context.MapFromWorld(points.at(index)));
+        }
+    }
+
+    *pen = candidate;
+    return true;
+}
+
 void RenderEntity(QPainter &painter,
                   const CanvasRenderContext &context,
                   const CanvasDocument &document,
@@ -1384,11 +1573,74 @@ void CanvasPainterRenderer::Render(
 
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, true);
+    // 视口裁剪：包围盒与可见范围（按像素外扩，覆盖线宽和点标记）不相交的图元直接跳过。
+    // 几何缓存的渲染范围即为视口外扩范围，因此裁剪结果与缓存覆盖范围一致。
+    constexpr qreal cullingMarginPixels = 32.0;
+    const QRectF visibleWorldRect = context.GetVisibleWorldRect();
+    const bool cullingEnabled = !visibleWorldRect.isEmpty();
+    const qreal cullingMargin = cullingMarginPixels / zoom;
+    const QRectF cullingRect = visibleWorldRect.adjusted(-cullingMargin, -cullingMargin,
+                                                         cullingMargin, cullingMargin);
+    // 批量绘制：连续且画笔相同的实线直线与圆弧合并为一个路径，一次 drawPath 绘制。
+    // 遇到画笔变化或其他类型图元时先提交当前批次，保证绘制顺序与逐个绘制一致。
+    QPainterPath batchPath;
+    QPen batchPen;
+    bool hasBatch = false;
+    const auto flushBatch = [&painter, &batchPath, &batchPen, &hasBatch]()
+    {
+        if (hasBatch) {
+            painter.setBrush(Qt::NoBrush);
+            painter.setPen(batchPen);
+            painter.drawPath(batchPath);
+            batchPath = QPainterPath();
+            hasBatch = false;
+        }
+    };
+
     for (const ItemId id : document->GetItemIds()) {
-        RenderEntity(painter, context, *document, document->GetEntity(id),
+        const CanvasEntity *entity = document->GetEntity(id);
+        QRectF bounds;
+        if (cullingEnabled && entity && TryGetGeometryBounds(*entity, &bounds)
+                && (bounds.right() < cullingRect.left()
+                    || bounds.left() > cullingRect.right()
+                    || bounds.bottom() < cullingRect.top()
+                    || bounds.top() > cullingRect.bottom())) {
+            continue;
+        }
+
+        // 亚像素图元：在视口中小于 1 像素时只画一个像素，跳过细分和线宽绘制
+        QPen dotPen;
+        QPointF dotPosition;
+        if (entity && TryGetSubPixelDot(*document, *entity, context, logicalDpiX,
+                                        lineWidthVisible, &dotPen, &dotPosition)) {
+            flushBatch();
+            painter.setPen(dotPen);
+            painter.setBrush(Qt::NoBrush);
+            painter.drawPoint(dotPosition);
+            continue;
+        }
+
+        QPen segmentPen;
+        QPainterPath segmentPath;
+        if (entity && TryBuildBatchSegment(*document, *entity, context,
+                                           maximumWorldError, logicalDpiX,
+                                           lineWidthVisible,
+                                           &segmentPen, &segmentPath)) {
+            if (!hasBatch || segmentPen != batchPen) {
+                flushBatch();
+                batchPen = segmentPen;
+                hasBatch = true;
+            }
+            batchPath.addPath(segmentPath);
+            continue;
+        }
+
+        flushBatch();
+        RenderEntity(painter, context, *document, entity,
                      false, maximumWorldError,
                      logicalDpiX, lineWidthVisible);
     }
+    flushBatch();
     painter.restore();
 }
 

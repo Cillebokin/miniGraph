@@ -34,6 +34,36 @@ class CanvasEntity;
 class CanvasRenderer;
 class CanvasViewPrivate;
 
+// 几何缓存未命中的原因，用于性能分析。
+enum class CanvasGeometryCacheMiss
+{
+    // 命中缓存（无未命中）
+    None,
+    // 缓存不可用：内容、文档、DPI、线宽设置变化或尚无缓存
+    Invalid,
+    // 视口超出缓存覆盖范围（平移越界）
+    NotCovering,
+    // 缩放期间强制精确重绘
+    ZoomExactRedraw
+};
+
+// 单帧绘制统计，由 CanvasView 在开启统计后记录。
+struct CanvasFrameStatistics
+{
+    // 整帧耗时（微秒）
+    qint64 frameMicroseconds = 0;
+    // 几何层耗时（微秒）；缓存命中时接近 0
+    qint64 geometryMicroseconds = 0;
+    // 文档中的图元数量（含视口外的图元）
+    int itemCount = 0;
+    // 本帧几何是否直接复用缓存
+    bool geometryCacheHit = false;
+    // 本帧几何是否通过拉伸缓存显示（缩放预览）
+    bool geometryScaled = false;
+    // 本帧几何未命中缓存的原因（命中时为 None）
+    CanvasGeometryCacheMiss geometryMissReason = CanvasGeometryCacheMiss::None;
+};
+
 // 基于 QWidget 和 QPainter 的二维画布视图。
 // CanvasView 负责画布背景、网格、坐标轴和图元的显示，并处理缩放、
 // 平移以及基础鼠标键盘交互。图元数据由 CanvasDocument 提供，坐标换算
@@ -358,7 +388,17 @@ public:
     void ClearHitTestMaximumDisplaySizeCacheForProfiling();
 #endif
 
+    // 开启或关闭每帧统计。关闭时不记录，默认关闭。
+    void SetFrameStatisticsEnabled(bool enabled);
+    bool IsFrameStatisticsEnabled() const;
+
+    // 返回最近一帧的统计；未开启或尚未绘制过时各字段为默认值。
+    CanvasFrameStatistics GetLastFrameStatistics() const;
+
 signals:
+    // 统计开启后，每帧绘制完成时发出。
+    void FrameStatisticsUpdated(const CanvasFrameStatistics &statistics);
+
     // 网格可见状态发生变化时发出。
     void GridVisibleChanged(bool visible);
 

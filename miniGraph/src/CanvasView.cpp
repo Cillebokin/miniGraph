@@ -15,11 +15,13 @@
 #include <QPaintEvent>
 #include <QPainter>
 #include <QResizeEvent>
+#include <QDebug>
+#include <QElapsedTimer>
+#include <QPointer>
+#include <QTimer>
+#include <QTransform>
 #include <QWheelEvent>
 #include <QtGlobal>
-#ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-#include <QElapsedTimer>
-#endif
 
 #include <cmath>
 #include <limits>
@@ -789,6 +791,148 @@ void PrepareLayer(QImage *layer, const QSize &pixelSize, qreal devicePixelRatio)
 
 } // namespace
 
+namespace {
+
+// 几何缓存：几何层按视口外扩后的范围渲染并缓存。平移时复用缓存图像（像素偏移），
+// 缩放时临时拉伸缓存；仅在超出缓存范围、内容变化或精确重绘时才重新渲染几何。
+constexpr qreal kGeometryCacheMarginRatio = 0.5;
+// 缩放停止该时长后做一次精确重绘，替换缩放期间的拉伸图像。
+constexpr int kExactRedrawDelayMs = 100;
+// 缩放期间若上一次精确渲染耗时不超过该预算（微秒），则每帧精确重绘，线宽与点大小始终正确；
+// 超过预算时才退回拉伸缓存，避免大文档缩放掉帧。
+constexpr qint64 kInteractiveExactRenderBudgetMicroseconds = 8000;
+
+struct GeometryCacheState
+{
+    bool valid = false;
+    const CanvasDocument *document = nullptr;
+    QSize logicalSize;
+    qreal devicePixelRatio = 1.0;
+    qreal logicalDpiX = 0.0;
+    bool lineWidthVisible = false;
+    bool flipX = false;
+    bool flipY = false;
+    CanvasVector center;
+    qreal zoom = 1.0;
+};
+
+// 判断缓存的渲染条件（文档、像素比、DPI、线宽显示、翻转）是否仍然一致。
+// 视口尺寸和缩放、中心不在此判断，由覆盖范围与缩放比例处理。
+bool IsGeometryCacheUsable(const GeometryCacheState &cache,
+                           const CanvasDocument *document,
+                           const CanvasTransform &transform,
+                           qreal devicePixelRatio,
+                           qreal logicalDpiX,
+                           bool lineWidthVisible)
+{
+    return cache.valid
+            && cache.document == document
+            && qFuzzyCompare(cache.devicePixelRatio, devicePixelRatio)
+            && qFuzzyCompare(cache.logicalDpiX + 1.0, logicalDpiX + 1.0)
+            && cache.lineWidthVisible == lineWidthVisible
+            && cache.flipX == transform.GetFlipX()
+            && cache.flipY == transform.GetFlipY();
+}
+
+// 计算缓存图像到当前视口的像素变换。
+// 缓存中视口中心对应 cache.center；令 s = zoom / cache.zoom，则缓存像素 b 映射到视口像素 s * b + offset。
+// 平移时 s 为 1，offset 即纯像素偏移；取整后保证像素对齐。
+QTransform GetGeometryBlitTransform(const GeometryCacheState &cache,
+                                    const CanvasTransform &transform,
+                                    const QSizeF &viewportSize)
+{
+    const qreal zoom = transform.GetZoom();
+    const qreal scale = zoom / cache.zoom;
+    const qreal axisX = transform.GetFlipX() ? -1.0 : 1.0;
+    const qreal axisY = transform.GetFlipY() ? 1.0 : -1.0;
+    const CanvasVector centerDelta = cache.center - transform.GetCenter();
+    const qreal originX = viewportSize.width() * 0.5
+            - scale * cache.logicalSize.width() * 0.5
+            + axisX * centerDelta.GetX() * zoom;
+    const qreal originY = viewportSize.height() * 0.5
+            - scale * cache.logicalSize.height() * 0.5
+            + axisY * centerDelta.GetY() * zoom;
+    return QTransform(scale, 0.0, 0.0, scale, qRound(originX), qRound(originY));
+}
+
+// 判断变换后的缓存图像是否完整覆盖视口，未覆盖时必须重新渲染几何。
+bool IsGeometryCacheCovering(const GeometryCacheState &cache,
+                             const QTransform &blitTransform,
+                             const QSizeF &viewportSize)
+{
+    const QRectF cachedRect = blitTransform.mapRect(
+                QRectF(QPointF(0.0, 0.0), QSizeF(cache.logicalSize)));
+    return cachedRect.contains(QRectF(QPointF(0.0, 0.0), viewportSize));
+}
+
+// 渲染几何层：范围为视口外扩 kGeometryCacheMarginRatio，结果写入 layer 并更新缓存状态。
+void RenderGeometryCache(GeometryCacheState *cache,
+                         QImage *layer,
+                         const CanvasDocument *document,
+                         const CanvasTransform &transform,
+                         const QSize &viewportSize,
+                         qreal devicePixelRatio,
+                         qreal logicalDpiX,
+                         bool lineWidthVisible,
+                         const CanvasPainterRenderer &defaultRenderer,
+                         const QVector<QPointer<CanvasRenderer>> &customRenderers,
+                         const QColor &backgroundColor)
+{
+    const int marginX = qRound(viewportSize.width() * kGeometryCacheMarginRatio);
+    const int marginY = qRound(viewportSize.height() * kGeometryCacheMarginRatio);
+    const QSize logicalSize(viewportSize.width() + marginX * 2,
+                            viewportSize.height() + marginY * 2);
+    const QSize pixelSize(qMax(1, qRound(logicalSize.width() * devicePixelRatio)),
+                          qMax(1, qRound(logicalSize.height() * devicePixelRatio)));
+    PrepareLayer(layer, pixelSize, devicePixelRatio);
+
+    const CanvasRenderContext renderContext(document, transform, logicalSize,
+                                            backgroundColor);
+    const std::shared_ptr<CanvasGlobalData> globalData = document
+            ? document->GetCanvasGlobalData()
+            : std::shared_ptr<CanvasGlobalData>();
+    {
+        QPainter painter(layer);
+        painter.setRenderHint(QPainter::Antialiasing, true);
+        if (globalData) {
+            painter.save();
+            detail::RenderCanvasDataCommands(
+                        painter, renderContext,
+                        globalData->CalToQStringListPre(), true);
+            painter.restore();
+        }
+        defaultRenderer.Render(painter, renderContext, logicalDpiX, lineWidthVisible);
+        for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
+            if (!renderer) {
+                continue;
+            }
+            painter.save();
+            renderer->Render(painter, renderContext);
+            painter.restore();
+        }
+        if (globalData) {
+            painter.save();
+            detail::RenderCanvasDataCommands(
+                        painter, renderContext,
+                        globalData->CalToQStringListPost(), true);
+            painter.restore();
+        }
+    }
+
+    cache->valid = true;
+    cache->document = document;
+    cache->logicalSize = logicalSize;
+    cache->devicePixelRatio = devicePixelRatio;
+    cache->logicalDpiX = logicalDpiX;
+    cache->lineWidthVisible = lineWidthVisible;
+    cache->flipX = transform.GetFlipX();
+    cache->flipY = transform.GetFlipY();
+    cache->center = transform.GetCenter();
+    cache->zoom = transform.GetZoom();
+}
+
+} // namespace
+
 class CanvasViewPrivate
 {
 public:
@@ -804,9 +948,19 @@ public:
     {
     }
 
-    QImage m_BackgroundLayer;
+    ~CanvasViewPrivate()
+    {
+        delete m_ExactRedrawTimer;
+    }
+
     QImage m_GeometryLayer;
-    QImage m_OverlayLayer;
+    GeometryCacheState m_GeometryCache;
+    bool m_FrameStatisticsEnabled = false;
+    CanvasFrameStatistics m_LastFrame;
+    // 缩放预览的精确重绘定时器（懒创建，无父对象，由析构释放）
+    QTimer *m_ExactRedrawTimer = nullptr;
+    // 最近一次精确渲染几何层的耗时（微秒），用于决定缩放时是否每帧精确重绘
+    qint64 m_LastGeometryRenderMicroseconds = 0;
     std::unique_ptr<CanvasPainterRenderer> m_DefaultRenderer;
     QVector<AdditionalRendererEntry> m_AdditionalCustomRenderers;
     QHash<ItemId, qreal> m_HitTestMaximumDisplaySizeCache;
@@ -1010,6 +1164,7 @@ void CanvasView::SetDocument(CanvasDocument *document)
     QObject::disconnect(m_DocumentConnection);
     QObject::disconnect(m_DocumentSelectionConnection);
     m_PrivateData->InvalidateHitTestMaximumDisplaySizeCache();
+    m_PrivateData->m_GeometryCache.valid = false;
     m_Document = document;
     m_SelectionState = SelectionState::Idle;
     m_PressedItemId = 0;
@@ -2168,10 +2323,11 @@ void CanvasView::paintEvent(QPaintEvent *event)
         return;
     }
 
-    const CanvasRenderContext renderContext(m_Document.data(),
-                                            m_Transform,
-                                            size(),
-                                            m_BackgroundColor);
+    // 统计耗时（开关关闭时仍计时，开销仅为两次时钟读取，但不写入结果）
+    QElapsedTimer frameTimer;
+    frameTimer.start();
+    CanvasFrameStatistics statistics;
+
     // 固定本帧的 Renderer 顺序；绘制回调中的集合变更从下一帧生效。
     QVector<QPointer<CanvasRenderer>> customRenderers;
     if (m_CustomRenderer) {
@@ -2185,90 +2341,140 @@ void CanvasView::paintEvent(QPaintEvent *event)
     }
 
     const qreal devicePixelRatio = devicePixelRatioF();
-    const QSize layerSize(qMax(1, qRound(width() * devicePixelRatio)),
-                          qMax(1, qRound(height() * devicePixelRatio)));
-    PrepareLayer(&m_PrivateData->m_BackgroundLayer, layerSize,
-                 devicePixelRatio);
-    {
-        QPainter painter(&m_PrivateData->m_BackgroundLayer);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
-            if (!renderer) {
-                continue;
-            }
-            painter.save();
-            renderer->RenderBackground(painter, renderContext);
-            painter.restore();
-        }
-        if (m_GridVisible) {
-            painter.save();
-            painter.setRenderHint(QPainter::Antialiasing, false);
-            DrawBackgroundLayer(painter);
-            painter.restore();
-        }
-    }
+    const QSize viewportSize = size();
+    const QSizeF viewportSizeF(viewportSize);
+    const CanvasRenderContext viewportContext(m_Document.data(),
+                                              m_Transform,
+                                              viewportSize,
+                                              m_BackgroundColor);
 
-    PrepareLayer(&m_PrivateData->m_GeometryLayer, layerSize,
-                 devicePixelRatio);
-    {
-        QPainter painter(&m_PrivateData->m_GeometryLayer);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        const std::shared_ptr<CanvasGlobalData> globalData = m_Document
-                ? m_Document->GetCanvasGlobalData()
-                : std::shared_ptr<CanvasGlobalData>();
-        if (globalData) {
-            painter.save();
-            detail::RenderCanvasDataCommands(
-                        painter, renderContext,
-                        globalData->CalToQStringListPre(), true);
-            painter.restore();
-        }
-        m_PrivateData->m_DefaultRenderer->Render(
-                    painter, renderContext, logicalDpiX(), m_LineWidthVisible);
-        for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
-            if (!renderer) {
-                continue;
-            }
-            painter.save();
-            renderer->Render(painter, renderContext);
-            painter.restore();
-        }
-        if (globalData) {
-            painter.save();
-            detail::RenderCanvasDataCommands(
-                        painter, renderContext,
-                        globalData->CalToQStringListPost(), true);
-            painter.restore();
-        }
-    }
-
-    PrepareLayer(&m_PrivateData->m_OverlayLayer, layerSize,
-                 devicePixelRatio);
-    {
-        QPainter painter(&m_PrivateData->m_OverlayLayer);
-        painter.setRenderHint(QPainter::Antialiasing, true);
-        DrawOverlayLayer(painter);
-        for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
-            if (!renderer) {
-                continue;
-            }
-            painter.save();
-            renderer->RenderOverlay(painter, renderContext);
-            painter.restore();
-        }
-        if (CanvasAction *action = ActiveAction()) {
-            painter.save();
-            action->RenderOverlay(painter, renderContext);
-            painter.restore();
-        }
-    }
-
+    // 直接绘制到控件：背景、几何、叠加依次叠加，不再经过整屏中间图像
     QPainter painter(this);
     painter.fillRect(rect(), m_BackgroundColor);
-    painter.drawImage(QPoint(0, 0), m_PrivateData->m_BackgroundLayer);
+    painter.setRenderHint(QPainter::Antialiasing, true);
+
+    for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
+        if (!renderer) {
+            continue;
+        }
+        painter.save();
+        renderer->RenderBackground(painter, viewportContext);
+        painter.restore();
+    }
+    if (m_GridVisible) {
+        painter.save();
+        painter.setRenderHint(QPainter::Antialiasing, false);
+        DrawBackgroundLayer(painter);
+        painter.restore();
+    }
+
+    // 几何：优先复用缓存。平移只做像素偏移，缩放临时拉伸缓存，二者都不重绘几何。
+    QElapsedTimer geometryTimer;
+    geometryTimer.start();
+    GeometryCacheState &cache = m_PrivateData->m_GeometryCache;
+    QTransform geometryTransform;
+    bool cacheHit = false;
+    CanvasGeometryCacheMiss missReason = CanvasGeometryCacheMiss::Invalid;
+    if (IsGeometryCacheUsable(cache, m_Document.data(), m_Transform,
+                              devicePixelRatio, logicalDpiX(), m_LineWidthVisible)) {
+        geometryTransform = GetGeometryBlitTransform(cache, m_Transform, viewportSizeF);
+        cacheHit = IsGeometryCacheCovering(cache, geometryTransform, viewportSizeF);
+        if (cacheHit) {
+            missReason = CanvasGeometryCacheMiss::None;
+        } else {
+            missReason = CanvasGeometryCacheMiss::NotCovering;
+        }
+    }
+    // 缩放时若精确重绘足够快，则直接精确重绘，线宽不再因拉伸而失真，也无需等待停止缩放
+    const bool zoomChanged = cacheHit && cache.zoom != m_Transform.GetZoom();
+    if (zoomChanged && m_PrivateData->m_LastGeometryRenderMicroseconds
+            <= kInteractiveExactRenderBudgetMicroseconds) {
+        cacheHit = false;
+        missReason = CanvasGeometryCacheMiss::ZoomExactRedraw;
+    }
+    statistics.geometryMissReason = missReason;
+    statistics.geometryCacheHit = cacheHit;
+    statistics.geometryScaled = cacheHit && zoomChanged;
+
+    if (!cacheHit) {
+        QElapsedTimer renderTimer;
+        renderTimer.start();
+        RenderGeometryCache(&cache, &m_PrivateData->m_GeometryLayer,
+                            m_Document.data(), m_Transform, viewportSize,
+                            devicePixelRatio, logicalDpiX(), m_LineWidthVisible,
+                            *m_PrivateData->m_DefaultRenderer, customRenderers,
+                            m_BackgroundColor);
+        m_PrivateData->m_LastGeometryRenderMicroseconds = renderTimer.nsecsElapsed() / 1000;
+        // 含自定义渲染器时其内容无法追踪变化，本次结果只用于本帧，不保留缓存
+        cache.valid = customRenderers.isEmpty();
+        geometryTransform = GetGeometryBlitTransform(cache, m_Transform, viewportSizeF);
+    }
+
+    painter.save();
+    painter.setTransform(geometryTransform);
     painter.drawImage(QPoint(0, 0), m_PrivateData->m_GeometryLayer);
-    painter.drawImage(QPoint(0, 0), m_PrivateData->m_OverlayLayer);
+    painter.restore();
+    statistics.geometryMicroseconds = geometryTimer.nsecsElapsed() / 1000;
+
+    // 叠加层：选择框、坐标轴、标尺、编辑手柄等，每帧绘制
+    painter.save();
+    painter.setRenderHint(QPainter::Antialiasing, true);
+    DrawOverlayLayer(painter);
+    for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
+        if (!renderer) {
+            continue;
+        }
+        painter.save();
+        renderer->RenderOverlay(painter, viewportContext);
+        painter.restore();
+    }
+    if (CanvasAction *action = ActiveAction()) {
+        painter.save();
+        action->RenderOverlay(painter, viewportContext);
+        painter.restore();
+    }
+    painter.restore();
+
+    // 缩放期间显示的是拉伸图像，停止缩放后定时做一次精确重绘
+    if (statistics.geometryScaled) {
+        QTimer *&timer = m_PrivateData->m_ExactRedrawTimer;
+        if (!timer) {
+            timer = new QTimer;
+            timer->setSingleShot(true);
+            connect(timer, &QTimer::timeout, this, [this]() {
+                m_PrivateData->m_GeometryCache.valid = false;
+                update();
+            });
+        }
+        timer->start(kExactRedrawDelayMs);
+    }
+
+    statistics.itemCount = m_Document ? m_Document->GetItemCount() : 0;
+    statistics.frameMicroseconds = frameTimer.nsecsElapsed() / 1000;
+    if (m_PrivateData->m_FrameStatisticsEnabled) {
+        m_PrivateData->m_LastFrame = statistics;
+        emit FrameStatisticsUpdated(statistics);
+    }
 }
+
+void CanvasView::SetFrameStatisticsEnabled(bool enabled)
+{
+    m_PrivateData->m_FrameStatisticsEnabled = enabled;
+    if (!enabled) {
+        m_PrivateData->m_LastFrame = CanvasFrameStatistics();
+    }
+}
+
+bool CanvasView::IsFrameStatisticsEnabled() const
+{
+    return m_PrivateData->m_FrameStatisticsEnabled;
+}
+
+CanvasFrameStatistics CanvasView::GetLastFrameStatistics() const
+{
+    return m_PrivateData->m_LastFrame;
+}
+
 
 void CanvasView::wheelEvent(QWheelEvent *event)
 {
@@ -2394,12 +2600,15 @@ void CanvasView::wheelEvent(QWheelEvent *event)
 void CanvasView::OnDocumentChanged()
 {
     m_PrivateData->InvalidateHitTestMaximumDisplaySizeCache();
+    m_PrivateData->m_GeometryCache.valid = false;
     UpdateSnap(MapToWorld(m_CurrentMousePosition));
     update();
 }
 
 void CanvasView::OnSelectionChanged()
 {
+    // 选中状态影响几何颜色，需要重绘几何缓存
+    m_PrivateData->m_GeometryCache.valid = false;
     update();
 }
 
