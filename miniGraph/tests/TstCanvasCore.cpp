@@ -433,6 +433,7 @@ private slots:
     void CanvasViewMovesWholeGroupFromReferencePoint();
     void CanvasViewDrawsPolylineVertexHandles();
     void CanvasViewSupportsCustomRendererAssignment();
+    void CanvasViewRendersRendererAddedAfterGeometryCacheWasBuilt();
     void CanvasViewRendersCustomRenderersInRegistrationOrder();
     void CanvasViewSetCustomRendererReplacesRendererCollection();
     void CanvasViewCanRemoveAndClearCustomRenderers();
@@ -9164,6 +9165,28 @@ void CanvasCoreTest::CanvasViewSupportsCustomRendererAssignment()
 
     view.SetCustomRenderer(nullptr);
     QCOMPARE(view.GetCustomRenderer(), static_cast<mini_graph::CanvasRenderer *>(nullptr));
+}
+
+void CanvasCoreTest::CanvasViewRendersRendererAddedAfterGeometryCacheWasBuilt()
+{
+    CanvasViewHarness view;
+    view.resize(160, 120);
+    view.setUpdatesEnabled(false);
+    view.SetGridVisible(false);
+    view.SetAxisVisible(false);
+    view.SetRulerVisible(false);
+
+    QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
+    image.fill(Qt::black);
+    view.render(&image);
+
+    TestCanvasRenderer renderer;
+    QVERIFY(view.AddCustomRenderer(&renderer));
+
+    image.fill(Qt::black);
+    view.render(&image);
+
+    QCOMPARE(renderer.renderCount, 1);
 }
 
 void CanvasCoreTest::CanvasViewRendersCustomRenderersInRegistrationOrder()

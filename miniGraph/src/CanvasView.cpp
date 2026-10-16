@@ -888,6 +888,8 @@ void RenderGeometryCache(GeometryCacheState *cache,
 
     const CanvasRenderContext renderContext(document, transform, logicalSize,
                                             backgroundColor);
+    const CanvasRenderContext customRenderContext(document, transform,
+                                                  viewportSize, backgroundColor);
     const std::shared_ptr<CanvasGlobalData> globalData = document
             ? document->GetCanvasGlobalData()
             : std::shared_ptr<CanvasGlobalData>();
@@ -907,7 +909,9 @@ void RenderGeometryCache(GeometryCacheState *cache,
                 continue;
             }
             painter.save();
-            renderer->Render(painter, renderContext);
+            // 自定义渲染器使用视口坐标；缓存图像外扩后，将绘图原点移到视口左上角。
+            painter.translate(marginX, marginY);
+            renderer->Render(painter, customRenderContext);
             painter.restore();
         }
         if (globalData) {
@@ -1211,6 +1215,7 @@ void CanvasView::SetCustomRenderer(CanvasRenderer *renderer)
         return;
     }
 
+    m_PrivateData->m_GeometryCache.valid = false;
     QObject::disconnect(m_CustomRendererDestroyedConnection);
     QObject::disconnect(m_CustomRendererUpdateConnection);
 
@@ -1232,6 +1237,7 @@ void CanvasView::SetCustomRenderer(CanvasRenderer *renderer)
             m_CustomRenderer = nullptr;
             m_CustomRendererDestroyedConnection = QMetaObject::Connection();
             m_CustomRendererUpdateConnection = QMetaObject::Connection();
+            m_PrivateData->m_GeometryCache.valid = false;
             update();
         });
         m_CustomRendererUpdateConnection = connect(
@@ -1299,6 +1305,7 @@ bool CanvasView::AddCustomRenderer(CanvasRenderer *renderer)
             }
         }
         if (removed) {
+            m_PrivateData->m_GeometryCache.valid = false;
             update();
         }
     });
@@ -1310,6 +1317,7 @@ bool CanvasView::AddCustomRenderer(CanvasRenderer *renderer)
         update();
     });
     m_PrivateData->m_AdditionalCustomRenderers.append(entry);
+    m_PrivateData->m_GeometryCache.valid = false;
     update();
     return true;
 }
@@ -1326,6 +1334,7 @@ bool CanvasView::RemoveCustomRenderer(CanvasRenderer *renderer)
         m_CustomRenderer = nullptr;
         m_CustomRendererDestroyedConnection = QMetaObject::Connection();
         m_CustomRendererUpdateConnection = QMetaObject::Connection();
+        m_PrivateData->m_GeometryCache.valid = false;
         update();
         return true;
     }
@@ -1341,6 +1350,7 @@ bool CanvasView::RemoveCustomRenderer(CanvasRenderer *renderer)
         QObject::disconnect(entry.destroyedConnection);
         QObject::disconnect(entry.updateConnection);
         entries.removeAt(index);
+        m_PrivateData->m_GeometryCache.valid = false;
         update();
         return true;
     }
