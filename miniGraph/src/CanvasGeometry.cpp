@@ -7,9 +7,11 @@
 #include <cmath>
 #include <limits>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
-namespace {
+namespace
+{
 
 const qreal GEOMETRY_TOLERANCE = 1.0e-12;
 const qreal TWO_PI = 6.28318530717958647692;
@@ -25,7 +27,8 @@ bool IsFinite(qreal value)
 qreal NormalizeAngle(qreal angle)
 {
     qreal normalized = std::fmod(angle, TWO_PI);
-    if (normalized < 0.0) {
+    if (normalized < 0.0)
+    {
         normalized += TWO_PI;
     }
     return normalized;
@@ -36,20 +39,24 @@ qreal CalculateDirectedSweep(const StruArcGeometry &geometry)
     const qreal directedDelta = geometry.reversed
             ? geometry.startAngle - geometry.endAngle
             : geometry.endAngle - geometry.startAngle;
-    if (!IsFinite(directedDelta)) {
+    if (!IsFinite(directedDelta))
+    {
         return std::numeric_limits<qreal>::quiet_NaN();
     }
 
     qreal sweep = std::fmod(directedDelta, TWO_PI);
-    if (!IsFinite(sweep)) {
+    if (!IsFinite(sweep))
+    {
         return std::numeric_limits<qreal>::quiet_NaN();
     }
-    if (sweep < 0.0) {
+    if (sweep < 0.0)
+    {
         sweep += TWO_PI;
     }
 
     if (qAbs(sweep) <= GEOMETRY_TOLERANCE
-            && qAbs(directedDelta) > GEOMETRY_TOLERANCE) {
+            && qAbs(directedDelta) > GEOMETRY_TOLERANCE)
+    {
         sweep = TWO_PI;
     }
 
@@ -59,7 +66,8 @@ qreal CalculateDirectedSweep(const StruArcGeometry &geometry)
 bool IsAngleOnArcInternal(const StruArcGeometry &geometry, qreal angle)
 {
     const qreal sweep = CalculateDirectedSweep(geometry);
-    if (sweep >= TWO_PI - GEOMETRY_TOLERANCE) {
+    if (sweep >= TWO_PI - GEOMETRY_TOLERANCE)
+    {
         return true;
     }
 
@@ -89,19 +97,22 @@ int CalculateSegmentCount(qreal sweep,
                           int minimumSegments)
 {
     if (!IsFinite(sweep) || !IsFinite(radius) || !IsFinite(maximumError)
-            || radius <= 0.0 || maximumError <= 0.0) {
+            || radius <= 0.0 || maximumError <= 0.0)
+    {
         return 0;
     }
 
     qreal maximumStep = TWO_PI / 4.0;
-    if (maximumError < radius) {
+    if (maximumError < radius)
+    {
         const qreal cosineArgument = qBound<qreal>(-1.0,
                                                    1.0 - maximumError / radius,
                                                    1.0);
         maximumStep = 2.0 * std::acos(cosineArgument);
     }
 
-    if (!IsFinite(maximumStep) || maximumStep <= GEOMETRY_TOLERANCE) {
+    if (!IsFinite(maximumStep) || maximumStep <= GEOMETRY_TOLERANCE)
+    {
         maximumStep = sweep;
     }
 
@@ -125,11 +136,13 @@ public:
 
     bool IncludePoint(qreal x, qreal y)
     {
-        if (!IsFinite(x) || !IsFinite(y)) {
+        if (!IsFinite(x) || !IsFinite(y))
+        {
             return false;
         }
 
-        if (!m_HasValue) {
+        if (!m_HasValue)
+        {
             m_Left = x;
             m_Right = x;
             m_Top = y;
@@ -159,32 +172,38 @@ public:
 
     bool ToRect(QRectF *rect) const
     {
-        if (!rect || !m_HasValue) {
+        if (!rect || !m_HasValue)
+        {
             return false;
         }
 
         qreal width = m_Right - m_Left;
         qreal height = m_Bottom - m_Top;
         if (!IsFinite(width) || !IsFinite(height)
-                || width < 0.0 || height < 0.0) {
+                || width < 0.0 || height < 0.0)
+        {
             return false;
         }
 
         const qreal infinity = std::numeric_limits<qreal>::infinity();
-        if (m_Left + width < m_Right) {
+        if (m_Left + width < m_Right)
+        {
             width = std::nextafter(width, infinity);
         }
-        if (m_Top + height < m_Bottom) {
+        if (m_Top + height < m_Bottom)
+        {
             height = std::nextafter(height, infinity);
         }
-        if (!IsFinite(width) || !IsFinite(height)) {
+        if (!IsFinite(width) || !IsFinite(height))
+        {
             return false;
         }
 
         const QRectF candidate(m_Left, m_Top, width, height);
         if (!IsFinite(candidate.right()) || !IsFinite(candidate.bottom())
                 || candidate.right() < m_Right
-                || candidate.bottom() < m_Bottom) {
+                || candidate.bottom() < m_Bottom)
+        {
             return false;
         }
 
@@ -205,7 +224,8 @@ bool CalculateDirectedSweep(qreal startAngle,
                             bool reversed,
                             qreal *sweep)
 {
-    if (!sweep || !IsFinite(startAngle) || !IsFinite(endAngle)) {
+    if (!sweep || !IsFinite(startAngle) || !IsFinite(endAngle))
+    {
         return false;
     }
 
@@ -233,19 +253,28 @@ qreal CalculateDirectedProgress(qreal startAngle,
 void CalculateSinCos(qreal angle, qreal *sine, qreal *cosine)
 {
     const qreal normalizedAngle = NormalizeAngle(angle);
-    if (normalizedAngle == 0.0) {
+    if (normalizedAngle == 0.0)
+    {
         *sine = 0.0;
         *cosine = 1.0;
-    } else if (normalizedAngle == TWO_PI / 4.0) {
+    }
+    else if (normalizedAngle == TWO_PI / 4.0)
+    {
         *sine = 1.0;
         *cosine = 0.0;
-    } else if (normalizedAngle == TWO_PI / 2.0) {
+    }
+    else if (normalizedAngle == TWO_PI / 2.0)
+    {
         *sine = 0.0;
         *cosine = -1.0;
-    } else if (normalizedAngle == TWO_PI * 3.0 / 4.0) {
+    }
+    else if (normalizedAngle == TWO_PI * 3.0 / 4.0)
+    {
         *sine = -1.0;
         *cosine = 0.0;
-    } else {
+    }
+    else
+    {
         *sine = std::sin(angle);
         *cosine = std::cos(angle);
     }
@@ -256,7 +285,8 @@ bool IsAngleOnDirectedSweep(qreal startAngle,
                             qreal angle,
                             bool reversed)
 {
-    if (!IsFinite(angle)) {
+    if (!IsFinite(angle))
+    {
         return false;
     }
     return CalculateDirectedProgress(startAngle, angle, reversed)
@@ -267,7 +297,8 @@ bool IncludeFullCircle(const CanvasVector &center,
                        qreal radius,
                        SafeBounds *bounds)
 {
-    if (!bounds || !center.IsValid() || !IsFinite(radius) || radius <= 0.0) {
+    if (!bounds || !center.IsValid() || !IsFinite(radius) || radius <= 0.0)
+    {
         return false;
     }
     return bounds->IncludeExtents(center.GetX() - radius,
@@ -278,24 +309,28 @@ bool IncludeFullCircle(const CanvasVector &center,
 
 bool IncludeArcBounds(const CanvasArc &arc, SafeBounds *bounds)
 {
-    if (!bounds || !arc.IsValid()) {
+    if (!bounds || !arc.IsValid())
+    {
         return false;
     }
 
     const CanvasVector startPoint = arc.GetStartPoint();
     const CanvasVector endPoint = arc.GetEndPoint();
-    if (!bounds->IncludePoint(startPoint) || !bounds->IncludePoint(endPoint)) {
+    if (!bounds->IncludePoint(startPoint) || !bounds->IncludePoint(endPoint))
+    {
         return false;
     }
 
     qreal sweep = 0.0;
     if (!CalculateDirectedSweep(arc.GetStartAngle(), arc.GetEndAngle(),
-                                arc.IsReversed(), &sweep)) {
+                                arc.IsReversed(), &sweep))
+    {
         return false;
     }
 
     if (sweep <= GEOMETRY_TOLERANCE
-            || TWO_PI - sweep <= GEOMETRY_TOLERANCE) {
+            || TWO_PI - sweep <= GEOMETRY_TOLERANCE)
+    {
         return IncludeFullCircle(arc.GetCenter(), arc.GetRadius(), bounds);
     }
 
@@ -319,14 +354,17 @@ bool IncludeArcBounds(const CanvasArc &arc, SafeBounds *bounds)
         TWO_PI / 2.0,
         TWO_PI * 3.0 / 4.0
     };
-    for (int index = 0; index < 4; ++index) {
+    for (int index = 0; index < 4; ++index)
+    {
         const qreal angle = cardinalAngles[index];
         if (!IsAngleOnDirectedSweep(arc.GetStartAngle(), sweep,
-                                    angle, arc.IsReversed())) {
+                                    angle, arc.IsReversed()))
+        {
             continue;
         }
 
-        if (!bounds->IncludePoint(cardinalX[index], cardinalY[index])) {
+        if (!bounds->IncludePoint(cardinalX[index], cardinalY[index]))
+        {
             return false;
         }
     }
@@ -338,7 +376,8 @@ bool CalculateEllipsePoint(const CanvasEllipse &ellipse,
                            qreal *x,
                            qreal *y)
 {
-    if (!x || !y || !ellipse.IsValid() || !IsFinite(parameter)) {
+    if (!x || !y || !ellipse.IsValid() || !IsFinite(parameter))
+    {
         return false;
     }
 
@@ -356,7 +395,8 @@ bool CalculateEllipsePoint(const CanvasEllipse &ellipse,
     const qreal pointY = center.GetY() + offsetY;
     if (!IsFinite(minorX) || !IsFinite(minorY)
             || !IsFinite(offsetX) || !IsFinite(offsetY)
-            || !IsFinite(pointX) || !IsFinite(pointY)) {
+            || !IsFinite(pointX) || !IsFinite(pointY))
+    {
         return false;
     }
 
@@ -368,7 +408,8 @@ bool CalculateEllipsePoint(const CanvasEllipse &ellipse,
 bool IncludeEllipseExtents(const CanvasEllipse &ellipse,
                            SafeBounds *bounds)
 {
-    if (!bounds || !ellipse.IsValid()) {
+    if (!bounds || !ellipse.IsValid())
+    {
         return false;
     }
 
@@ -379,7 +420,8 @@ bool IncludeEllipseExtents(const CanvasEllipse &ellipse,
                                      majorAxis.GetY() * ratio);
     const qreal yRadius = std::hypot(majorAxis.GetY(),
                                      majorAxis.GetX() * ratio);
-    if (!IsFinite(xRadius) || !IsFinite(yRadius)) {
+    if (!IsFinite(xRadius) || !IsFinite(yRadius))
+    {
         return false;
     }
 
@@ -398,7 +440,8 @@ bool IncludeEllipseCriticalPoint(const CanvasEllipse &ellipse,
 {
     qreal x = 0.0;
     qreal y = 0.0;
-    if (!CalculateEllipsePoint(ellipse, parameter, &x, &y)) {
+    if (!CalculateEllipsePoint(ellipse, parameter, &x, &y))
+    {
         return false;
     }
 
@@ -407,12 +450,16 @@ bool IncludeEllipseCriticalPoint(const CanvasEllipse &ellipse,
     const qreal exactCoordinate = positiveExtent
             ? centerCoordinate + exactExtent
             : centerCoordinate - exactExtent;
-    if (!IsFinite(exactCoordinate)) {
+    if (!IsFinite(exactCoordinate))
+    {
         return false;
     }
-    if (xIsExact) {
+    if (xIsExact)
+    {
         x = exactCoordinate;
-    } else {
+    }
+    else
+    {
         y = exactCoordinate;
     }
     return bounds->IncludePoint(x, y);
@@ -420,22 +467,26 @@ bool IncludeEllipseCriticalPoint(const CanvasEllipse &ellipse,
 
 bool IncludeEllipseArcBounds(const CanvasEllipse &ellipse, SafeBounds *bounds)
 {
-    if (!bounds || !ellipse.IsValid()) {
+    if (!bounds || !ellipse.IsValid())
+    {
         return false;
     }
 
-    if (!ellipse.IsArc()) {
+    if (!ellipse.IsArc())
+    {
         return IncludeEllipseExtents(ellipse, bounds);
     }
 
     qreal sweep = 0.0;
     if (!CalculateDirectedSweep(ellipse.GetStartParameter(),
                                 ellipse.GetEndParameter(),
-                                ellipse.IsReversed(), &sweep)) {
+                                ellipse.IsReversed(), &sweep))
+    {
         return false;
     }
     if (sweep <= GEOMETRY_TOLERANCE
-            || TWO_PI - sweep <= GEOMETRY_TOLERANCE) {
+            || TWO_PI - sweep <= GEOMETRY_TOLERANCE)
+    {
         return IncludeEllipseExtents(ellipse, bounds);
     }
 
@@ -448,7 +499,8 @@ bool IncludeEllipseArcBounds(const CanvasEllipse &ellipse, SafeBounds *bounds)
             || !CalculateEllipsePoint(ellipse, ellipse.GetEndParameter(),
                                       &endX, &endY)
             || !bounds->IncludePoint(startX, startY)
-            || !bounds->IncludePoint(endX, endY)) {
+            || !bounds->IncludePoint(endX, endY))
+    {
         return false;
     }
 
@@ -459,7 +511,8 @@ bool IncludeEllipseArcBounds(const CanvasEllipse &ellipse, SafeBounds *bounds)
     const qreal xRadius = std::hypot(majorAxis.GetX(), minorX);
     const qreal yRadius = std::hypot(majorAxis.GetY(), minorY);
     if (!IsFinite(minorX) || !IsFinite(minorY)
-            || !IsFinite(xRadius) || !IsFinite(yRadius)) {
+            || !IsFinite(xRadius) || !IsFinite(yRadius))
+    {
         return false;
     }
 
@@ -473,10 +526,12 @@ bool IncludeEllipseArcBounds(const CanvasEllipse &ellipse, SafeBounds *bounds)
         yMaximumParameter,
         yMaximumParameter + TWO_PI / 2.0
     };
-    for (int index = 0; index < 4; ++index) {
+    for (int index = 0; index < 4; ++index)
+    {
         const qreal parameter = candidateParameters[index];
         if (!IsAngleOnDirectedSweep(ellipse.GetStartParameter(), sweep,
-                                    parameter, ellipse.IsReversed())) {
+                                    parameter, ellipse.IsReversed()))
+        {
             continue;
         }
 
@@ -485,7 +540,8 @@ bool IncludeEllipseArcBounds(const CanvasEllipse &ellipse, SafeBounds *bounds)
         if (!IncludeEllipseCriticalPoint(ellipse, parameter, xIsExact,
                                          positiveExtent,
                                          xIsExact ? xRadius : yRadius,
-                                         bounds)) {
+                                         bounds))
+        {
             return false;
         }
     }
@@ -496,12 +552,14 @@ bool IncludeEllipseArcBounds(const CanvasEllipse &ellipse, SafeBounds *bounds)
 
 bool detail::IsValidArcSweep(qreal startAngle, qreal endAngle)
 {
-    if (!IsFinite(startAngle) || !IsFinite(endAngle)) {
+    if (!IsFinite(startAngle) || !IsFinite(endAngle))
+    {
         return false;
     }
 
     const qreal angleDifference = endAngle - startAngle;
-    if (!IsFinite(angleDifference)) {
+    if (!IsFinite(angleDifference))
+    {
         return false;
     }
 
@@ -515,7 +573,8 @@ bool detail::EvaluateSplineInSpan(const CanvasSpline &spline,
                                   qreal parameter,
                                   CanvasVector *point)
 {
-    if (!point || !spline.IsValid() || !IsFinite(parameter)) {
+    if (!point || !spline.IsValid() || !IsFinite(parameter))
+    {
         return false;
     }
 
@@ -523,7 +582,8 @@ bool detail::EvaluateSplineInSpan(const CanvasSpline &spline,
     const QVector<CanvasVector> &controlPoints = spline.GetControlPoints();
     const QVector<qreal> &knots = spline.GetKnots();
     const QVector<qreal> &weights = spline.GetWeights();
-    if (knotSpan < degree || knotSpan >= controlPoints.size()) {
+    if (knotSpan < degree || knotSpan >= controlPoints.size())
+    {
         return false;
     }
 
@@ -531,18 +591,22 @@ bool detail::EvaluateSplineInSpan(const CanvasSpline &spline,
     qreal left[4] = {0.0, 0.0, 0.0, 0.0};
     qreal right[4] = {0.0, 0.0, 0.0, 0.0};
     basis[0] = 1.0;
-    for (int order = 1; order <= degree; ++order) {
+    for (int order = 1; order <= degree; ++order)
+    {
         left[order] = parameter - knots.at(knotSpan + 1 - order);
         right[order] = knots.at(knotSpan + order) - parameter;
-        if (!IsFinite(left[order]) || !IsFinite(right[order])) {
+        if (!IsFinite(left[order]) || !IsFinite(right[order]))
+        {
             return false;
         }
 
         qreal saved = 0.0;
-        for (int index = 0; index < order; ++index) {
+        for (int index = 0; index < order; ++index)
+        {
             const qreal denominator = right[index + 1]
                     + left[order - index];
-            if (!IsFinite(denominator)) {
+            if (!IsFinite(denominator))
+            {
                 return false;
             }
             const qreal temporary = denominator > 0.0
@@ -556,18 +620,22 @@ bool detail::EvaluateSplineInSpan(const CanvasSpline &spline,
     qreal termMantissas[4] = {0.0, 0.0, 0.0, 0.0};
     int termExponents[4] = {0, 0, 0, 0};
     int maximumExponent = std::numeric_limits<int>::min();
-    for (int index = 0; index <= degree; ++index) {
-        if (!IsFinite(basis[index]) || basis[index] < 0.0) {
+    for (int index = 0; index <= degree; ++index)
+    {
+        if (!IsFinite(basis[index]) || basis[index] < 0.0)
+        {
             return false;
         }
-        if (basis[index] == 0.0) {
+        if (basis[index] == 0.0)
+        {
             continue;
         }
 
         const int controlIndex = knotSpan - degree + index;
         const qreal weight = weights.isEmpty() ? 1.0
                                                : weights.at(controlIndex);
-        if (!IsFinite(weight) || weight <= 0.0) {
+        if (!IsFinite(weight) || weight <= 0.0)
+        {
             return false;
         }
 
@@ -580,14 +648,17 @@ bool detail::EvaluateSplineInSpan(const CanvasSpline &spline,
         maximumExponent = qMax(maximumExponent, termExponents[index]);
     }
 
-    if (maximumExponent == std::numeric_limits<int>::min()) {
+    if (maximumExponent == std::numeric_limits<int>::min())
+    {
         return false;
     }
 
     qreal normalizedTerms[4] = {0.0, 0.0, 0.0, 0.0};
     qreal normalizedWeightSum = 0.0;
-    for (int index = 0; index <= degree; ++index) {
-        if (termMantissas[index] == 0.0) {
+    for (int index = 0; index <= degree; ++index)
+    {
+        if (termMantissas[index] == 0.0)
+        {
             continue;
         }
         normalizedTerms[index] = std::ldexp(
@@ -595,14 +666,17 @@ bool detail::EvaluateSplineInSpan(const CanvasSpline &spline,
                     termExponents[index] - maximumExponent);
         normalizedWeightSum += normalizedTerms[index];
     }
-    if (!IsFinite(normalizedWeightSum) || normalizedWeightSum <= 0.0) {
+    if (!IsFinite(normalizedWeightSum) || normalizedWeightSum <= 0.0)
+    {
         return false;
     }
 
     qreal resultX = 0.0;
     qreal resultY = 0.0;
-    for (int index = 0; index <= degree; ++index) {
-        if (normalizedTerms[index] == 0.0) {
+    for (int index = 0; index <= degree; ++index)
+    {
+        if (normalizedTerms[index] == 0.0)
+        {
             continue;
         }
         const int controlIndex = knotSpan - degree + index;
@@ -615,7 +689,8 @@ bool detail::EvaluateSplineInSpan(const CanvasSpline &spline,
     }
 
     const CanvasVector candidate(resultX, resultY);
-    if (!candidate.IsValid()) {
+    if (!candidate.IsValid())
+    {
         return false;
     }
     *point = candidate;
@@ -626,7 +701,8 @@ bool detail::TryGetSplineEndpoints(const CanvasSpline &spline,
                                    CanvasVector *startPoint,
                                    CanvasVector *endPoint)
 {
-    if (!startPoint || !endPoint || !spline.IsValid()) {
+    if (!startPoint || !endPoint || !spline.IsValid())
+    {
         return false;
     }
 
@@ -636,7 +712,8 @@ bool detail::TryGetSplineEndpoints(const CanvasSpline &spline,
     const qreal domainStart = knots.at(degree);
     const qreal domainEnd = knots.at(controlPoints.size());
     if (!IsFinite(domainStart) || !IsFinite(domainEnd)
-            || domainStart >= domainEnd) {
+            || domainStart >= domainEnd)
+    {
         return false;
     }
 
@@ -644,24 +721,29 @@ bool detail::TryGetSplineEndpoints(const CanvasSpline &spline,
     int endSpan = -1;
     for (int knotSpan = degree;
          knotSpan < controlPoints.size();
-         ++knotSpan) {
+         ++knotSpan)
+    {
         if (startSpan < 0 && knots.at(knotSpan) <= domainStart
-                && domainStart < knots.at(knotSpan + 1)) {
+                && domainStart < knots.at(knotSpan + 1))
+        {
             startSpan = knotSpan;
         }
         if (knots.at(knotSpan) < domainEnd
-                && domainEnd <= knots.at(knotSpan + 1)) {
+                && domainEnd <= knots.at(knotSpan + 1))
+        {
             endSpan = knotSpan;
         }
     }
-    if (startSpan < 0 || endSpan < 0) {
+    if (startSpan < 0 || endSpan < 0)
+    {
         return false;
     }
 
     CanvasVector candidateStart;
     CanvasVector candidateEnd;
     if (!EvaluateSplineInSpan(spline, startSpan, domainStart, &candidateStart)
-            || !EvaluateSplineInSpan(spline, endSpan, domainEnd, &candidateEnd)) {
+            || !EvaluateSplineInSpan(spline, endSpan, domainEnd, &candidateEnd))
+    {
         return false;
     }
     *startPoint = candidateStart;
@@ -675,7 +757,8 @@ bool IsValidGeometry(const StruArcGeometry &geometry)
             || !IsFinite(geometry.radius)
             || geometry.radius <= 0.0
             || !IsFinite(geometry.startAngle)
-            || !IsFinite(geometry.endAngle)) {
+            || !IsFinite(geometry.endAngle))
+    {
         return false;
     }
 
@@ -692,12 +775,15 @@ bool IsValidGeometry(const StruCircleGeometry &geometry)
 bool IsValidGeometry(const StruPolylineGeometry &geometry)
 {
     const int minimumVertexCount = geometry.closed ? 3 : 2;
-    if (geometry.vertices.size() < minimumVertexCount) {
+    if (geometry.vertices.size() < minimumVertexCount)
+    {
         return false;
     }
 
-    for (const CanvasVector &vertex : geometry.vertices) {
-        if (!vertex.IsValid()) {
+    for (const CanvasVector &vertex : geometry.vertices)
+    {
+        if (!vertex.IsValid())
+        {
             return false;
         }
     }
@@ -707,7 +793,8 @@ bool IsValidGeometry(const StruPolylineGeometry &geometry)
 
 qreal GetArcSweep(const StruArcGeometry &geometry)
 {
-    if (!IsValidGeometry(geometry)) {
+    if (!IsValidGeometry(geometry))
+    {
         return 0.0;
     }
 
@@ -716,7 +803,8 @@ qreal GetArcSweep(const StruArcGeometry &geometry)
 
 bool IsAngleOnArc(const StruArcGeometry &geometry, qreal angle)
 {
-    if (!IsValidGeometry(geometry) || !IsFinite(angle)) {
+    if (!IsValidGeometry(geometry) || !IsFinite(angle))
+    {
         return false;
     }
 
@@ -750,7 +838,8 @@ QRectF GetGeometryBounds(const StruLineGeometry &geometry)
 
 QRectF GetGeometryBounds(const StruArcGeometry &geometry)
 {
-    if (!IsValidGeometry(geometry)) {
+    if (!IsValidGeometry(geometry))
+    {
         return QRectF();
     }
 
@@ -767,8 +856,10 @@ QRectF GetGeometryBounds(const StruArcGeometry &geometry)
         TWO_PI / 2.0,
         TWO_PI * 3.0 / 4.0
     };
-    for (const qreal cardinalAngle : cardinalAngles) {
-        if (IsAngleOnArcInternal(geometry, cardinalAngle)) {
+    for (const qreal cardinalAngle : cardinalAngles)
+    {
+        if (IsAngleOnArcInternal(geometry, cardinalAngle))
+        {
             IncludePoint(&left,
                          &right,
                          &top,
@@ -782,7 +873,8 @@ QRectF GetGeometryBounds(const StruArcGeometry &geometry)
 
 QRectF GetGeometryBounds(const StruCircleGeometry &geometry)
 {
-    if (!IsValidGeometry(geometry)) {
+    if (!IsValidGeometry(geometry))
+    {
         return QRectF();
     }
 
@@ -794,7 +886,8 @@ QRectF GetGeometryBounds(const StruCircleGeometry &geometry)
 
 QRectF GetGeometryBounds(const StruPolylineGeometry &geometry)
 {
-    if (!IsValidGeometry(geometry)) {
+    if (!IsValidGeometry(geometry))
+    {
         return QRectF();
     }
 
@@ -802,7 +895,8 @@ QRectF GetGeometryBounds(const StruPolylineGeometry &geometry)
     qreal right = left;
     qreal top = geometry.vertices.first().GetY();
     qreal bottom = top;
-    for (int index = 1; index < geometry.vertices.size(); ++index) {
+    for (int index = 1; index < geometry.vertices.size(); ++index)
+    {
         IncludePoint(&left, &right, &top, &bottom, geometry.vertices.at(index));
     }
 
@@ -811,7 +905,8 @@ QRectF GetGeometryBounds(const StruPolylineGeometry &geometry)
 
 bool TryGetGeometryBounds(const CanvasEntity &entity, QRectF *bounds)
 {
-    if (!bounds) {
+    if (!bounds)
+    {
         return false;
     }
 
@@ -819,41 +914,52 @@ bool TryGetGeometryBounds(const CanvasEntity &entity, QRectF *bounds)
     QVector<const CanvasEntity *> pendingEntities;
     pendingEntities.append(&entity);
 
-    while (!pendingEntities.isEmpty()) {
+    while (!pendingEntities.isEmpty())
+    {
         const CanvasEntity *current = pendingEntities.takeLast();
-        if (!current) {
+        if (!current)
+        {
             return false;
         }
 
-        switch (current->GetType()) {
-        case CanvasEntityType::Point: {
+        switch (current->GetType())
+        {
+        case CanvasEntityType::Point:
+        {
             const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(current);
             if (!point || !point->IsValid()
-                    || !accumulatedBounds.IncludePoint(point->GetPosition())) {
+                    || !accumulatedBounds.IncludePoint(point->GetPosition()))
+            {
                 return false;
             }
             break;
         }
-        case CanvasEntityType::Line: {
+        case CanvasEntityType::Line:
+        {
             const CanvasLine *line = dynamic_cast<const CanvasLine *>(current);
             if (!line || !line->IsValid()
                     || !accumulatedBounds.IncludePoint(line->GetStartPoint())
-                    || !accumulatedBounds.IncludePoint(line->GetEndPoint())) {
+                    || !accumulatedBounds.IncludePoint(line->GetEndPoint()))
+            {
                 return false;
             }
             break;
         }
-        case CanvasEntityType::Arc: {
+        case CanvasEntityType::Arc:
+        {
             const CanvasArc *arc = dynamic_cast<const CanvasArc *>(current);
-            if (!arc || !IncludeArcBounds(*arc, &accumulatedBounds)) {
+            if (!arc || !IncludeArcBounds(*arc, &accumulatedBounds))
+            {
                 return false;
             }
             break;
         }
-        case CanvasEntityType::Circle: {
+        case CanvasEntityType::Circle:
+        {
             const CanvasCircle *circle =
                     dynamic_cast<const CanvasCircle *>(current);
-            if (!circle || !circle->IsValid()) {
+            if (!circle || !circle->IsValid())
+            {
                 return false;
             }
             const CanvasVector center = circle->GetCenter();
@@ -862,55 +968,68 @@ bool TryGetGeometryBounds(const CanvasEntity &entity, QRectF *bounds)
                         center.GetX() - radius,
                         center.GetY() - radius,
                         center.GetX() + radius,
-                        center.GetY() + radius)) {
+                        center.GetY() + radius))
+            {
                 return false;
             }
             break;
         }
-        case CanvasEntityType::Ellipse: {
+        case CanvasEntityType::Ellipse:
+        {
             const CanvasEllipse *ellipse =
                     dynamic_cast<const CanvasEllipse *>(current);
             if (!ellipse || !IncludeEllipseArcBounds(*ellipse,
-                                                      &accumulatedBounds)) {
+                                                      &accumulatedBounds))
+            {
                 return false;
             }
             break;
         }
-        case CanvasEntityType::Polyline: {
+        case CanvasEntityType::Polyline:
+        {
             const CanvasPolyline *polyline =
                     dynamic_cast<const CanvasPolyline *>(current);
             if (!polyline || !polyline->IsValid()
-                    || polyline->GetSegmentCount() <= 0) {
+                    || polyline->GetSegmentCount() <= 0)
+            {
                 return false;
             }
-            for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+            for (int index = 0; index < polyline->GetSegmentCount(); ++index)
+            {
                 pendingEntities.append(polyline->GetSegment(index));
             }
             break;
         }
-        case CanvasEntityType::Spline: {
+        case CanvasEntityType::Spline:
+        {
             const CanvasSpline *spline =
                     dynamic_cast<const CanvasSpline *>(current);
             if (!spline || !spline->IsValid()
-                    || spline->GetControlPoints().isEmpty()) {
+                    || spline->GetControlPoints().isEmpty())
+            {
                 return false;
             }
             for (int index = 0;
-                 index < spline->GetControlPoints().size(); ++index) {
+                 index < spline->GetControlPoints().size(); ++index)
+            {
                 if (!accumulatedBounds.IncludePoint(
-                            spline->GetControlPoints().at(index))) {
+                            spline->GetControlPoints().at(index)))
+                {
                     return false;
                 }
             }
             break;
         }
-        case CanvasEntityType::GroupContainer: {
+        case CanvasEntityType::GroupContainer:
+        {
             const CanvasGroupContainer *group =
                     dynamic_cast<const CanvasGroupContainer *>(current);
-            if (!group || group->GetChildCount() <= 0) {
+            if (!group || group->GetChildCount() <= 0)
+            {
                 return false;
             }
-            for (int index = 0; index < group->GetChildCount(); ++index) {
+            for (int index = 0; index < group->GetChildCount(); ++index)
+            {
                 pendingEntities.append(group->GetChild(index));
             }
             break;
@@ -921,7 +1040,8 @@ bool TryGetGeometryBounds(const CanvasEntity &entity, QRectF *bounds)
     }
 
     QRectF candidateBounds;
-    if (!accumulatedBounds.ToRect(&candidateBounds)) {
+    if (!accumulatedBounds.ToRect(&candidateBounds))
+    {
         return false;
     }
 
@@ -934,7 +1054,8 @@ QVector<CanvasVector> TessellateArc(const StruArcGeometry &geometry,
 {
     QVector<CanvasVector> points;
     if (!IsValidGeometry(geometry) || !IsFinite(maximumError)
-            || maximumError <= 0.0) {
+            || maximumError <= 0.0)
+    {
         return points;
     }
 
@@ -943,14 +1064,17 @@ QVector<CanvasVector> TessellateArc(const StruArcGeometry &geometry,
                                                    geometry.radius,
                                                    maximumError,
                                                    MIN_ARC_SEGMENTS);
-    if (segmentCount <= 0) {
+    if (segmentCount <= 0)
+    {
         return points;
     }
 
     points.reserve(segmentCount + 1);
     const bool fullSweep = sweep >= TWO_PI - GEOMETRY_TOLERANCE;
-    for (int index = 0; index <= segmentCount; ++index) {
-        if (fullSweep && index == segmentCount) {
+    for (int index = 0; index <= segmentCount; ++index)
+    {
+        if (fullSweep && index == segmentCount)
+        {
             points.append(CalculateArcPoint(geometry, geometry.startAngle));
             continue;
         }
@@ -971,7 +1095,8 @@ QVector<CanvasVector> TessellateCircle(const StruCircleGeometry &geometry,
 {
     QVector<CanvasVector> points;
     if (!IsValidGeometry(geometry) || !IsFinite(maximumError)
-            || maximumError <= 0.0) {
+            || maximumError <= 0.0)
+    {
         return points;
     }
 
@@ -979,12 +1104,14 @@ QVector<CanvasVector> TessellateCircle(const StruCircleGeometry &geometry,
                                                    geometry.radius,
                                                    maximumError,
                                                    MIN_CIRCLE_SEGMENTS);
-    if (segmentCount <= 0) {
+    if (segmentCount <= 0)
+    {
         return points;
     }
 
     points.reserve(segmentCount + 1);
-    for (int index = 0; index < segmentCount; ++index) {
+    for (int index = 0; index < segmentCount; ++index)
+    {
         const qreal angle = TWO_PI * static_cast<qreal>(index)
                 / static_cast<qreal>(segmentCount);
         points.append(geometry.center

@@ -27,7 +27,8 @@ class QPaintEvent;
 class QResizeEvent;
 class QWheelEvent;
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 class CanvasDocument;
 class CanvasEntity;
@@ -107,7 +108,8 @@ class MINIGRAPH_EXPORT CanvasView : public QWidget
     Q_PROPERTY(bool geometrySnapEnabled READ IsGeometrySnapEnabled WRITE SetGeometrySnapEnabled NOTIFY GeometrySnapEnabledChanged)
 
 public:
-    enum class InteractionMode {
+    enum class InteractionMode
+    {
         Edit,
         PreviewNavigation
     };
@@ -116,7 +118,8 @@ public:
     // 仅在 performancebench 构建中累积命中检测的分阶段诊断数据。
     struct CanvasHitTestProfile
     {
-        enum {
+        enum
+        {
             EntityTypeCount =
                     static_cast<int>(CanvasEntityType::GroupContainer) + 1
         };
@@ -152,7 +155,8 @@ public:
             pathCollectionNanoseconds = 0;
             pathDistanceNanoseconds = 0;
             totalNanoseconds = 0;
-            for (int index = 0; index < EntityTypeCount; ++index) {
+            for (int index = 0; index < EntityTypeCount; ++index)
+            {
                 entityCountByType[index] = 0;
                 selectionPathCountByType[index] = 0;
                 selectionPathPointCountByType[index] = 0;
@@ -483,7 +487,8 @@ private slots:
 
 private:
     // 中键平移的内部状态。
-    enum class PanState {
+    enum class PanState
+    {
         Idle,
         Pressed,
         Dragging
@@ -522,7 +527,8 @@ protected:
 
 private:
     // 左键选择和图元移动手势的内部状态。
-    enum class SelectionState {
+    enum class SelectionState
+    {
         Idle,
         Pressed,
         Dragging,
@@ -531,7 +537,8 @@ private:
     };
 
     // 当前正在交互的几何编辑控制柄类型。
-    enum class EditHandleType {
+    enum class EditHandleType
+    {
         None,
         PointCenter,
         LineStart,
@@ -552,7 +559,8 @@ private:
     };
 
     // 一个控制柄及其世界坐标位置。
-    struct EditHandlePosition {
+    struct EditHandlePosition
+    {
         EditHandleType type = EditHandleType::None;
         CanvasVector worldPosition;
         int pointIndex = -1;

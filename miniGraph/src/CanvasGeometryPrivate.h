@@ -2,9 +2,11 @@
 
 #include "MiniGraph/CanvasEntities.h"
 
-namespace mini_graph {
+namespace mini_graph
+{
 
-namespace detail {
+namespace detail
+{
 
 // 判断圆弧起止角是否形成非零且非整周的有效扫掠。
 bool IsValidArcSweep(qreal startAngle, qreal endAngle);

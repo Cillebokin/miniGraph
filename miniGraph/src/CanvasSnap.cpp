@@ -9,9 +9,11 @@
 #include <cmath>
 #include <limits>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
-namespace {
+namespace
+{
 
 struct SnapCandidate
 {
@@ -27,7 +29,8 @@ void AddSnapCandidateIfValid(const ConsiderFunction &consider,
                              CanvasSnapType type,
                              const CanvasVector &position)
 {
-    if (position.IsValid()) {
+    if (position.IsValid())
+    {
         consider(itemId, type, position);
     }
 }
@@ -38,11 +41,13 @@ void CollectPolylineSegmentSnapCandidates(
         ItemId itemId,
         const ConsiderFunction &consider)
 {
-    if (!segment.IsValid() || !segment.GetStyle().visible) {
+    if (!segment.IsValid() || !segment.GetStyle().visible)
+    {
         return;
     }
 
-    if (const CanvasLine *line = dynamic_cast<const CanvasLine *>(&segment)) {
+    if (const CanvasLine *line = dynamic_cast<const CanvasLine *>(&segment))
+    {
         AddSnapCandidateIfValid(consider, itemId,
                                 CanvasSnapType::PolylineVertex,
                                 line->GetStartPoint());
@@ -52,7 +57,8 @@ void CollectPolylineSegmentSnapCandidates(
         return;
     }
 
-    if (const CanvasArc *arc = dynamic_cast<const CanvasArc *>(&segment)) {
+    if (const CanvasArc *arc = dynamic_cast<const CanvasArc *>(&segment))
+    {
         AddSnapCandidateIfValid(consider, itemId,
                                 CanvasSnapType::ArcCenter,
                                 arc->GetCenter());
@@ -71,23 +77,29 @@ void CollectEntitySnapCandidates(const CanvasEntity &entity,
                                  bool parentVisible,
                                  const ConsiderFunction &consider)
 {
-    if (!parentVisible || !entity.GetStyle().visible || !entity.IsValid()) {
+    if (!parentVisible || !entity.GetStyle().visible || !entity.IsValid())
+    {
         return;
     }
 
-    switch (entity.GetType()) {
-    case CanvasEntityType::Point: {
+    switch (entity.GetType())
+    {
+    case CanvasEntityType::Point:
+    {
         const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(&entity);
-        if (point) {
+        if (point)
+        {
             AddSnapCandidateIfValid(consider, itemId,
                                     CanvasSnapType::Point,
                                     point->GetPosition());
         }
         break;
     }
-    case CanvasEntityType::Line: {
+    case CanvasEntityType::Line:
+    {
         const CanvasLine *line = dynamic_cast<const CanvasLine *>(&entity);
-        if (line) {
+        if (line)
+        {
             AddSnapCandidateIfValid(consider, itemId,
                                     CanvasSnapType::LineEndpoint,
                                     line->GetStartPoint());
@@ -97,9 +109,11 @@ void CollectEntitySnapCandidates(const CanvasEntity &entity,
         }
         break;
     }
-    case CanvasEntityType::Arc: {
+    case CanvasEntityType::Arc:
+    {
         const CanvasArc *arc = dynamic_cast<const CanvasArc *>(&entity);
-        if (arc) {
+        if (arc)
+        {
             AddSnapCandidateIfValid(consider, itemId,
                                     CanvasSnapType::ArcCenter,
                                     arc->GetCenter());
@@ -112,20 +126,24 @@ void CollectEntitySnapCandidates(const CanvasEntity &entity,
         }
         break;
     }
-    case CanvasEntityType::Circle: {
+    case CanvasEntityType::Circle:
+    {
         const CanvasCircle *circle =
                 dynamic_cast<const CanvasCircle *>(&entity);
-        if (circle) {
+        if (circle)
+        {
             AddSnapCandidateIfValid(consider, itemId,
                                     CanvasSnapType::CircleCenter,
                                     circle->GetCenter());
         }
         break;
     }
-    case CanvasEntityType::Ellipse: {
+    case CanvasEntityType::Ellipse:
+    {
         const CanvasEllipse *ellipse =
                 dynamic_cast<const CanvasEllipse *>(&entity);
-        if (!ellipse) {
+        if (!ellipse)
+        {
             break;
         }
 
@@ -137,7 +155,8 @@ void CollectEntitySnapCandidates(const CanvasEntity &entity,
                                      * ellipse->GetMinorMajorRatio(),
                                      majorAxis.GetX()
                                      * ellipse->GetMinorMajorRatio());
-        if (ellipse->IsArc()) {
+        if (ellipse->IsArc())
+        {
             const auto calculatePoint = [ellipse, &consider, itemId](qreal parameter) {
                 const CanvasVector major = ellipse->GetMajorAxis();
                 const qreal ratio = ellipse->GetMinorMajorRatio();
@@ -152,7 +171,9 @@ void CollectEntitySnapCandidates(const CanvasEntity &entity,
             };
             calculatePoint(ellipse->GetStartParameter());
             calculatePoint(ellipse->GetEndParameter());
-        } else {
+        }
+        else
+        {
             AddSnapCandidateIfValid(consider, itemId,
                                     CanvasSnapType::EllipseAxisPoint,
                                     ellipse->GetCenter() + majorAxis);
@@ -168,29 +189,36 @@ void CollectEntitySnapCandidates(const CanvasEntity &entity,
         }
         break;
     }
-    case CanvasEntityType::Polyline: {
+    case CanvasEntityType::Polyline:
+    {
         const CanvasPolyline *polyline =
                 dynamic_cast<const CanvasPolyline *>(&entity);
-        if (!polyline) {
+        if (!polyline)
+        {
             break;
         }
-        for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+        for (int index = 0; index < polyline->GetSegmentCount(); ++index)
+        {
             const CanvasEntity *segment = polyline->GetSegment(index);
-            if (segment) {
+            if (segment)
+            {
                 CollectPolylineSegmentSnapCandidates(*segment, itemId,
                                                      consider);
             }
         }
         break;
     }
-    case CanvasEntityType::Spline: {
+    case CanvasEntityType::Spline:
+    {
         const CanvasSpline *spline =
                 dynamic_cast<const CanvasSpline *>(&entity);
-        if (spline) {
+        if (spline)
+        {
             CanvasVector startPoint;
             CanvasVector endPoint;
             if (detail::TryGetSplineEndpoints(*spline,
-                                              &startPoint, &endPoint)) {
+                                              &startPoint, &endPoint))
+            {
                 AddSnapCandidateIfValid(consider, itemId,
                                         CanvasSnapType::SplineEndpoint,
                                         startPoint);
@@ -201,15 +229,19 @@ void CollectEntitySnapCandidates(const CanvasEntity &entity,
         }
         break;
     }
-    case CanvasEntityType::GroupContainer: {
+    case CanvasEntityType::GroupContainer:
+    {
         const CanvasGroupContainer *group =
                 dynamic_cast<const CanvasGroupContainer *>(&entity);
-        if (!group) {
+        if (!group)
+        {
             break;
         }
-        for (int index = 0; index < group->GetChildCount(); ++index) {
+        for (int index = 0; index < group->GetChildCount(); ++index)
+        {
             const CanvasEntity *child = group->GetChild(index);
-            if (child) {
+            if (child)
+            {
                 CollectEntitySnapCandidates(*child, itemId, true, consider);
             }
         }
@@ -227,7 +259,8 @@ qreal DistanceSquared(const CanvasVector &left, const CanvasVector &right)
 
 int GetSnapPriority(CanvasSnapType type)
 {
-    switch (type) {
+    switch (type)
+    {
     case CanvasSnapType::Point:
         return 0;
     case CanvasSnapType::LineEndpoint:
@@ -258,7 +291,8 @@ CanvasSnapResult CanvasSnapper::FindSnap(const CanvasDocument *document,
                                          bool gridSnapEnabled)
 {
     CanvasSnapResult result;
-    if (!worldPosition.IsValid()) {
+    if (!worldPosition.IsValid())
+    {
         return result;
     }
 
@@ -275,7 +309,8 @@ CanvasSnapResult CanvasSnapper::FindSnap(const CanvasDocument *document,
                                              const CanvasVector &position) {
         const qreal distanceSquared = DistanceSquared(worldPosition, position);
         if (!std::isfinite(static_cast<double>(distanceSquared))
-                || distanceSquared > toleranceSquared) {
+                || distanceSquared > toleranceSquared)
+        {
             return;
         }
 
@@ -290,7 +325,8 @@ CanvasSnapResult CanvasSnapper::FindSnap(const CanvasDocument *document,
                     || itemId < bestCandidate.result.itemId);
         if (!bestCandidate.valid
                 || closer
-                || (sameDistance && (higherPriority || samePriorityEarlierItem))) {
+                || (sameDistance && (higherPriority || samePriorityEarlierItem)))
+        {
             bestCandidate.result.type = type;
             bestCandidate.result.itemId = itemId;
             bestCandidate.result.position = position;
@@ -300,29 +336,35 @@ CanvasSnapResult CanvasSnapper::FindSnap(const CanvasDocument *document,
         }
     };
 
-    if (geometrySnapEnabled && document) {
+    if (geometrySnapEnabled && document)
+    {
         const QVector<ItemId> itemIds = document->GetItemIds();
-        for (const ItemId itemId : itemIds) {
+        for (const ItemId itemId : itemIds)
+        {
             const CanvasEntity *entity = document->GetEntity(itemId);
-            if (entity) {
+            if (entity)
+            {
                 CollectEntitySnapCandidates(*entity, itemId, true, consider);
             }
         }
     }
 
-    if (bestCandidate.valid) {
+    if (bestCandidate.valid)
+    {
         return bestCandidate.result;
     }
 
     if (gridSnapEnabled
             && std::isfinite(static_cast<double>(gridSpacing))
-            && gridSpacing > 0.0) {
+            && gridSpacing > 0.0)
+    {
         const qreal gridX = std::round(worldPosition.GetX() / gridSpacing)
                 * gridSpacing;
         const qreal gridY = std::round(worldPosition.GetY() / gridSpacing)
                 * gridSpacing;
         if (std::isfinite(static_cast<double>(gridX))
-                && std::isfinite(static_cast<double>(gridY))) {
+                && std::isfinite(static_cast<double>(gridY)))
+        {
             result.type = CanvasSnapType::Grid;
             result.position = CanvasVector(gridX, gridY);
         }

@@ -9,7 +9,8 @@ class QKeyEvent;
 class QMouseEvent;
 class QPainter;
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 class CanvasView;
 struct CanvasRenderContext;

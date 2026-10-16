@@ -8,7 +8,8 @@
 
 #include <memory>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 class CanvasData;
 
@@ -346,7 +347,10 @@ class MINIGRAPH_EXPORT CanvasGroupContainer final : public CanvasEntity
 {
 public:
     // 组嵌套深度上限，最外层组也计为一层。
-    enum { MaximumNestingDepth = 64 };
+    enum
+    {
+        MaximumNestingDepth = 64
+    };
 
     CanvasGroupContainer();
 

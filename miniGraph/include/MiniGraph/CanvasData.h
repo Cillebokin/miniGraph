@@ -6,7 +6,8 @@
 
 #include <memory>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 class CanvasEntity;
 

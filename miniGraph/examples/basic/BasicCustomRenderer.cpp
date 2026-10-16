@@ -48,7 +48,8 @@ void BasicCustomRenderer::Render(
     };
 
     QPolygonF viewportPoints;
-    for (const mini_graph::CanvasVector &worldPoint : worldPoints) {
+    for (const mini_graph::CanvasVector &worldPoint : worldPoints)
+    {
         viewportPoints.append(context.MapFromWorld(worldPoint + m_Offset));
     }
 

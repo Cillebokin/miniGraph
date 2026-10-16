@@ -18,13 +18,15 @@ BasicLineCreationAction::BasicLineCreationAction(QObject *parent)
 
 void BasicLineCreationAction::MousePressEvent(QMouseEvent *event)
 {
-    if (!event || event->button() != Qt::LeftButton) {
+    if (!event || event->button() != Qt::LeftButton)
+    {
         return;
     }
 
     mini_graph::CanvasView *view = GetCanvasView();
     mini_graph::CanvasDocument *document = view ? view->GetDocument() : nullptr;
-    if (!view || !document) {
+    if (!view || !document)
+    {
         return;
     }
 
@@ -32,11 +34,13 @@ void BasicLineCreationAction::MousePressEvent(QMouseEvent *event)
     const mini_graph::CanvasVector position = snap.IsValid()
             ? snap.position
             : view->MapToWorld(event->localPos());
-    if (!position.IsValid()) {
+    if (!position.IsValid())
+    {
         return;
     }
 
-    if (!m_HasStartPoint) {
+    if (!m_HasStartPoint)
+    {
         m_StartPoint = position;
         m_HasStartPoint = true;
         m_HasPreviewEndPoint = false;
@@ -44,7 +48,8 @@ void BasicLineCreationAction::MousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (document->AddLine(m_StartPoint, position) != 0) {
+    if (document->AddLine(m_StartPoint, position) != 0)
+    {
         m_HasStartPoint = false;
         m_HasPreviewEndPoint = false;
         Finish();
@@ -58,12 +63,14 @@ void BasicLineCreationAction::MouseDoubleClickEvent(QMouseEvent *event)
 
 void BasicLineCreationAction::MouseMoveEvent(QMouseEvent *event)
 {
-    if (!event || !m_HasStartPoint) {
+    if (!event || !m_HasStartPoint)
+    {
         return;
     }
 
     mini_graph::CanvasView *view = GetCanvasView();
-    if (!view) {
+    if (!view)
+    {
         return;
     }
 
@@ -72,7 +79,8 @@ void BasicLineCreationAction::MouseMoveEvent(QMouseEvent *event)
             ? snap.position
             : view->MapToWorld(event->localPos());
     if (!position.IsValid()
-            || (m_HasPreviewEndPoint && position == m_PreviewEndPoint)) {
+            || (m_HasPreviewEndPoint && position == m_PreviewEndPoint))
+    {
         return;
     }
 
@@ -85,7 +93,8 @@ void BasicLineCreationAction::RenderOverlay(
         QPainter &painter,
         const mini_graph::CanvasRenderContext &context)
 {
-    if (!m_HasStartPoint || !m_HasPreviewEndPoint) {
+    if (!m_HasStartPoint || !m_HasPreviewEndPoint)
+    {
         return;
     }
 

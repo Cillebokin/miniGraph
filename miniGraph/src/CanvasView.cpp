@@ -26,9 +26,11 @@
 #include <cmath>
 #include <limits>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
-namespace {
+namespace
+{
 
 const qreal CADLAB_MIN_GRID_PIXEL_SPACING = 10.0;
 const qreal CADLAB_MAX_GRID_PIXEL_SPACING = 100.0;
@@ -75,12 +77,14 @@ qreal CalculateCadLabGridSpacing(qreal baseSpacing, qreal zoom)
     qreal spacing = baseSpacing;
     for (int scaleCount = 0;
          scaleCount < 512 && spacing * zoom < CADLAB_MIN_GRID_PIXEL_SPACING;
-         ++scaleCount) {
+         ++scaleCount)
+    {
         spacing *= 10.0;
     }
     for (int scaleCount = 0;
          scaleCount < 512 && spacing * zoom >= CADLAB_MAX_GRID_PIXEL_SPACING;
-         ++scaleCount) {
+         ++scaleCount)
+    {
         spacing /= 10.0;
     }
     return spacing;
@@ -96,7 +100,8 @@ bool CalculateVisibleTickRange(qreal minimum,
             || !std::isfinite(static_cast<double>(minimum))
             || !std::isfinite(static_cast<double>(maximum))
             || !std::isfinite(static_cast<double>(spacing))
-            || spacing <= 0.0) {
+            || spacing <= 0.0)
+    {
         return false;
     }
 
@@ -105,7 +110,8 @@ bool CalculateVisibleTickRange(qreal minimum,
     if (!std::isfinite(static_cast<double>(firstIndex))
             || !std::isfinite(static_cast<double>(lastIndex))
             || firstIndex < -MAX_SAFE_TICK_INDEX + 1.0
-            || lastIndex > MAX_SAFE_TICK_INDEX - 1.0) {
+            || lastIndex > MAX_SAFE_TICK_INDEX - 1.0)
+    {
         return false;
     }
 
@@ -113,7 +119,8 @@ bool CalculateVisibleTickRange(qreal minimum,
     const qreal lastWithMargin = lastIndex + 1.0;
     if (lastWithMargin < firstWithMargin
             || lastWithMargin - firstWithMargin + 1.0
-                    > MAX_VISIBLE_TICK_COUNT) {
+                    > MAX_VISIBLE_TICK_COUNT)
+    {
         return false;
     }
 
@@ -134,7 +141,8 @@ qreal DistanceSquaredToSegment(const CanvasVector &point,
 {
     const CanvasVector direction = end - start;
     const qreal lengthSquared = direction.SquaredLength();
-    if (lengthSquared <= 0.0) {
+    if (lengthSquared <= 0.0)
+    {
         return point.SquaredDistanceTo(start);
     }
 
@@ -153,7 +161,8 @@ bool SegmentIntersectsRect(const CanvasVector &start,
 {
     const QPointF startPoint(start.GetX(), start.GetY());
     const QPointF endPoint(end.GetX(), end.GetY());
-    if (rect.contains(startPoint) || rect.contains(endPoint)) {
+    if (rect.contains(startPoint) || rect.contains(endPoint))
+    {
         return true;
     }
 
@@ -165,8 +174,10 @@ bool SegmentIntersectsRect(const CanvasVector &start,
         QLineF(rect.bottomLeft(), rect.topLeft())
     };
 
-    for (const QLineF &edge : edges) {
-        if (HasBoundedIntersection(segment, edge)) {
+    for (const QLineF &edge : edges)
+    {
+        if (HasBoundedIntersection(segment, edge))
+        {
             return true;
         }
     }
@@ -177,20 +188,25 @@ bool SegmentIntersectsRect(const CanvasVector &start,
 bool PolylineIntersectsRect(const QVector<CanvasVector> &points,
                             const QRectF &rect)
 {
-    if (points.isEmpty()) {
+    if (points.isEmpty())
+    {
         return false;
     }
 
-    for (const CanvasVector &point : points) {
-        if (rect.contains(QPointF(point.GetX(), point.GetY()))) {
+    for (const CanvasVector &point : points)
+    {
+        if (rect.contains(QPointF(point.GetX(), point.GetY())))
+        {
             return true;
         }
     }
 
-    for (int index = 1; index < points.size(); ++index) {
+    for (int index = 1; index < points.size(); ++index)
+    {
         if (SegmentIntersectsRect(points.at(index - 1),
                                   points.at(index),
-                                  rect)) {
+                                  rect))
+        {
             return true;
         }
     }
@@ -223,43 +239,54 @@ bool TryGetMaximumHitDisplaySize(const CanvasEntity &root,
                                  bool lineWidthVisible,
                                  qreal *maximumDisplaySize)
 {
-    if (!maximumDisplaySize) {
+    if (!maximumDisplaySize)
+    {
         return false;
     }
 
     qreal candidateMaximum = 0.0;
     QVector<const CanvasEntity *> pendingEntities;
     pendingEntities.append(&root);
-    while (!pendingEntities.isEmpty()) {
+    while (!pendingEntities.isEmpty())
+    {
         const CanvasEntity *entity = pendingEntities.takeLast();
-        if (!entity) {
+        if (!entity)
+        {
             return false;
         }
 
         const qreal displaySize = GetEntityDisplaySize(*entity, logicalDpiX,
                                                        lineWidthVisible);
         if (!std::isfinite(static_cast<double>(displaySize))
-                || displaySize < 0.0) {
+                || displaySize < 0.0)
+        {
             return false;
         }
         candidateMaximum = qMax(candidateMaximum, displaySize);
 
-        if (entity->GetType() == CanvasEntityType::Polyline) {
+        if (entity->GetType() == CanvasEntityType::Polyline)
+        {
             const CanvasPolyline *polyline =
                     dynamic_cast<const CanvasPolyline *>(entity);
-            if (!polyline) {
+            if (!polyline)
+            {
                 return false;
             }
-            for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+            for (int index = 0; index < polyline->GetSegmentCount(); ++index)
+            {
                 pendingEntities.append(polyline->GetSegment(index));
             }
-        } else if (entity->GetType() == CanvasEntityType::GroupContainer) {
+        }
+        else if (entity->GetType() == CanvasEntityType::GroupContainer)
+        {
             const CanvasGroupContainer *group =
                     dynamic_cast<const CanvasGroupContainer *>(entity);
-            if (!group) {
+            if (!group)
+            {
                 return false;
             }
-            for (int index = 0; index < group->GetChildCount(); ++index) {
+            for (int index = 0; index < group->GetChildCount(); ++index)
+            {
                 pendingEntities.append(group->GetChild(index));
             }
         }
@@ -273,36 +300,46 @@ bool TryGetMaximumHitDisplaySize(const CanvasEntity &root,
 bool TryCountHitDisplaySizeTreeNodes(const CanvasEntity &root,
                                     quint64 *entityVisitCount)
 {
-    if (!entityVisitCount) {
+    if (!entityVisitCount)
+    {
         return false;
     }
 
     *entityVisitCount = 0;
     QVector<const CanvasEntity *> pendingEntities;
     pendingEntities.append(&root);
-    while (!pendingEntities.isEmpty()) {
+    while (!pendingEntities.isEmpty())
+    {
         const CanvasEntity *entity = pendingEntities.takeLast();
-        if (!entity) {
+        if (!entity)
+        {
             return false;
         }
         ++(*entityVisitCount);
 
-        if (entity->GetType() == CanvasEntityType::Polyline) {
+        if (entity->GetType() == CanvasEntityType::Polyline)
+        {
             const CanvasPolyline *polyline =
                     dynamic_cast<const CanvasPolyline *>(entity);
-            if (!polyline) {
+            if (!polyline)
+            {
                 return false;
             }
-            for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+            for (int index = 0; index < polyline->GetSegmentCount(); ++index)
+            {
                 pendingEntities.append(polyline->GetSegment(index));
             }
-        } else if (entity->GetType() == CanvasEntityType::GroupContainer) {
+        }
+        else if (entity->GetType() == CanvasEntityType::GroupContainer)
+        {
             const CanvasGroupContainer *group =
                     dynamic_cast<const CanvasGroupContainer *>(entity);
-            if (!group) {
+            if (!group)
+            {
                 return false;
             }
-            for (int index = 0; index < group->GetChildCount(); ++index) {
+            for (int index = 0; index < group->GetChildCount(); ++index)
+            {
                 pendingEntities.append(group->GetChild(index));
             }
         }
@@ -316,18 +353,21 @@ bool IsOutsideConservativeHitBounds(const QRectF &geometryBounds,
                                     qreal zoom,
                                     qreal maximumDisplaySize)
 {
-    if (!worldPosition.IsValid()) {
+    if (!worldPosition.IsValid())
+    {
         return false;
     }
 
     if (!std::isfinite(static_cast<double>(maximumDisplaySize))
-            || maximumDisplaySize < 0.0) {
+            || maximumDisplaySize < 0.0)
+    {
         return false;
     }
 
     const qreal worldTolerance = std::sqrt(
                 CalculateHitToleranceSquared(zoom, maximumDisplaySize));
-    if (!std::isfinite(static_cast<double>(worldTolerance))) {
+    if (!std::isfinite(static_cast<double>(worldTolerance)))
+    {
         return false;
     }
 
@@ -337,7 +377,8 @@ bool IsOutsideConservativeHitBounds(const QRectF &geometryBounds,
     if (!std::isfinite(static_cast<double>(expandedBounds.left()))
             || !std::isfinite(static_cast<double>(expandedBounds.top()))
             || !std::isfinite(static_cast<double>(expandedBounds.right()))
-            || !std::isfinite(static_cast<double>(expandedBounds.bottom()))) {
+            || !std::isfinite(static_cast<double>(expandedBounds.bottom())))
+    {
         return false;
     }
 
@@ -361,7 +402,8 @@ void AppendSelectionPath(const QVector<CanvasVector> &points,
                          qreal displaySize,
                          QVector<EntitySelectionPath> *paths)
 {
-    if (!paths || points.isEmpty()) {
+    if (!paths || points.isEmpty())
+    {
         return;
     }
 
@@ -377,15 +419,19 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
                                  bool lineWidthVisible,
                                  QVector<EntitySelectionPath> *paths)
 {
-    if (!paths || !entity.GetStyle().visible || !entity.IsValid()) {
+    if (!paths || !entity.GetStyle().visible || !entity.IsValid())
+    {
         return;
     }
 
     const StruCanvasStyle &style = entity.GetStyle();
-    switch (entity.GetType()) {
-    case CanvasEntityType::Point: {
+    switch (entity.GetType())
+    {
+    case CanvasEntityType::Point:
+    {
         const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(&entity);
-        if (point) {
+        if (point)
+        {
             AppendSelectionPath(QVector<CanvasVector>() << point->GetPosition(),
                                 detail::GetDisplayPointSize(
                                     style, logicalDpiX, lineWidthVisible),
@@ -393,9 +439,11 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
         }
         return;
     }
-    case CanvasEntityType::Line: {
+    case CanvasEntityType::Line:
+    {
         const CanvasLine *line = dynamic_cast<const CanvasLine *>(&entity);
-        if (line) {
+        if (line)
+        {
             AppendSelectionPath(QVector<CanvasVector>()
                                 << line->GetStartPoint()
                                 << line->GetEndPoint(),
@@ -404,9 +452,11 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
         }
         return;
     }
-    case CanvasEntityType::Arc: {
+    case CanvasEntityType::Arc:
+    {
         const CanvasArc *arc = dynamic_cast<const CanvasArc *>(&entity);
-        if (arc) {
+        if (arc)
+        {
             StruArcGeometry geometry;
             geometry.center = arc->GetCenter();
             geometry.radius = arc->GetRadius();
@@ -419,9 +469,11 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
         }
         return;
     }
-    case CanvasEntityType::Circle: {
+    case CanvasEntityType::Circle:
+    {
         const CanvasCircle *circle = dynamic_cast<const CanvasCircle *>(&entity);
-        if (circle) {
+        if (circle)
+        {
             StruCircleGeometry geometry;
             geometry.center = circle->GetCenter();
             geometry.radius = circle->GetRadius();
@@ -431,10 +483,12 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
         }
         return;
     }
-    case CanvasEntityType::Ellipse: {
+    case CanvasEntityType::Ellipse:
+    {
         const CanvasEllipse *ellipse =
                 dynamic_cast<const CanvasEllipse *>(&entity);
-        if (ellipse) {
+        if (ellipse)
+        {
             AppendSelectionPath(detail::TessellateEllipseForSelection(
                                     *ellipse, maximumWorldError, nullptr),
                                 detail::GetDisplayStrokeWidth(
@@ -442,30 +496,37 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
         }
         return;
     }
-    case CanvasEntityType::Polyline: {
+    case CanvasEntityType::Polyline:
+    {
         const CanvasPolyline *polyline =
                 dynamic_cast<const CanvasPolyline *>(&entity);
-        if (!polyline) {
+        if (!polyline)
+        {
             return;
         }
-        for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+        for (int index = 0; index < polyline->GetSegmentCount(); ++index)
+        {
             const CanvasEntity *segment = polyline->GetSegment(index);
-            if (!segment || !segment->GetStyle().visible) {
+            if (!segment || !segment->GetStyle().visible)
+            {
                 continue;
             }
             const StruCanvasStyle &segmentStyle =
                     segment->HasExplicitStyle()
                     ? segment->GetStyle() : style;
             if (const CanvasLine *line =
-                    dynamic_cast<const CanvasLine *>(segment)) {
+                    dynamic_cast<const CanvasLine *>(segment))
+            {
                 AppendSelectionPath(QVector<CanvasVector>()
                                     << line->GetStartPoint()
                                     << line->GetEndPoint(),
                                     detail::GetDisplayStrokeWidth(
                                         segmentStyle, logicalDpiX,
                                         lineWidthVisible), paths);
-            } else if (const CanvasArc *arc =
-                       dynamic_cast<const CanvasArc *>(segment)) {
+            }
+            else if (const CanvasArc *arc =
+                       dynamic_cast<const CanvasArc *>(segment))
+            {
                 StruArcGeometry geometry;
                 geometry.center = arc->GetCenter();
                 geometry.radius = arc->GetRadius();
@@ -481,15 +542,18 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
         }
         return;
     }
-    case CanvasEntityType::Spline: {
+    case CanvasEntityType::Spline:
+    {
         const CanvasSpline *spline = dynamic_cast<const CanvasSpline *>(&entity);
-        if (!spline) {
+        if (!spline)
+        {
             return;
         }
         const QVector<QVector<CanvasVector>> splinePaths =
                 detail::TessellateSplineForSelection(*spline,
                                                      maximumWorldError);
-        for (const QVector<CanvasVector> &splinePath : splinePaths) {
+        for (const QVector<CanvasVector> &splinePath : splinePaths)
+        {
             AppendSelectionPath(splinePath,
                                 detail::GetDisplayStrokeWidth(
                                     style, logicalDpiX, lineWidthVisible),
@@ -497,15 +561,19 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
         }
         return;
     }
-    case CanvasEntityType::GroupContainer: {
+    case CanvasEntityType::GroupContainer:
+    {
         const CanvasGroupContainer *group =
                 dynamic_cast<const CanvasGroupContainer *>(&entity);
-        if (!group) {
+        if (!group)
+        {
             return;
         }
-        for (int index = 0; index < group->GetChildCount(); ++index) {
+        for (int index = 0; index < group->GetChildCount(); ++index)
+        {
             const CanvasEntity *child = group->GetChild(index);
-            if (child) {
+            if (child)
+            {
                 CollectEntitySelectionPaths(*child, maximumWorldError,
                                             logicalDpiX, lineWidthVisible,
                                             paths);
@@ -521,15 +589,18 @@ void CollectEntitySelectionPaths(const CanvasEntity &entity,
 qreal DistanceSquaredToPath(const CanvasVector &point,
                             const QVector<CanvasVector> &path)
 {
-    if (path.isEmpty()) {
+    if (path.isEmpty())
+    {
         return std::numeric_limits<qreal>::max();
     }
-    if (path.size() == 1) {
+    if (path.size() == 1)
+    {
         return point.SquaredDistanceTo(path.first());
     }
 
     qreal bestDistanceSquared = std::numeric_limits<qreal>::max();
-    for (int index = 1; index < path.size(); ++index) {
+    for (int index = 1; index < path.size(); ++index)
+    {
         bestDistanceSquared = qMin(
                     bestDistanceSquared,
                     DistanceSquaredToSegment(point,
@@ -542,13 +613,17 @@ qreal DistanceSquaredToPath(const CanvasVector &point,
 bool AreEntityPathsContained(const QVector<EntitySelectionPath> &paths,
                              const QRectF &rect)
 {
-    if (paths.isEmpty()) {
+    if (paths.isEmpty())
+    {
         return false;
     }
 
-    for (const EntitySelectionPath &path : paths) {
-        for (const CanvasVector &point : path.points) {
-            if (!rect.contains(QPointF(point.GetX(), point.GetY()))) {
+    for (const EntitySelectionPath &path : paths)
+    {
+        for (const CanvasVector &point : path.points)
+        {
+            if (!rect.contains(QPointF(point.GetX(), point.GetY())))
+            {
                 return false;
             }
         }
@@ -559,8 +634,10 @@ bool AreEntityPathsContained(const QVector<EntitySelectionPath> &paths,
 bool DoEntityPathsIntersectRect(const QVector<EntitySelectionPath> &paths,
                                 const QRectF &rect)
 {
-    for (const EntitySelectionPath &path : paths) {
-        if (PolylineIntersectsRect(path.points, rect)) {
+    for (const EntitySelectionPath &path : paths)
+    {
+        if (PolylineIntersectsRect(path.points, rect))
+        {
             return true;
         }
     }
@@ -581,28 +658,35 @@ CanvasVector CalculateEllipsePoint(const CanvasEllipse &ellipse,
 
 CanvasVector GetFirstEntityReferencePoint(const CanvasEntity &entity)
 {
-    switch (entity.GetType()) {
-    case CanvasEntityType::Point: {
+    switch (entity.GetType())
+    {
+    case CanvasEntityType::Point:
+    {
         const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(&entity);
         return point ? point->GetPosition() : CanvasVector();
     }
-    case CanvasEntityType::Line: {
+    case CanvasEntityType::Line:
+    {
         const CanvasLine *line = dynamic_cast<const CanvasLine *>(&entity);
         return line ? line->GetStartPoint() : CanvasVector();
     }
-    case CanvasEntityType::Arc: {
+    case CanvasEntityType::Arc:
+    {
         const CanvasArc *arc = dynamic_cast<const CanvasArc *>(&entity);
         return arc ? arc->GetStartPoint() : CanvasVector();
     }
-    case CanvasEntityType::Circle: {
+    case CanvasEntityType::Circle:
+    {
         const CanvasCircle *circle =
                 dynamic_cast<const CanvasCircle *>(&entity);
         return circle ? circle->GetCenter() : CanvasVector();
     }
-    case CanvasEntityType::Ellipse: {
+    case CanvasEntityType::Ellipse:
+    {
         const CanvasEllipse *ellipse =
                 dynamic_cast<const CanvasEllipse *>(&entity);
-        if (!ellipse) {
+        if (!ellipse)
+        {
             return CanvasVector();
         }
         return ellipse->IsArc()
@@ -610,7 +694,8 @@ CanvasVector GetFirstEntityReferencePoint(const CanvasEntity &entity)
                                         ellipse->GetStartParameter())
                 : ellipse->GetCenter();
     }
-    case CanvasEntityType::Polyline: {
+    case CanvasEntityType::Polyline:
+    {
         const CanvasPolyline *polyline =
                 dynamic_cast<const CanvasPolyline *>(&entity);
         const CanvasEntity *firstSegment = polyline
@@ -619,13 +704,15 @@ CanvasVector GetFirstEntityReferencePoint(const CanvasEntity &entity)
                 ? GetFirstEntityReferencePoint(*firstSegment)
                 : CanvasVector();
     }
-    case CanvasEntityType::Spline: {
+    case CanvasEntityType::Spline:
+    {
         const CanvasSpline *spline =
                 dynamic_cast<const CanvasSpline *>(&entity);
         return spline && !spline->GetControlPoints().isEmpty()
                 ? spline->GetControlPoints().first() : CanvasVector();
     }
-    case CanvasEntityType::GroupContainer: {
+    case CanvasEntityType::GroupContainer:
+    {
         const CanvasGroupContainer *group =
                 dynamic_cast<const CanvasGroupContainer *>(&entity);
         const CanvasEntity *firstChild = group
@@ -643,7 +730,8 @@ CanvasVector GetFirstEntityReferencePoint(const CanvasEntity &entity)
 
 void CopyEntityProperties(const CanvasEntity &source, CanvasEntity *target)
 {
-    if (!target) {
+    if (!target)
+    {
         return;
     }
     target->SetStyle(source.GetStyle());
@@ -667,12 +755,15 @@ bool IsEditablePolylineVertex(const CanvasPolyline &polyline,
                               int pointIndex)
 {
     const int segmentCount = polyline.GetSegmentCount();
-    if (segmentCount <= 0) {
+    if (segmentCount <= 0)
+    {
         return false;
     }
 
-    if (polyline.IsClosed()) {
-        if (pointIndex < 0 || pointIndex >= segmentCount) {
+    if (polyline.IsClosed())
+    {
+        if (pointIndex < 0 || pointIndex >= segmentCount)
+        {
             return false;
         }
         const int previousSegmentIndex =
@@ -686,13 +777,16 @@ bool IsEditablePolylineVertex(const CanvasPolyline &polyline,
                     || nextSegment->GetStyle().visible);
     }
 
-    if (pointIndex < 0 || pointIndex > segmentCount) {
+    if (pointIndex < 0 || pointIndex > segmentCount)
+    {
         return false;
     }
-    if (pointIndex == 0) {
+    if (pointIndex == 0)
+    {
         return IsVisibleLineSegment(polyline.GetSegment(0));
     }
-    if (pointIndex == segmentCount) {
+    if (pointIndex == segmentCount)
+    {
         return IsVisibleLineSegment(polyline.GetSegment(segmentCount - 1));
     }
     const CanvasEntity *previousSegment = polyline.GetSegment(pointIndex - 1);
@@ -705,12 +799,14 @@ bool IsEditablePolylineVertex(const CanvasPolyline &polyline,
 
 CanvasVector GetPolylineVertex(const CanvasPolyline &polyline, int pointIndex)
 {
-    if (!IsEditablePolylineVertex(polyline, pointIndex)) {
+    if (!IsEditablePolylineVertex(polyline, pointIndex))
+    {
         return CanvasVector();
     }
 
     const int segmentCount = polyline.GetSegmentCount();
-    if (polyline.IsClosed() || pointIndex < segmentCount) {
+    if (polyline.IsClosed() || pointIndex < segmentCount)
+    {
         const int nextSegmentIndex = pointIndex % segmentCount;
         const CanvasLine *nextLine = dynamic_cast<const CanvasLine *>(
                     polyline.GetSegment(nextSegmentIndex));
@@ -729,44 +825,52 @@ bool TryMovePolylineVertex(const CanvasPolyline &source,
 {
     const int segmentCount = source.GetSegmentCount();
     if (!result || !position.IsValid()
-            || !IsEditablePolylineVertex(source, pointIndex)) {
+            || !IsEditablePolylineVertex(source, pointIndex))
+    {
         return false;
     }
 
     CanvasPolyline updated;
     for (int segmentIndex = 0;
          segmentIndex < segmentCount;
-         ++segmentIndex) {
+         ++segmentIndex)
+    {
         const CanvasEntity *segment = source.GetSegment(segmentIndex);
         if (const CanvasLine *line =
-                dynamic_cast<const CanvasLine *>(segment)) {
+                dynamic_cast<const CanvasLine *>(segment))
+        {
             CanvasVector startPoint = line->GetStartPoint();
             CanvasVector endPoint = line->GetEndPoint();
             const int endPointIndex = source.IsClosed()
                     ? (segmentIndex + 1) % segmentCount
                     : segmentIndex + 1;
-            if (segmentIndex == pointIndex) {
+            if (segmentIndex == pointIndex)
+            {
                 startPoint = position;
             }
-            if (endPointIndex == pointIndex) {
+            if (endPointIndex == pointIndex)
+            {
                 endPoint = position;
             }
 
             CanvasLine updatedLine(startPoint, endPoint);
             CopyEntityProperties(*line, &updatedLine);
-            if (!updated.AddSegment(updatedLine)) {
+            if (!updated.AddSegment(updatedLine))
+            {
                 return false;
             }
             continue;
         }
 
         const CanvasArc *arc = dynamic_cast<const CanvasArc *>(segment);
-        if (!arc || !updated.AddSegment(*arc)) {
+        if (!arc || !updated.AddSegment(*arc))
+        {
             return false;
         }
     }
 
-    if (!updated.SetClosed(source.IsClosed())) {
+    if (!updated.SetClosed(source.IsClosed()))
+    {
         return false;
     }
     CopyEntityProperties(source, &updated);
@@ -776,13 +880,15 @@ bool TryMovePolylineVertex(const CanvasPolyline &source,
 
 void PrepareLayer(QImage *layer, const QSize &pixelSize, qreal devicePixelRatio)
 {
-    if (!layer) {
+    if (!layer)
+    {
         return;
     }
 
     if (layer->size() != pixelSize
             || layer->format() != QImage::Format_ARGB32_Premultiplied
-            || !qFuzzyCompare(layer->devicePixelRatio(), devicePixelRatio)) {
+            || !qFuzzyCompare(layer->devicePixelRatio(), devicePixelRatio))
+    {
         *layer = QImage(pixelSize, QImage::Format_ARGB32_Premultiplied);
         layer->setDevicePixelRatio(devicePixelRatio);
     }
@@ -791,7 +897,8 @@ void PrepareLayer(QImage *layer, const QSize &pixelSize, qreal devicePixelRatio)
 
 } // namespace
 
-namespace {
+namespace
+{
 
 // 几何缓存：几何层按视口外扩后的范围渲染并缓存。平移时复用缓存图像（像素偏移），
 // 缩放时临时拉伸缓存；仅在超出缓存范围、内容变化或精确重绘时才重新渲染几何。
@@ -896,7 +1003,8 @@ void RenderGeometryCache(GeometryCacheState *cache,
     {
         QPainter painter(layer);
         painter.setRenderHint(QPainter::Antialiasing, true);
-        if (globalData) {
+        if (globalData)
+        {
             painter.save();
             detail::RenderCanvasDataCommands(
                         painter, renderContext,
@@ -904,8 +1012,10 @@ void RenderGeometryCache(GeometryCacheState *cache,
             painter.restore();
         }
         defaultRenderer.Render(painter, renderContext, logicalDpiX, lineWidthVisible);
-        for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
-            if (!renderer) {
+        for (const QPointer<CanvasRenderer> &renderer : customRenderers)
+        {
+            if (!renderer)
+            {
                 continue;
             }
             painter.save();
@@ -914,7 +1024,8 @@ void RenderGeometryCache(GeometryCacheState *cache,
             renderer->Render(painter, customRenderContext);
             painter.restore();
         }
-        if (globalData) {
+        if (globalData)
+        {
             painter.save();
             detail::RenderCanvasDataCommands(
                         painter, renderContext,
@@ -987,19 +1098,23 @@ public:
                 && qFuzzyCompare(m_HitTestMaximumDisplaySizeCacheLogicalDpiX
                                  + 1.0, logicalDpiX + 1.0)
                 && m_HitTestMaximumDisplaySizeCacheLineWidthVisible
-                   == lineWidthVisible) {
+                   == lineWidthVisible)
+        {
             return true;
         }
         InvalidateHitTestMaximumDisplaySizeCache();
-        if (!document) {
+        if (!document)
+        {
             return false;
         }
 
         QHash<ItemId, qreal> candidateCache;
         const QVector<ItemId> ids = document->GetItemIds();
-        for (const ItemId id : ids) {
+        for (const ItemId id : ids)
+        {
             const CanvasEntity *entity = document->GetEntity(id);
-            if (!entity || !UsesRecursiveHitDisplaySize(*entity)) {
+            if (!entity || !UsesRecursiveHitDisplaySize(*entity))
+            {
                 continue;
             }
 
@@ -1007,7 +1122,8 @@ public:
             if (TryGetMaximumHitDisplaySize(*entity,
                                             logicalDpiX,
                                             lineWidthVisible,
-                                            &maximumDisplaySize)) {
+                                            &maximumDisplaySize))
+            {
                 candidateCache.insert(id, maximumDisplaySize);
             }
         }
@@ -1028,7 +1144,8 @@ public:
     {
         if (!maximumDisplaySize || !UsesRecursiveHitDisplaySize(entity)
                 || !EnsureHitTestMaximumDisplaySizeCache(
-                    document, logicalDpiX, lineWidthVisible)) {
+                    document, logicalDpiX, lineWidthVisible))
+        {
             return false;
         }
 
@@ -1043,7 +1160,8 @@ public:
         const auto cachedValue = m_HitTestMaximumDisplaySizeCache.constFind(id);
         if (cachedValue == m_HitTestMaximumDisplaySizeCache.constEnd()
                 || !std::isfinite(static_cast<double>(cachedValue.value()))
-                || cachedValue.value() < 0.0) {
+                || cachedValue.value() < 0.0)
+        {
             return false;
         }
 
@@ -1110,7 +1228,8 @@ CanvasView::~CanvasView()
     QObject::disconnect(m_CustomRendererUpdateConnection);
     m_CustomRenderer = nullptr;
     for (const CanvasViewPrivate::AdditionalRendererEntry &entry :
-         m_PrivateData->m_AdditionalCustomRenderers) {
+         m_PrivateData->m_AdditionalCustomRenderers)
+    {
         QObject::disconnect(entry.destroyedConnection);
         QObject::disconnect(entry.updateConnection);
     }
@@ -1119,11 +1238,13 @@ CanvasView::~CanvasView()
 
 void CanvasView::SetInteractionMode(InteractionMode mode)
 {
-    if (m_InteractionMode == mode) {
+    if (m_InteractionMode == mode)
+    {
         return;
     }
 
-    if (mode == InteractionMode::PreviewNavigation) {
+    if (mode == InteractionMode::PreviewNavigation)
+    {
         KillAllActions();
     }
     CancelEdit();
@@ -1135,11 +1256,13 @@ void CanvasView::SetInteractionMode(InteractionMode mode)
     SetOrthogonalModeInternal(false);
     unsetCursor();
     m_InteractionMode = mode;
-    if (mode == InteractionMode::PreviewNavigation && m_Document) {
+    if (mode == InteractionMode::PreviewNavigation && m_Document)
+    {
         m_Document->ClearSelection();
     }
     const CanvasSnapResult emptySnap;
-    if (m_CurrentSnapResult != emptySnap) {
+    if (m_CurrentSnapResult != emptySnap)
+    {
         m_CurrentSnapResult = emptySnap;
         emit SnapChanged(m_CurrentSnapResult);
     }
@@ -1158,7 +1281,8 @@ CanvasDocument *CanvasView::GetDocument() const
 
 void CanvasView::SetDocument(CanvasDocument *document)
 {
-    if (m_Document.data() == document) {
+    if (m_Document.data() == document)
+    {
         return;
     }
 
@@ -1174,11 +1298,13 @@ void CanvasView::SetDocument(CanvasDocument *document)
     m_PressedItemId = 0;
     m_SelectionModifiers = Qt::NoModifier;
 
-    if (m_InteractionMode == InteractionMode::PreviewNavigation && m_Document) {
+    if (m_InteractionMode == InteractionMode::PreviewNavigation && m_Document)
+    {
         m_Document->ClearSelection();
     }
 
-    if (m_Document) {
+    if (m_Document)
+    {
         m_DocumentConnection = connect(m_Document.data(),
                                        &CanvasDocument::Changed,
                                        this,
@@ -1195,13 +1321,16 @@ void CanvasView::SetDocument(CanvasDocument *document)
 
 CanvasRenderer *CanvasView::GetCustomRenderer() const
 {
-    if (m_CustomRenderer) {
+    if (m_CustomRenderer)
+    {
         return m_CustomRenderer.data();
     }
 
     for (const CanvasViewPrivate::AdditionalRendererEntry &entry :
-         m_PrivateData->m_AdditionalCustomRenderers) {
-        if (entry.renderer) {
+         m_PrivateData->m_AdditionalCustomRenderers)
+    {
+        if (entry.renderer)
+        {
             return entry.renderer.data();
         }
     }
@@ -1211,7 +1340,8 @@ CanvasRenderer *CanvasView::GetCustomRenderer() const
 void CanvasView::SetCustomRenderer(CanvasRenderer *renderer)
 {
     if (m_CustomRenderer.data() == renderer
-            && m_PrivateData->m_AdditionalCustomRenderers.isEmpty()) {
+            && m_PrivateData->m_AdditionalCustomRenderers.isEmpty())
+    {
         return;
     }
 
@@ -1220,7 +1350,8 @@ void CanvasView::SetCustomRenderer(CanvasRenderer *renderer)
     QObject::disconnect(m_CustomRendererUpdateConnection);
 
     for (const CanvasViewPrivate::AdditionalRendererEntry &entry :
-         m_PrivateData->m_AdditionalCustomRenderers) {
+         m_PrivateData->m_AdditionalCustomRenderers)
+    {
         QObject::disconnect(entry.destroyedConnection);
         QObject::disconnect(entry.updateConnection);
     }
@@ -1228,7 +1359,8 @@ void CanvasView::SetCustomRenderer(CanvasRenderer *renderer)
 
     m_CustomRenderer = renderer;
 
-    if (m_CustomRenderer) {
+    if (m_CustomRenderer)
+    {
         m_CustomRendererDestroyedConnection = connect(
                     m_CustomRenderer.data(),
                     &QObject::destroyed,
@@ -1247,7 +1379,9 @@ void CanvasView::SetCustomRenderer(CanvasRenderer *renderer)
                     [this]() {
             update();
         });
-    } else {
+    }
+    else
+    {
         m_CustomRendererDestroyedConnection = QMetaObject::Connection();
         m_CustomRendererUpdateConnection = QMetaObject::Connection();
     }
@@ -1257,13 +1391,16 @@ void CanvasView::SetCustomRenderer(CanvasRenderer *renderer)
 QVector<CanvasRenderer *> CanvasView::GetCustomRenderers() const
 {
     QVector<CanvasRenderer *> renderers;
-    if (m_CustomRenderer) {
+    if (m_CustomRenderer)
+    {
         renderers.append(m_CustomRenderer.data());
     }
 
     for (const CanvasViewPrivate::AdditionalRendererEntry &entry :
-         m_PrivateData->m_AdditionalCustomRenderers) {
-        if (entry.renderer) {
+         m_PrivateData->m_AdditionalCustomRenderers)
+    {
+        if (entry.renderer)
+        {
             renderers.append(entry.renderer.data());
         }
     }
@@ -1272,16 +1409,19 @@ QVector<CanvasRenderer *> CanvasView::GetCustomRenderers() const
 
 bool CanvasView::AddCustomRenderer(CanvasRenderer *renderer)
 {
-    if (!renderer) {
+    if (!renderer)
+    {
         return false;
     }
 
     const QVector<CanvasRenderer *> renderers = GetCustomRenderers();
-    if (renderers.contains(renderer)) {
+    if (renderers.contains(renderer))
+    {
         return false;
     }
 
-    if (renderers.isEmpty()) {
+    if (renderers.isEmpty())
+    {
         SetCustomRenderer(renderer);
         return true;
     }
@@ -1296,15 +1436,18 @@ bool CanvasView::AddCustomRenderer(CanvasRenderer *renderer)
         bool removed = false;
         QVector<CanvasViewPrivate::AdditionalRendererEntry> &entries =
                 m_PrivateData->m_AdditionalCustomRenderers;
-        for (int index = entries.size() - 1; index >= 0; --index) {
-            if (!entries.at(index).renderer) {
+        for (int index = entries.size() - 1; index >= 0; --index)
+        {
+            if (!entries.at(index).renderer)
+            {
                 QObject::disconnect(entries.at(index).destroyedConnection);
                 QObject::disconnect(entries.at(index).updateConnection);
                 entries.removeAt(index);
                 removed = true;
             }
         }
-        if (removed) {
+        if (removed)
+        {
             m_PrivateData->m_GeometryCache.valid = false;
             update();
         }
@@ -1324,11 +1467,13 @@ bool CanvasView::AddCustomRenderer(CanvasRenderer *renderer)
 
 bool CanvasView::RemoveCustomRenderer(CanvasRenderer *renderer)
 {
-    if (!renderer) {
+    if (!renderer)
+    {
         return false;
     }
 
-    if (m_CustomRenderer.data() == renderer) {
+    if (m_CustomRenderer.data() == renderer)
+    {
         QObject::disconnect(m_CustomRendererDestroyedConnection);
         QObject::disconnect(m_CustomRendererUpdateConnection);
         m_CustomRenderer = nullptr;
@@ -1341,9 +1486,11 @@ bool CanvasView::RemoveCustomRenderer(CanvasRenderer *renderer)
 
     QVector<CanvasViewPrivate::AdditionalRendererEntry> &entries =
             m_PrivateData->m_AdditionalCustomRenderers;
-    for (int index = 0; index < entries.size(); ++index) {
+    for (int index = 0; index < entries.size(); ++index)
+    {
         CanvasViewPrivate::AdditionalRendererEntry &entry = entries[index];
-        if (entry.renderer.data() != renderer) {
+        if (entry.renderer.data() != renderer)
+        {
             continue;
         }
 
@@ -1369,21 +1516,26 @@ CanvasAction *CanvasView::GetCurrentAction() const
 
 bool CanvasView::SetCurrentAction(CanvasAction *action)
 {
-    if (m_CurrentAction.data() == action) {
+    if (m_CurrentAction.data() == action)
+    {
         return true;
     }
-    if (!action) {
+    if (!action)
+    {
         KillAllActions();
         return true;
     }
-    if (m_DefaultAction.data() == action || !CanInstallAction(action)) {
+    if (m_DefaultAction.data() == action || !CanInstallAction(action))
+    {
         return false;
     }
 
-    if (m_CurrentAction) {
+    if (m_CurrentAction)
+    {
         CancelCurrentAction();
     }
-    if (m_CurrentAction) {
+    if (m_CurrentAction)
+    {
         return false;
     }
 
@@ -1392,7 +1544,8 @@ bool CanvasView::SetCurrentAction(CanvasAction *action)
     action->SetCanvasView(this);
     m_CurrentAction = action;
     ConnectActionSignals(action);
-    if (isVisible()) {
+    if (isVisible())
+    {
         setFocus(Qt::OtherFocusReason);
     }
     update();
@@ -1406,18 +1559,22 @@ CanvasAction *CanvasView::GetDefaultAction() const
 
 bool CanvasView::SetDefaultAction(CanvasAction *action)
 {
-    if (m_DefaultAction.data() == action) {
+    if (m_DefaultAction.data() == action)
+    {
         return true;
     }
-    if (!action) {
+    if (!action)
+    {
         ResetDefaultAction();
         return true;
     }
-    if (m_CurrentAction.data() == action || !CanInstallAction(action)) {
+    if (m_CurrentAction.data() == action || !CanInstallAction(action))
+    {
         return false;
     }
 
-    if (m_DefaultAction) {
+    if (m_DefaultAction)
+    {
         ResetDefaultAction();
     }
 
@@ -1433,7 +1590,8 @@ bool CanvasView::SetDefaultAction(CanvasAction *action)
 void CanvasView::ResetDefaultAction()
 {
     CanvasAction *action = m_DefaultAction.data();
-    if (!action) {
+    if (!action)
+    {
         return;
     }
 
@@ -1453,7 +1611,8 @@ void CanvasView::KillAllActions()
 
 CanvasAction *CanvasView::ActiveAction() const
 {
-    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
+    if (m_InteractionMode == InteractionMode::PreviewNavigation)
+    {
         return nullptr;
     }
     return m_CurrentAction ? m_CurrentAction.data() : m_DefaultAction.data();
@@ -1461,10 +1620,12 @@ CanvasAction *CanvasView::ActiveAction() const
 
 bool CanvasView::CanInstallAction(CanvasAction *action) const
 {
-    if (!action) {
+    if (!action)
+    {
         return true;
     }
-    if (action->parent() && action->parent() != this) {
+    if (action->parent() && action->parent() != this)
+    {
         return false;
     }
     const CanvasView *attachedView = action->GetCanvasView();
@@ -1483,16 +1644,18 @@ void CanvasView::ConnectActionSignals(CanvasAction *action)
             &CanvasAction::FinishRequested,
             this,
             [this, action]() {
-        if (m_CurrentAction.data() == action) {
-            FinishCurrentAction();
-        }
+        if (m_CurrentAction.data() == action)
+            {
+                FinishCurrentAction();
+            }
     },
     Qt::QueuedConnection);
     connect(action,
             &QObject::destroyed,
             this,
             [this]() {
-        if (!m_CurrentAction) {
+        if (!m_CurrentAction)
+        {
             ResetInteractionForAction();
         }
         update();
@@ -1502,7 +1665,8 @@ void CanvasView::ConnectActionSignals(CanvasAction *action)
 void CanvasView::CancelCurrentAction()
 {
     CanvasAction *action = m_CurrentAction.data();
-    if (!action) {
+    if (!action)
+    {
         return;
     }
 
@@ -1519,7 +1683,8 @@ void CanvasView::CancelCurrentAction()
 void CanvasView::FinishCurrentAction()
 {
     CanvasAction *action = m_CurrentAction.data();
-    if (!action) {
+    if (!action)
+    {
         return;
     }
 
@@ -1549,7 +1714,8 @@ bool CanvasView::IsGridVisible() const
 
 void CanvasView::SetGridVisible(bool visible)
 {
-    if (m_GridVisible == visible) {
+    if (m_GridVisible == visible)
+    {
         return;
     }
 
@@ -1565,7 +1731,8 @@ bool CanvasView::IsLineWidthVisible() const
 
 void CanvasView::SetLineWidthVisible(bool visible)
 {
-    if (m_LineWidthVisible == visible) {
+    if (m_LineWidthVisible == visible)
+    {
         return;
     }
 
@@ -1582,7 +1749,8 @@ QColor CanvasView::GetBackgroundColor() const
 
 void CanvasView::SetBackgroundColor(const QColor &color)
 {
-    if (!color.isValid() || m_BackgroundColor == color) {
+    if (!color.isValid() || m_BackgroundColor == color)
+    {
         return;
     }
 
@@ -1601,7 +1769,8 @@ void CanvasView::SetGridSpacing(qreal spacing)
 {
     if (!std::isfinite(static_cast<double>(spacing))
             || spacing <= 0.0
-            || qFuzzyCompare(m_GridSpacing, spacing)) {
+            || qFuzzyCompare(m_GridSpacing, spacing))
+    {
         return;
     }
 
@@ -1623,7 +1792,8 @@ CanvasTransform CanvasView::GetTransform() const
 
 CanvasVector CanvasView::MapToWorld(const QPointF &viewportPosition) const
 {
-    if (size().isEmpty()) {
+    if (size().isEmpty())
+    {
         return CanvasVector();
     }
 
@@ -1632,7 +1802,8 @@ CanvasVector CanvasView::MapToWorld(const QPointF &viewportPosition) const
 
 QPointF CanvasView::MapFromWorld(const CanvasVector &worldPosition) const
 {
-    if (size().isEmpty()) {
+    if (size().isEmpty())
+    {
         return QPointF();
     }
 
@@ -1646,7 +1817,8 @@ bool CanvasView::IsAxisVisible() const
 
 void CanvasView::SetAxisVisible(bool visible)
 {
-    if (m_AxisVisible == visible) {
+    if (m_AxisVisible == visible)
+    {
         return;
     }
 
@@ -1680,7 +1852,8 @@ void CanvasView::SetAxisFlip(bool flipX, bool flipY)
     if (m_Transform.GetFlipX() == flipX
             && m_Transform.GetFlipY() == flipY
             && m_AxisFlipX == flipX
-            && m_AxisFlipY == flipY) {
+            && m_AxisFlipY == flipY)
+    {
         return;
     }
 
@@ -1694,7 +1867,8 @@ void CanvasView::SetAxisFlip(bool flipX, bool flipY)
 
 void CanvasView::SetAxisFlips(bool flipX, bool flipY)
 {
-    if (m_AxisFlipX == flipX && m_AxisFlipY == flipY) {
+    if (m_AxisFlipX == flipX && m_AxisFlipY == flipY)
+    {
         return;
     }
 
@@ -1710,7 +1884,8 @@ bool CanvasView::IsRulerVisible() const
 
 void CanvasView::SetRulerVisible(bool visible)
 {
-    if (m_RulerVisible == visible) {
+    if (m_RulerVisible == visible)
+    {
         return;
     }
 
@@ -1731,7 +1906,8 @@ bool CanvasView::IsSnapEnabled() const
 
 void CanvasView::SetSnapEnabled(bool enabled)
 {
-    if (m_SnapEnabled == enabled) {
+    if (m_SnapEnabled == enabled)
+    {
         return;
     }
 
@@ -1747,7 +1923,8 @@ bool CanvasView::IsGridSnapEnabled() const
 
 void CanvasView::SetGridSnapEnabled(bool enabled)
 {
-    if (m_GridSnapEnabled == enabled) {
+    if (m_GridSnapEnabled == enabled)
+    {
         return;
     }
 
@@ -1763,7 +1940,8 @@ bool CanvasView::IsGeometrySnapEnabled() const
 
 void CanvasView::SetGeometrySnapEnabled(bool enabled)
 {
-    if (m_GeometrySnapEnabled == enabled) {
+    if (m_GeometrySnapEnabled == enabled)
+    {
         return;
     }
 
@@ -1789,7 +1967,8 @@ void CanvasView::ResetView()
 
 bool CanvasView::FitAll(qreal marginPixels)
 {
-    if (!m_Document || m_Document->GetItemCount() <= 0) {
+    if (!m_Document || m_Document->GetItemCount() <= 0)
+    {
         return false;
     }
 
@@ -1798,12 +1977,14 @@ bool CanvasView::FitAll(qreal marginPixels)
 
 bool CanvasView::FitSelection(qreal marginPixels)
 {
-    if (!m_Document) {
+    if (!m_Document)
+    {
         return false;
     }
 
     const QVector<ItemId> selectedIds = m_Document->GetSelectedItemIds();
-    if (selectedIds.isEmpty()) {
+    if (selectedIds.isEmpty())
+    {
         return false;
     }
 
@@ -1812,7 +1993,8 @@ bool CanvasView::FitSelection(qreal marginPixels)
 
 void CanvasView::CenterOnWorld(const CanvasVector &worldPosition)
 {
-    if (m_Transform.GetCenter() == worldPosition) {
+    if (m_Transform.GetCenter() == worldPosition)
+    {
         return;
     }
 
@@ -1823,7 +2005,8 @@ void CanvasView::CenterOnWorld(const CanvasVector &worldPosition)
 
 void CanvasView::SetOrthogonalModeInternal(bool enabled)
 {
-    if (m_OrthogonalMode == enabled) {
+    if (m_OrthogonalMode == enabled)
+    {
         return;
     }
 
@@ -1840,8 +2023,10 @@ void CanvasView::resizeEvent(QResizeEvent *event)
 
 void CanvasView::keyPressEvent(QKeyEvent *event)
 {
-    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
-        if (event->key() == Qt::Key_Escape) {
+    if (m_InteractionMode == InteractionMode::PreviewNavigation)
+    {
+        if (event->key() == Qt::Key_Escape)
+        {
             m_PanState = PanState::Idle;
             unsetCursor();
             event->accept();
@@ -1849,7 +2034,8 @@ void CanvasView::keyPressEvent(QKeyEvent *event)
         }
         if (event->key() == Qt::Key_Delete
                 || event->key() == Qt::Key_Backspace
-                || event->key() == Qt::Key_Shift) {
+                || event->key() == Qt::Key_Shift)
+        {
             event->accept();
             return;
         }
@@ -1857,32 +2043,38 @@ void CanvasView::keyPressEvent(QKeyEvent *event)
         return;
     }
 
-    if (CanvasAction *action = ActiveAction()) {
+    if (CanvasAction *action = ActiveAction())
+    {
         action->KeyPressEvent(event);
         if (event->key() == Qt::Key_Escape
-                && m_CurrentAction.data() == action) {
+                && m_CurrentAction.data() == action)
+        {
             CancelCurrentAction();
         }
         event->accept();
         return;
     }
 
-    if (event->key() == Qt::Key_Shift) {
-        if (!event->isAutoRepeat()) {
+    if (event->key() == Qt::Key_Shift)
+    {
+        if (!event->isAutoRepeat())
+        {
             SetOrthogonalModeInternal(true);
         }
         event->accept();
         return;
     }
 
-    if (event->key() == Qt::Key_Escape) {
+    if (event->key() == Qt::Key_Escape)
+    {
         CancelEdit();
         CancelMove();
         m_PanState = PanState::Idle;
         m_SelectionState = SelectionState::Idle;
         m_SelectionModifiers = Qt::NoModifier;
         m_PressedItemId = 0;
-        if (m_Document) {
+        if (m_Document)
+        {
             m_Document->ClearSelection();
         }
         SetOrthogonalModeInternal(false);
@@ -1894,15 +2086,18 @@ void CanvasView::keyPressEvent(QKeyEvent *event)
     }
 
     if (event->key() == Qt::Key_Delete
-            || event->key() == Qt::Key_Backspace) {
+            || event->key() == Qt::Key_Backspace)
+    {
         CancelEdit();
         CancelMove();
         m_SelectionState = SelectionState::Idle;
         m_SelectionModifiers = Qt::NoModifier;
         m_PressedItemId = 0;
-        if (m_Document) {
+        if (m_Document)
+        {
             const QVector<ItemId> selectedIds = m_Document->GetSelectedItemIds();
-            for (const ItemId id : selectedIds) {
+            for (const ItemId id : selectedIds)
+            {
                 m_Document->RemoveItem(id);
             }
         }
@@ -1917,8 +2112,10 @@ void CanvasView::keyPressEvent(QKeyEvent *event)
 
 void CanvasView::keyReleaseEvent(QKeyEvent *event)
 {
-    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
-        if (event->key() == Qt::Key_Shift) {
+    if (m_InteractionMode == InteractionMode::PreviewNavigation)
+    {
+        if (event->key() == Qt::Key_Shift)
+        {
             event->accept();
             return;
         }
@@ -1926,14 +2123,17 @@ void CanvasView::keyReleaseEvent(QKeyEvent *event)
         return;
     }
 
-    if (CanvasAction *action = ActiveAction()) {
+    if (CanvasAction *action = ActiveAction())
+    {
         action->KeyReleaseEvent(event);
         event->accept();
         return;
     }
 
-    if (event->key() == Qt::Key_Shift) {
-        if (!event->isAutoRepeat()) {
+    if (event->key() == Qt::Key_Shift)
+    {
+        if (!event->isAutoRepeat())
+        {
             SetOrthogonalModeInternal(false);
         }
         event->accept();
@@ -1950,18 +2150,23 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
     emit MouseWorldPositionChanged(mouseWorldPosition);
     UpdateSnap(mouseWorldPosition);
 
-    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
-        if (event->button() == Qt::RightButton) {
+    if (m_InteractionMode == InteractionMode::PreviewNavigation)
+    {
+        if (event->button() == Qt::RightButton)
+        {
             event->ignore();
             return;
         }
         if (event->button() == Qt::LeftButton
-                || event->button() == Qt::MiddleButton) {
-            if (m_PanState != PanState::Idle) {
+                || event->button() == Qt::MiddleButton)
+        {
+            if (m_PanState != PanState::Idle)
+            {
                 event->ignore();
                 return;
             }
-            if (isVisible()) {
+            if (isVisible())
+            {
                 setFocus(Qt::MouseFocusReason);
             }
             m_PanState = PanState::Pressed;
@@ -1975,8 +2180,10 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (event->button() == Qt::MiddleButton) {
-        if (isVisible()) {
+    if (event->button() == Qt::MiddleButton)
+    {
+        if (isVisible())
+        {
             setFocus(Qt::MouseFocusReason);
         }
         CancelEdit();
@@ -1992,8 +2199,10 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (CanvasAction *action = ActiveAction()) {
-        if (isVisible()) {
+    if (CanvasAction *action = ActiveAction())
+    {
+        if (isVisible())
+        {
             setFocus(Qt::MouseFocusReason);
         }
         action->MousePressEvent(event);
@@ -2001,7 +2210,8 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (event->button() == Qt::RightButton) {
+    if (event->button() == Qt::RightButton)
+    {
         CancelEdit();
         ResetMoveState();
         m_SelectionState = SelectionState::Idle;
@@ -2011,22 +2221,27 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
         return;
     }
 
-    if (event->button() == Qt::LeftButton) {
-        if (m_PanState != PanState::Idle) {
+    if (event->button() == Qt::LeftButton)
+    {
+        if (m_PanState != PanState::Idle)
+        {
             event->ignore();
             return;
         }
-        if (isVisible()) {
+        if (isVisible())
+        {
             setFocus(Qt::MouseFocusReason);
         }
 
-        if (m_Document && m_Document->GetSelectedItemCount() == 1) {
+        if (m_Document && m_Document->GetSelectedItemCount() == 1)
+        {
             const QVector<ItemId> selectedIds = m_Document->GetSelectedItemIds();
             int pointIndex = -1;
             const EditHandleType handleType = HitTestEditHandle(event->localPos(),
                                                                  &pointIndex);
             if (selectedIds.size() == 1
-                    && handleType == EditHandleType::GroupReferencePoint) {
+                    && handleType == EditHandleType::GroupReferencePoint)
+            {
                 m_SelectionState = SelectionState::Pressed;
                 m_SelectionStartPosition = event->localPos();
                 m_SelectionCurrentPosition = event->localPos();
@@ -2037,7 +2252,8 @@ void CanvasView::mousePressEvent(QMouseEvent *event)
             }
             if (selectedIds.size() == 1
                     && handleType != EditHandleType::None
-                    && BeginEdit(selectedIds.first(), handleType, pointIndex)) {
+                    && BeginEdit(selectedIds.first(), handleType, pointIndex))
+            {
                 m_SelectionState = SelectionState::Editing;
                 m_SelectionStartPosition = event->localPos();
                 m_SelectionCurrentPosition = event->localPos();
@@ -2069,21 +2285,26 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
     emit MouseWorldPositionChanged(mouseWorldPosition);
     UpdateSnap(mouseWorldPosition);
 
-    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
+    if (m_InteractionMode == InteractionMode::PreviewNavigation)
+    {
         if ((event->buttons() & Qt::RightButton)
-                || m_PanState == PanState::Idle) {
+                || m_PanState == PanState::Idle)
+        {
             event->ignore();
             return;
         }
-        if (!(event->buttons() & (Qt::LeftButton | Qt::MiddleButton))) {
+        if (!(event->buttons() & (Qt::LeftButton | Qt::MiddleButton)))
+        {
             m_PanState = PanState::Idle;
             unsetCursor();
             event->ignore();
             return;
         }
-        if (m_PanState == PanState::Pressed) {
+        if (m_PanState == PanState::Pressed)
+        {
             const QPointF delta = currentMousePosition - m_PanStartPosition;
-            if (QPointF::dotProduct(delta, delta) < 49.0) {
+            if (QPointF::dotProduct(delta, delta) < 49.0)
+            {
                 event->accept();
                 return;
             }
@@ -2097,17 +2318,22 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
         return;
     }
 
-    if (m_PanState == PanState::Idle) {
-        if (CanvasAction *action = ActiveAction()) {
+    if (m_PanState == PanState::Idle)
+    {
+        if (CanvasAction *action = ActiveAction())
+        {
             action->MouseMoveEvent(event);
             event->accept();
             return;
         }
     }
 
-    if (m_PanState == PanState::Idle) {
-        if (m_SelectionState == SelectionState::Editing) {
-            if (!(event->buttons() & Qt::LeftButton)) {
+    if (m_PanState == PanState::Idle)
+    {
+        if (m_SelectionState == SelectionState::Editing)
+        {
+            if (!(event->buttons() & Qt::LeftButton))
+            {
                 CancelEdit();
                 m_SelectionState = SelectionState::Idle;
                 m_SelectionModifiers = Qt::NoModifier;
@@ -2125,8 +2351,10 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
             return;
         }
 
-        if (m_SelectionState != SelectionState::Idle) {
-            if (!(event->buttons() & Qt::LeftButton)) {
+        if (m_SelectionState != SelectionState::Idle)
+        {
+            if (!(event->buttons() & Qt::LeftButton))
+            {
                 ResetMoveState();
                 m_SelectionState = SelectionState::Idle;
                 m_SelectionModifiers = Qt::NoModifier;
@@ -2138,41 +2366,53 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
             }
 
             m_SelectionCurrentPosition = currentMousePosition;
-            if (m_SelectionState == SelectionState::Pressed) {
+            if (m_SelectionState == SelectionState::Pressed)
+            {
                 const QPointF delta = currentMousePosition - m_SelectionStartPosition;
                 const qreal distanceSquared = QPointF::dotProduct(delta, delta);
                 if (distanceSquared >= SELECTION_DRAG_THRESHOLD
-                        * SELECTION_DRAG_THRESHOLD) {
-                    if (m_PressedItemId != 0 && m_Document) {
-                        if (!m_Document->IsItemSelected(m_PressedItemId)) {
+                        * SELECTION_DRAG_THRESHOLD)
+                {
+                    if (m_PressedItemId != 0 && m_Document)
+                    {
+                        if (!m_Document->IsItemSelected(m_PressedItemId))
+                        {
                             const bool append = (m_SelectionModifiers
                                                  & Qt::ShiftModifier) != 0;
                             ApplySingleSelection(m_PressedItemId, append);
                         }
 
-                        if (m_Document->IsItemSelected(m_PressedItemId)) {
+                        if (m_Document->IsItemSelected(m_PressedItemId))
+                        {
                             m_MoveItemIds = m_Document->GetSelectedItemIds();
                             m_MoveLastWorldPosition = MapToWorld(
                                         m_SelectionStartPosition);
                             m_MoveTotalWorldDelta = CanvasVector(0.0, 0.0);
                             m_SelectionState = SelectionState::Moving;
                             setCursor(Qt::SizeAllCursor);
-                        } else {
+                        }
+                        else
+                        {
                             m_SelectionState = SelectionState::Dragging;
                         }
-                    } else {
+                    }
+                    else
+                    {
                         m_SelectionState = SelectionState::Dragging;
                     }
                 }
             }
 
-            if (m_SelectionState == SelectionState::Moving) {
+            if (m_SelectionState == SelectionState::Moving)
+            {
                 const CanvasVector currentWorldPosition = MapToWorld(
                             currentMousePosition);
                 const CanvasVector moveDelta = currentWorldPosition
                         - m_MoveLastWorldPosition;
-                if (moveDelta.GetX() != 0.0 || moveDelta.GetY() != 0.0) {
-                    if (m_Document) {
+                if (moveDelta.GetX() != 0.0 || moveDelta.GetY() != 0.0)
+                {
+                    if (m_Document)
+                    {
                         m_Document->TranslateItems(m_MoveItemIds, moveDelta);
                     }
                     m_MoveTotalWorldDelta += moveDelta;
@@ -2189,17 +2429,20 @@ void CanvasView::mouseMoveEvent(QMouseEvent *event)
         return;
     }
 
-    if (!(event->buttons() & Qt::MiddleButton)) {
+    if (!(event->buttons() & Qt::MiddleButton))
+    {
         m_PanState = PanState::Idle;
         unsetCursor();
         QWidget::mouseMoveEvent(event);
         return;
     }
 
-    if (m_PanState == PanState::Pressed) {
+    if (m_PanState == PanState::Pressed)
+    {
         const QPointF delta = currentMousePosition - m_PanStartPosition;
         const qreal distanceSquared = delta.x() * delta.x() + delta.y() * delta.y();
-        if (distanceSquared < 49.0) {
+        if (distanceSquared < 49.0)
+        {
             event->accept();
             return;
         }
@@ -2222,9 +2465,11 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event)
     emit MouseWorldPositionChanged(mouseWorldPosition);
     UpdateSnap(mouseWorldPosition);
 
-    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
+    if (m_InteractionMode == InteractionMode::PreviewNavigation)
+    {
         if (event->button() == Qt::LeftButton
-                || event->button() == Qt::MiddleButton) {
+                || event->button() == Qt::MiddleButton)
+        {
             m_PanState = PanState::Idle;
             unsetCursor();
             event->accept();
@@ -2234,32 +2479,37 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event)
         return;
     }
 
-    if (event->button() == Qt::MiddleButton && m_PanState != PanState::Idle) {
+    if (event->button() == Qt::MiddleButton && m_PanState != PanState::Idle)
+    {
         m_PanState = PanState::Idle;
         unsetCursor();
         event->accept();
         return;
     }
 
-    if (event->button() == Qt::MiddleButton) {
+    if (event->button() == Qt::MiddleButton)
+    {
         event->accept();
         return;
     }
 
-    if (CanvasAction *action = ActiveAction()) {
+    if (CanvasAction *action = ActiveAction())
+    {
         action->MouseReleaseEvent(event);
         event->accept();
         return;
     }
 
-    if (event->button() == Qt::RightButton) {
+    if (event->button() == Qt::RightButton)
+    {
         emit ContextMenuRequested(MapToWorld(event->localPos()), event->pos());
         event->accept();
         return;
     }
 
     if (event->button() == Qt::LeftButton
-            && m_SelectionState == SelectionState::Editing) {
+            && m_SelectionState == SelectionState::Editing)
+    {
         ResetEditState();
         m_SelectionState = SelectionState::Idle;
         m_SelectionModifiers = Qt::NoModifier;
@@ -2271,9 +2521,11 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event)
     }
 
     if (event->button() == Qt::LeftButton
-            && m_SelectionState != SelectionState::Idle) {
+            && m_SelectionState != SelectionState::Idle)
+    {
         m_SelectionCurrentPosition = event->localPos();
-        if (m_SelectionState == SelectionState::Moving) {
+        if (m_SelectionState == SelectionState::Moving)
+        {
             ResetMoveState();
             m_SelectionState = SelectionState::Idle;
             m_SelectionModifiers = Qt::NoModifier;
@@ -2285,11 +2537,14 @@ void CanvasView::mouseReleaseEvent(QMouseEvent *event)
         }
 
         const bool append = (m_SelectionModifiers & Qt::ShiftModifier) != 0;
-        if (m_SelectionState == SelectionState::Dragging) {
+        if (m_SelectionState == SelectionState::Dragging)
+        {
             ApplyWindowSelection(QRectF(m_SelectionStartPosition,
                                         m_SelectionCurrentPosition),
                                  append);
-        } else {
+        }
+        else
+        {
             ApplySingleSelection(HitTestItem(m_SelectionCurrentPosition), append);
         }
 
@@ -2312,13 +2567,16 @@ void CanvasView::mouseDoubleClickEvent(QMouseEvent *event)
     UpdateSnap(mouseWorldPosition);
 
     if (m_InteractionMode == InteractionMode::PreviewNavigation
-            && event->button() == Qt::LeftButton) {
+            && event->button() == Qt::LeftButton)
+    {
         FitAll(10.0);
         event->accept();
         return;
     }
-    if (m_InteractionMode != InteractionMode::PreviewNavigation) {
-        if (CanvasAction *action = ActiveAction()) {
+    if (m_InteractionMode != InteractionMode::PreviewNavigation)
+    {
+        if (CanvasAction *action = ActiveAction())
+        {
             action->MouseDoubleClickEvent(event);
             event->accept();
             return;
@@ -2330,7 +2588,8 @@ void CanvasView::mouseDoubleClickEvent(QMouseEvent *event)
 void CanvasView::paintEvent(QPaintEvent *event)
 {
     Q_UNUSED(event)
-    if (size().isEmpty()) {
+    if (size().isEmpty())
+    {
         return;
     }
 
@@ -2341,12 +2600,15 @@ void CanvasView::paintEvent(QPaintEvent *event)
 
     // 固定本帧的 Renderer 顺序；绘制回调中的集合变更从下一帧生效。
     QVector<QPointer<CanvasRenderer>> customRenderers;
-    if (m_CustomRenderer) {
+    if (m_CustomRenderer)
+    {
         customRenderers.append(m_CustomRenderer);
     }
     for (const CanvasViewPrivate::AdditionalRendererEntry &entry :
-         m_PrivateData->m_AdditionalCustomRenderers) {
-        if (entry.renderer) {
+         m_PrivateData->m_AdditionalCustomRenderers)
+    {
+        if (entry.renderer)
+        {
             customRenderers.append(entry.renderer);
         }
     }
@@ -2364,15 +2626,18 @@ void CanvasView::paintEvent(QPaintEvent *event)
     painter.fillRect(rect(), m_BackgroundColor);
     painter.setRenderHint(QPainter::Antialiasing, true);
 
-    for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
-        if (!renderer) {
+    for (const QPointer<CanvasRenderer> &renderer : customRenderers)
+    {
+        if (!renderer)
+        {
             continue;
         }
         painter.save();
         renderer->RenderBackground(painter, viewportContext);
         painter.restore();
     }
-    if (m_GridVisible) {
+    if (m_GridVisible)
+    {
         painter.save();
         painter.setRenderHint(QPainter::Antialiasing, false);
         DrawBackgroundLayer(painter);
@@ -2387,19 +2652,24 @@ void CanvasView::paintEvent(QPaintEvent *event)
     bool cacheHit = false;
     CanvasGeometryCacheMiss missReason = CanvasGeometryCacheMiss::Invalid;
     if (IsGeometryCacheUsable(cache, m_Document.data(), m_Transform,
-                              devicePixelRatio, logicalDpiX(), m_LineWidthVisible)) {
+                              devicePixelRatio, logicalDpiX(), m_LineWidthVisible))
+    {
         geometryTransform = GetGeometryBlitTransform(cache, m_Transform, viewportSizeF);
         cacheHit = IsGeometryCacheCovering(cache, geometryTransform, viewportSizeF);
-        if (cacheHit) {
+        if (cacheHit)
+        {
             missReason = CanvasGeometryCacheMiss::None;
-        } else {
+        }
+        else
+        {
             missReason = CanvasGeometryCacheMiss::NotCovering;
         }
     }
     // 缩放时若精确重绘足够快，则直接精确重绘，线宽不再因拉伸而失真，也无需等待停止缩放
     const bool zoomChanged = cacheHit && cache.zoom != m_Transform.GetZoom();
     if (zoomChanged && m_PrivateData->m_LastGeometryRenderMicroseconds
-            <= kInteractiveExactRenderBudgetMicroseconds) {
+            <= kInteractiveExactRenderBudgetMicroseconds)
+    {
         cacheHit = false;
         missReason = CanvasGeometryCacheMiss::ZoomExactRedraw;
     }
@@ -2407,7 +2677,8 @@ void CanvasView::paintEvent(QPaintEvent *event)
     statistics.geometryCacheHit = cacheHit;
     statistics.geometryScaled = cacheHit && zoomChanged;
 
-    if (!cacheHit) {
+    if (!cacheHit)
+    {
         QElapsedTimer renderTimer;
         renderTimer.start();
         RenderGeometryCache(&cache, &m_PrivateData->m_GeometryLayer,
@@ -2431,15 +2702,18 @@ void CanvasView::paintEvent(QPaintEvent *event)
     painter.save();
     painter.setRenderHint(QPainter::Antialiasing, true);
     DrawOverlayLayer(painter);
-    for (const QPointer<CanvasRenderer> &renderer : customRenderers) {
-        if (!renderer) {
+    for (const QPointer<CanvasRenderer> &renderer : customRenderers)
+    {
+        if (!renderer)
+        {
             continue;
         }
         painter.save();
         renderer->RenderOverlay(painter, viewportContext);
         painter.restore();
     }
-    if (CanvasAction *action = ActiveAction()) {
+    if (CanvasAction *action = ActiveAction())
+    {
         painter.save();
         action->RenderOverlay(painter, viewportContext);
         painter.restore();
@@ -2447,9 +2721,11 @@ void CanvasView::paintEvent(QPaintEvent *event)
     painter.restore();
 
     // 缩放期间显示的是拉伸图像，停止缩放后定时做一次精确重绘
-    if (statistics.geometryScaled) {
+    if (statistics.geometryScaled)
+    {
         QTimer *&timer = m_PrivateData->m_ExactRedrawTimer;
-        if (!timer) {
+        if (!timer)
+        {
             timer = new QTimer;
             timer->setSingleShot(true);
             connect(timer, &QTimer::timeout, this, [this]() {
@@ -2462,7 +2738,8 @@ void CanvasView::paintEvent(QPaintEvent *event)
 
     statistics.itemCount = m_Document ? m_Document->GetItemCount() : 0;
     statistics.frameMicroseconds = frameTimer.nsecsElapsed() / 1000;
-    if (m_PrivateData->m_FrameStatisticsEnabled) {
+    if (m_PrivateData->m_FrameStatisticsEnabled)
+    {
         m_PrivateData->m_LastFrame = statistics;
         emit FrameStatisticsUpdated(statistics);
     }
@@ -2471,7 +2748,8 @@ void CanvasView::paintEvent(QPaintEvent *event)
 void CanvasView::SetFrameStatisticsEnabled(bool enabled)
 {
     m_PrivateData->m_FrameStatisticsEnabled = enabled;
-    if (!enabled) {
+    if (!enabled)
+    {
         m_PrivateData->m_LastFrame = CanvasFrameStatistics();
     }
 }
@@ -2489,7 +2767,8 @@ CanvasFrameStatistics CanvasView::GetLastFrameStatistics() const
 
 void CanvasView::wheelEvent(QWheelEvent *event)
 {
-    if (size().isEmpty()) {
+    if (size().isEmpty())
+    {
         event->ignore();
         return;
     }
@@ -2498,11 +2777,15 @@ void CanvasView::wheelEvent(QWheelEvent *event)
     const QPoint angleDelta = event->angleDelta();
     const Qt::KeyboardModifiers modifiers = event->modifiers();
 
-    if (m_InteractionMode == InteractionMode::PreviewNavigation) {
-        if (!pixelDelta.isNull()) {
-            if (modifiers == Qt::ControlModifier) {
+    if (m_InteractionMode == InteractionMode::PreviewNavigation)
+    {
+        if (!pixelDelta.isNull())
+        {
+            if (modifiers == Qt::ControlModifier)
+            {
                 const qreal steps = -static_cast<qreal>(pixelDelta.y()) / 100.0;
-                if (qFuzzyIsNull(steps)) {
+                if (qFuzzyIsNull(steps))
+                {
                     event->ignore();
                     return;
                 }
@@ -2510,31 +2793,43 @@ void CanvasView::wheelEvent(QWheelEvent *event)
                         ? 1.0 + steps : 1.0 / (1.0 - steps);
                 m_Transform.ZoomAt(GetWheelEventPosition(event), QSizeF(size()), factor);
                 emit ZoomChanged(m_Transform.GetZoom());
-            } else {
+            }
+            else
+            {
                 m_Transform.PanBy(QPointF(pixelDelta.x(), pixelDelta.y()));
             }
-        } else {
+        }
+        else
+        {
             const bool horizontal = qAbs(static_cast<qint64>(angleDelta.x()))
                     > qAbs(static_cast<qint64>(angleDelta.y()));
             const int delta = horizontal ? angleDelta.x() : angleDelta.y();
-            if (delta == 0) {
+            if (delta == 0)
+            {
                 event->ignore();
                 return;
             }
-            if (modifiers == Qt::NoModifier) {
+            if (modifiers == Qt::NoModifier)
+            {
                 const qreal factor = std::pow(1.137,
                                                static_cast<qreal>(delta) / 120.0);
                 m_Transform.ZoomAt(GetWheelEventPosition(event), QSizeF(size()), factor);
                 emit ZoomChanged(m_Transform.GetZoom());
-            } else if (modifiers == Qt::ControlModifier) {
+            }
+            else if (modifiers == Qt::ControlModifier)
+            {
                 m_Transform.PanBy(horizontal
                                   ? QPointF(-angleDelta.x() / 4.0, 0.0)
                                   : QPointF(0.0, angleDelta.y() / 4.0));
-            } else if (modifiers == Qt::ShiftModifier) {
+            }
+            else if (modifiers == Qt::ShiftModifier)
+            {
                 m_Transform.PanBy(horizontal
                                   ? QPointF(0.0, angleDelta.x() / 4.0)
                                   : QPointF(-angleDelta.y() / 4.0, 0.0));
-            } else {
+            }
+            else
+            {
                 event->ignore();
                 return;
             }
@@ -2545,15 +2840,20 @@ void CanvasView::wheelEvent(QWheelEvent *event)
         return;
     }
 
-    if (modifiers == Qt::ControlModifier) {
+    if (modifiers == Qt::ControlModifier)
+    {
         qreal zoomSteps = 0.0;
-        if (!pixelDelta.isNull()) {
+        if (!pixelDelta.isNull())
+        {
             zoomSteps = -static_cast<qreal>(pixelDelta.y()) / 100.0;
-        } else {
+        }
+        else
+        {
             zoomSteps = static_cast<qreal>(angleDelta.y()) / 120.0;
         }
 
-        if (qFuzzyIsNull(zoomSteps)) {
+        if (qFuzzyIsNull(zoomSteps))
+        {
             event->ignore();
             return;
         }
@@ -2569,9 +2869,11 @@ void CanvasView::wheelEvent(QWheelEvent *event)
         return;
     }
 
-    if (modifiers == Qt::ShiftModifier) {
+    if (modifiers == Qt::ShiftModifier)
+    {
         const QPoint delta = !pixelDelta.isNull() ? pixelDelta : angleDelta / 4;
-        if (delta.isNull()) {
+        if (delta.isNull())
+        {
             event->ignore();
             return;
         }
@@ -2586,7 +2888,8 @@ void CanvasView::wheelEvent(QWheelEvent *event)
         return;
     }
 
-    if (!pixelDelta.isNull()) {
+    if (!pixelDelta.isNull())
+    {
         m_Transform.PanBy(QPointF(pixelDelta.x(), -pixelDelta.y()));
         UpdateSnap(MapToWorld(m_CurrentMousePosition));
         update();
@@ -2595,7 +2898,8 @@ void CanvasView::wheelEvent(QWheelEvent *event)
     }
 
     const qreal steps = static_cast<qreal>(angleDelta.y()) / 120.0;
-    if (qFuzzyIsNull(steps)) {
+    if (qFuzzyIsNull(steps))
+    {
         event->ignore();
         return;
     }
@@ -2627,7 +2931,8 @@ void CanvasView::UpdateSnap(const CanvasVector &worldPosition)
 {
     CanvasSnapResult result;
     if (m_InteractionMode == InteractionMode::Edit
-            && m_SnapEnabled && !size().isEmpty()) {
+            && m_SnapEnabled && !size().isEmpty())
+    {
         const qreal zoom = qMax<qreal>(m_Transform.GetZoom(),
                                        CanvasTransform::GetMinimumZoom());
         const qreal toleranceWorld = 10.0 / zoom;
@@ -2641,7 +2946,8 @@ void CanvasView::UpdateSnap(const CanvasVector &worldPosition)
                                          m_GridSnapEnabled);
     }
 
-    if (result == m_CurrentSnapResult) {
+    if (result == m_CurrentSnapResult)
+    {
         return;
     }
 
@@ -2655,11 +2961,13 @@ bool CanvasView::FitWorldRect(const QRectF &worldRect, qreal marginPixels)
     const qreal oldZoom = m_Transform.GetZoom();
     if (!m_Transform.FitRect(worldRect,
                              QSizeF(size()),
-                             marginPixels)) {
+                             marginPixels))
+    {
         return false;
     }
 
-    if (!qFuzzyCompare(oldZoom + 1.0, m_Transform.GetZoom() + 1.0)) {
+    if (!qFuzzyCompare(oldZoom + 1.0, m_Transform.GetZoom() + 1.0))
+    {
         emit ZoomChanged(m_Transform.GetZoom());
     }
     UpdateSnap(MapToWorld(m_CurrentMousePosition));
@@ -2674,14 +2982,16 @@ void CanvasView::DrawBackgroundLayer(QPainter &painter) const
 
 void CanvasView::DrawGrid(QPainter &painter) const
 {
-    if (width() <= 0 || height() <= 0) {
+    if (width() <= 0 || height() <= 0)
+    {
         return;
     }
 
     const QSizeF viewportSize(size());
     const CanvasVector first = m_Transform.MapToWorld(QPointF(0.0, 0.0), viewportSize);
     const CanvasVector last = m_Transform.MapToWorld(QPointF(width(), height()), viewportSize);
-    if (!first.IsValid() || !last.IsValid()) {
+    if (!first.IsValid() || !last.IsValid())
+    {
         return;
     }
     const qreal left = qMin(first.GetX(), last.GetX());
@@ -2706,37 +3016,46 @@ void CanvasView::DrawGrid(QPainter &painter) const
                                                      metaSpacing,
                                                      &firstY,
                                                      &lastY);
-    if (!hasXRange && !hasYRange) {
+    if (!hasXRange && !hasYRange)
+    {
         return;
     }
 
     painter.setPen(QPen(QColor(64, 64, 64), 1.0, Qt::DashLine));
-    if (hasXRange) {
-        for (qint64 x = firstX; x <= lastX; ++x) {
+    if (hasXRange)
+    {
+        for (qint64 x = firstX; x <= lastX; ++x)
+        {
             const qreal worldX = static_cast<qreal>(x) * metaSpacing;
-            if (!std::isfinite(static_cast<double>(worldX))) {
+            if (!std::isfinite(static_cast<double>(worldX)))
+            {
                 continue;
             }
             const QPointF start = m_Transform.MapFromWorld(
                         CanvasVector(worldX, bottom), viewportSize);
             const QPointF end = m_Transform.MapFromWorld(
                         CanvasVector(worldX, top), viewportSize);
-            if (IsFinitePoint(start) && IsFinitePoint(end)) {
+            if (IsFinitePoint(start) && IsFinitePoint(end))
+            {
                 painter.drawLine(QLineF(start, end));
             }
         }
     }
-    if (hasYRange) {
-        for (qint64 y = firstY; y <= lastY; ++y) {
+    if (hasYRange)
+    {
+        for (qint64 y = firstY; y <= lastY; ++y)
+        {
             const qreal worldY = static_cast<qreal>(y) * metaSpacing;
-            if (!std::isfinite(static_cast<double>(worldY))) {
+            if (!std::isfinite(static_cast<double>(worldY)))
+            {
                 continue;
             }
             const QPointF start = m_Transform.MapFromWorld(
                         CanvasVector(left, worldY), viewportSize);
             const QPointF end = m_Transform.MapFromWorld(
                         CanvasVector(right, worldY), viewportSize);
-            if (IsFinitePoint(start) && IsFinitePoint(end)) {
+            if (IsFinitePoint(start) && IsFinitePoint(end))
+            {
                 painter.drawLine(QLineF(start, end));
             }
         }
@@ -2745,19 +3064,23 @@ void CanvasView::DrawGrid(QPainter &painter) const
 
 void CanvasView::DrawOverlayLayer(QPainter &painter) const
 {
-    if (m_InteractionMode == InteractionMode::Edit) {
+    if (m_InteractionMode == InteractionMode::Edit)
+    {
         DrawSelectionBox(painter);
     }
 
-    if (m_AxisVisible) {
+    if (m_AxisVisible)
+    {
         DrawAxes(painter);
     }
 
-    if (m_RulerVisible) {
+    if (m_RulerVisible)
+    {
         DrawRulerLabels(painter);
     }
 
-    if (m_InteractionMode == InteractionMode::Edit) {
+    if (m_InteractionMode == InteractionMode::Edit)
+    {
         DrawEditHandles(painter);
         DrawSnapMarker(painter);
     }
@@ -2766,13 +3089,15 @@ void CanvasView::DrawOverlayLayer(QPainter &painter) const
 void CanvasView::DrawSelectionBox(QPainter &painter) const
 {
     if (m_InteractionMode != InteractionMode::Edit
-            || m_SelectionState != SelectionState::Dragging) {
+            || m_SelectionState != SelectionState::Dragging)
+    {
         return;
     }
 
     const QRectF selectionRect = QRectF(m_SelectionStartPosition,
                                        m_SelectionCurrentPosition).normalized();
-    if (selectionRect.isNull()) {
+    if (selectionRect.isNull())
+    {
         return;
     }
 
@@ -2793,7 +3118,8 @@ void CanvasView::DrawSelectionBox(QPainter &painter) const
 
 void CanvasView::DrawAxes(QPainter &painter) const
 {
-    if (width() <= 0 || height() <= 0) {
+    if (width() <= 0 || height() <= 0)
+    {
         return;
     }
 
@@ -2806,12 +3132,14 @@ void CanvasView::DrawAxes(QPainter &painter) const
     const QColor axisYColor(0, 255, 0, 80);
     const QColor axisArrowColor(220, 220, 220);
 
-    if (origin.y() >= 0.0 && origin.y() <= viewportHeight) {
+    if (origin.y() >= 0.0 && origin.y() <= viewportHeight)
+    {
         painter.setPen(QPen(axisXColor, 1.0, Qt::SolidLine));
         painter.drawLine(QLineF(0.0, origin.y(), viewportWidth, origin.y()));
     }
 
-    if (origin.x() >= 0.0 && origin.x() <= viewportWidth) {
+    if (origin.x() >= 0.0 && origin.x() <= viewportWidth)
+    {
         painter.setPen(QPen(axisYColor, 1.0, Qt::SolidLine));
         painter.drawLine(QLineF(origin.x(), 0.0, origin.x(), viewportHeight));
     }
@@ -2887,14 +3215,16 @@ void CanvasView::DrawAxes(QPainter &painter) const
 
 void CanvasView::DrawRulerLabels(QPainter &painter) const
 {
-    if (width() <= 0 || height() <= 0) {
+    if (width() <= 0 || height() <= 0)
+    {
         return;
     }
 
     const QSizeF viewportSize(size());
     const CanvasVector first = m_Transform.MapToWorld(QPointF(0.0, 0.0), viewportSize);
     const CanvasVector last = m_Transform.MapToWorld(QPointF(width(), height()), viewportSize);
-    if (!first.IsValid() || !last.IsValid()) {
+    if (!first.IsValid() || !last.IsValid())
+    {
         return;
     }
     const qreal left = qMin(first.GetX(), last.GetX());
@@ -2919,7 +3249,8 @@ void CanvasView::DrawRulerLabels(QPainter &painter) const
                                                      rulerSpacing,
                                                      &firstY,
                                                      &lastY);
-    if (!hasXRange && !hasYRange) {
+    if (!hasXRange && !hasYRange)
+    {
         return;
     }
 
@@ -2927,15 +3258,19 @@ void CanvasView::DrawRulerLabels(QPainter &painter) const
     painter.setPen(QColor(255, 255, 0));
     painter.setFont(QFont(QStringLiteral("Microsoft YaHei"), 14));
 
-    if (hasXRange) {
-        for (qint64 x = firstX; x <= lastX; ++x) {
+    if (hasXRange)
+    {
+        for (qint64 x = firstX; x <= lastX; ++x)
+        {
             const qreal worldX = static_cast<qreal>(x) * rulerSpacing;
-            if (!std::isfinite(static_cast<double>(worldX))) {
+            if (!std::isfinite(static_cast<double>(worldX)))
+            {
                 continue;
             }
             const qreal viewportX = m_Transform.MapFromWorld(
                         CanvasVector(worldX, 0.0), viewportSize).x();
-            if (!std::isfinite(static_cast<double>(viewportX))) {
+            if (!std::isfinite(static_cast<double>(viewportX)))
+            {
                 continue;
             }
             painter.drawText(QRectF(viewportX - 50.0,
@@ -2947,15 +3282,19 @@ void CanvasView::DrawRulerLabels(QPainter &painter) const
         }
     }
 
-    if (hasYRange) {
-        for (qint64 y = firstY; y <= lastY; ++y) {
+    if (hasYRange)
+    {
+        for (qint64 y = firstY; y <= lastY; ++y)
+        {
             const qreal worldY = static_cast<qreal>(y) * rulerSpacing;
-            if (!std::isfinite(static_cast<double>(worldY))) {
+            if (!std::isfinite(static_cast<double>(worldY)))
+            {
                 continue;
             }
             const qreal viewportY = m_Transform.MapFromWorld(
                         CanvasVector(0.0, worldY), viewportSize).y();
-            if (!std::isfinite(static_cast<double>(viewportY))) {
+            if (!std::isfinite(static_cast<double>(viewportY)))
+            {
                 continue;
             }
             painter.drawText(QRectF(0.0,
@@ -2974,18 +3313,21 @@ void CanvasView::DrawEditHandles(QPainter &painter) const
 {
     if (m_InteractionMode != InteractionMode::Edit
             || !m_Document || m_Document->GetSelectedItemCount() != 1
-            || size().isEmpty()) {
+            || size().isEmpty())
+    {
         return;
     }
 
     const QVector<ItemId> selectedIds = m_Document->GetSelectedItemIds();
-    if (selectedIds.size() != 1) {
+    if (selectedIds.size() != 1)
+    {
         return;
     }
 
     const ItemId itemId = selectedIds.first();
     const QVector<EditHandlePosition> handles = GetEditHandlePositions(itemId);
-    if (handles.isEmpty()) {
+    if (handles.isEmpty())
+    {
         return;
     }
 
@@ -2994,7 +3336,8 @@ void CanvasView::DrawEditHandles(QPainter &painter) const
     painter.save();
     painter.setPen(QPen(Qt::white, 1.0, Qt::SolidLine));
 
-    for (const EditHandlePosition &handle : handles) {
+    for (const EditHandlePosition &handle : handles)
+    {
         const QPointF viewportPosition = m_Transform.MapFromWorld(
                     handle.worldPosition,
                     viewportSize);
@@ -3012,9 +3355,12 @@ void CanvasView::DrawEditHandles(QPainter &painter) const
                                 viewportPosition.y() - halfSize,
                                 EDIT_HANDLE_SIZE_PIXELS,
                                 EDIT_HANDLE_SIZE_PIXELS);
-        if (handle.type == EditHandleType::CircleRadius) {
+        if (handle.type == EditHandleType::CircleRadius)
+        {
             painter.drawEllipse(handleRect);
-        } else {
+        }
+        else
+        {
             painter.drawRect(handleRect);
         }
     }
@@ -3025,7 +3371,8 @@ void CanvasView::DrawEditHandles(QPainter &painter) const
 void CanvasView::DrawSnapMarker(QPainter &painter) const
 {
     if (m_InteractionMode != InteractionMode::Edit
-            || !m_CurrentSnapResult.IsValid() || size().isEmpty()) {
+            || !m_CurrentSnapResult.IsValid() || size().isEmpty())
+    {
         return;
     }
 
@@ -3041,9 +3388,12 @@ void CanvasView::DrawSnapMarker(QPainter &painter) const
     painter.save();
     painter.setPen(QPen(Qt::white, 1.0, Qt::SolidLine));
     painter.setBrush(CADLAB_SNAP_MARKER_COLOR);
-    if (m_CurrentSnapResult.type == CanvasSnapType::Grid) {
+    if (m_CurrentSnapResult.type == CanvasSnapType::Grid)
+    {
         painter.drawRect(markerRect);
-    } else {
+    }
+    else
+    {
         painter.drawEllipse(markerRect);
     }
     painter.restore();
@@ -3053,27 +3403,34 @@ QVector<CanvasView::EditHandlePosition> CanvasView::GetEditHandlePositions(
         ItemId id) const
 {
     QVector<EditHandlePosition> handles;
-    if (!m_Document || id == 0) {
+    if (!m_Document || id == 0)
+    {
         return handles;
     }
 
     const CanvasEntity *entity = m_Document->GetEntity(id);
-    if (!entity || !entity->GetStyle().visible || !entity->IsValid()) {
+    if (!entity || !entity->GetStyle().visible || !entity->IsValid())
+    {
         return handles;
     }
 
-    switch (entity->GetType()) {
-    case CanvasEntityType::Point: {
+    switch (entity->GetType())
+    {
+    case CanvasEntityType::Point:
+    {
         const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(entity);
-        if (point) {
+        if (point)
+        {
             handles.append({EditHandleType::PointCenter,
                             point->GetPosition()});
         }
         break;
     }
-    case CanvasEntityType::Line: {
+    case CanvasEntityType::Line:
+    {
         const CanvasLine *line = dynamic_cast<const CanvasLine *>(entity);
-        if (line) {
+        if (line)
+        {
             handles.append({EditHandleType::LineStart,
                             line->GetStartPoint()});
             handles.append({EditHandleType::LineEnd,
@@ -3081,9 +3438,11 @@ QVector<CanvasView::EditHandlePosition> CanvasView::GetEditHandlePositions(
         }
         break;
     }
-    case CanvasEntityType::Arc: {
+    case CanvasEntityType::Arc:
+    {
         const CanvasArc *arc = dynamic_cast<const CanvasArc *>(entity);
-        if (arc) {
+        if (arc)
+        {
             handles.append({EditHandleType::ArcCenter,
                             arc->GetCenter()});
             handles.append({EditHandleType::ArcStart,
@@ -3093,22 +3452,27 @@ QVector<CanvasView::EditHandlePosition> CanvasView::GetEditHandlePositions(
         }
         break;
     }
-    case CanvasEntityType::Circle: {
+    case CanvasEntityType::Circle:
+    {
         const CanvasCircle *circle =
                 dynamic_cast<const CanvasCircle *>(entity);
-        if (circle) {
+        if (circle)
+        {
             handles.append({EditHandleType::CircleCenter,
                             circle->GetCenter()});
-            handles.append({EditHandleType::CircleRadius,
+            handles.append(
+                {EditHandleType::CircleRadius,
                             circle->GetCenter()
                             + CanvasVector(circle->GetRadius(), 0.0)});
         }
         break;
     }
-    case CanvasEntityType::Ellipse: {
+    case CanvasEntityType::Ellipse:
+    {
         const CanvasEllipse *ellipse =
                 dynamic_cast<const CanvasEllipse *>(entity);
-        if (!ellipse) {
+        if (!ellipse)
+        {
             break;
         }
 
@@ -3123,8 +3487,10 @@ QVector<CanvasView::EditHandlePosition> CanvasView::GetEditHandlePositions(
                         center + majorAxis});
         handles.append({EditHandleType::EllipseMinorAxis,
                         center + minorAxis});
-        if (ellipse->IsArc()) {
-            handles.append({EditHandleType::EllipseStart,
+        if (ellipse->IsArc())
+        {
+            handles.append(
+                {EditHandleType::EllipseStart,
                             CalculateEllipsePoint(*ellipse,
                                                   ellipse->GetStartParameter())});
             handles.append({EditHandleType::EllipseEnd,
@@ -3133,21 +3499,26 @@ QVector<CanvasView::EditHandlePosition> CanvasView::GetEditHandlePositions(
         }
         break;
     }
-    case CanvasEntityType::Polyline: {
+    case CanvasEntityType::Polyline:
+    {
         const CanvasPolyline *polyline =
                 dynamic_cast<const CanvasPolyline *>(entity);
-        if (!polyline) {
+        if (!polyline)
+        {
             break;
         }
         const int vertexCount = polyline->IsClosed()
                 ? polyline->GetSegmentCount()
                 : polyline->GetSegmentCount() + 1;
-        for (int index = 0; index < vertexCount; ++index) {
-            if (!IsEditablePolylineVertex(*polyline, index)) {
+        for (int index = 0; index < vertexCount; ++index)
+        {
+            if (!IsEditablePolylineVertex(*polyline, index))
+            {
                 continue;
             }
             const CanvasVector position = GetPolylineVertex(*polyline, index);
-            if (position.IsValid()) {
+            if (position.IsValid())
+            {
                 handles.append({EditHandleType::PolylineVertex,
                                 position,
                                 index});
@@ -3155,13 +3526,16 @@ QVector<CanvasView::EditHandlePosition> CanvasView::GetEditHandlePositions(
         }
         break;
     }
-    case CanvasEntityType::Spline: {
+    case CanvasEntityType::Spline:
+    {
         const CanvasSpline *spline =
                 dynamic_cast<const CanvasSpline *>(entity);
-        if (spline) {
+        if (spline)
+        {
             const QVector<CanvasVector> &controlPoints =
                     spline->GetControlPoints();
-            for (int index = 0; index < controlPoints.size(); ++index) {
+            for (int index = 0; index < controlPoints.size(); ++index)
+            {
                 handles.append({EditHandleType::SplineControlPoint,
                                 controlPoints.at(index),
                                 index});
@@ -3169,13 +3543,16 @@ QVector<CanvasView::EditHandlePosition> CanvasView::GetEditHandlePositions(
         }
         break;
     }
-    case CanvasEntityType::GroupContainer: {
+    case CanvasEntityType::GroupContainer:
+    {
         const CanvasGroupContainer *group =
                 dynamic_cast<const CanvasGroupContainer *>(entity);
-        if (group) {
+        if (group)
+        {
             const CanvasVector referencePoint =
                     GetFirstEntityReferencePoint(*group);
-            if (referencePoint.IsValid()) {
+            if (referencePoint.IsValid())
+            {
                 handles.append({EditHandleType::GroupReferencePoint,
                                 referencePoint});
             }
@@ -3193,16 +3570,19 @@ CanvasView::EditHandleType CanvasView::HitTestEditHandle(
         const QPointF &viewportPosition,
         int *pointIndex) const
 {
-    if (pointIndex) {
+    if (pointIndex)
+    {
         *pointIndex = -1;
     }
     if (!m_Document || m_Document->GetSelectedItemCount() != 1
-            || size().isEmpty()) {
+            || size().isEmpty())
+    {
         return EditHandleType::None;
     }
 
     const QVector<ItemId> selectedIds = m_Document->GetSelectedItemIds();
-    if (selectedIds.size() != 1) {
+    if (selectedIds.size() != 1)
+    {
         return EditHandleType::None;
     }
 
@@ -3215,7 +3595,8 @@ CanvasView::EditHandleType CanvasView::HitTestEditHandle(
     int hitPointIndex = -1;
     const QSizeF viewportSize(size());
 
-    for (int index = handles.size() - 1; index >= 0; --index) {
+    for (int index = handles.size() - 1; index >= 0; --index)
+    {
         const EditHandlePosition &handle = handles.at(index);
         const QPointF handlePosition = m_Transform.MapFromWorld(
                     handle.worldPosition,
@@ -3223,14 +3604,16 @@ CanvasView::EditHandleType CanvasView::HitTestEditHandle(
         const QPointF delta = viewportPosition - handlePosition;
         const qreal distanceSquared = QPointF::dotProduct(delta, delta);
         if (distanceSquared <= toleranceSquared
-                && distanceSquared < bestDistanceSquared) {
+                && distanceSquared < bestDistanceSquared)
+        {
             bestDistanceSquared = distanceSquared;
             hitType = handle.type;
             hitPointIndex = handle.pointIndex;
         }
     }
 
-    if (pointIndex) {
+    if (pointIndex)
+    {
         *pointIndex = hitPointIndex;
     }
     return hitType;
@@ -3241,18 +3624,21 @@ bool CanvasView::BeginEdit(ItemId id,
                            int pointIndex)
 {
     if (!m_Document || id == 0 || handleType == EditHandleType::None
-            || !m_Document->IsItemSelected(id)) {
+            || !m_Document->IsItemSelected(id))
+    {
         return false;
     }
 
     const CanvasEntity *entity = m_Document->GetEntity(id);
-    if (!entity || !entity->IsValid()) {
+    if (!entity || !entity->IsValid())
+    {
         return false;
     }
 
     m_EditOriginalEntity = entity->Clone();
     if (m_EditOriginalEntity.isNull()
-            || m_EditOriginalEntity->GetType() != entity->GetType()) {
+            || m_EditOriginalEntity->GetType() != entity->GetType())
+    {
         ResetEditState();
         return false;
     }
@@ -3264,7 +3650,8 @@ bool CanvasView::BeginEdit(ItemId id,
     m_EditGeometryChanged = false;
 
     bool isHandleValid = false;
-    switch (m_EditEntityType) {
+    switch (m_EditEntityType)
+    {
     case CanvasEntityType::Point:
         isHandleValid = handleType == EditHandleType::PointCenter;
         break;
@@ -3288,7 +3675,8 @@ bool CanvasView::BeginEdit(ItemId id,
                 || handleType == EditHandleType::EllipseStart
                 || handleType == EditHandleType::EllipseEnd;
         break;
-    case CanvasEntityType::Polyline: {
+    case CanvasEntityType::Polyline:
+    {
         const CanvasPolyline *polyline =
                 dynamic_cast<const CanvasPolyline *>(
                     m_EditOriginalEntity.data());
@@ -3297,7 +3685,8 @@ bool CanvasView::BeginEdit(ItemId id,
                 && IsEditablePolylineVertex(*polyline, pointIndex);
         break;
     }
-    case CanvasEntityType::Spline: {
+    case CanvasEntityType::Spline:
+    {
         const CanvasSpline *spline =
                 dynamic_cast<const CanvasSpline *>(m_EditOriginalEntity.data());
         isHandleValid = spline
@@ -3311,7 +3700,8 @@ bool CanvasView::BeginEdit(ItemId id,
         break;
     }
 
-    if (!isHandleValid) {
+    if (!isHandleValid)
+    {
         ResetEditState();
         return false;
     }
@@ -3324,63 +3714,81 @@ bool CanvasView::UpdateEdit(const CanvasVector &worldPosition)
     if (!m_Document || m_EditItemId == 0
             || m_EditHandleType == EditHandleType::None
             || m_EditOriginalEntity.isNull()
-            || !worldPosition.IsValid()) {
+            || !worldPosition.IsValid())
+    {
         return false;
     }
 
     QSharedPointer<CanvasEntity> updated = m_EditOriginalEntity->Clone();
-    if (updated.isNull()) {
+    if (updated.isNull())
+    {
         return false;
     }
 
     bool geometryUpdated = false;
-    switch (m_EditEntityType) {
-    case CanvasEntityType::Point: {
+    switch (m_EditEntityType)
+    {
+    case CanvasEntityType::Point:
+    {
         CanvasPoint *point = dynamic_cast<CanvasPoint *>(updated.data());
         geometryUpdated = point
                 && m_EditHandleType == EditHandleType::PointCenter
                 && point->SetPosition(worldPosition);
         break;
     }
-    case CanvasEntityType::Line: {
+    case CanvasEntityType::Line:
+    {
         const CanvasLine *original = dynamic_cast<const CanvasLine *>(
                     m_EditOriginalEntity.data());
         CanvasLine *line = dynamic_cast<CanvasLine *>(updated.data());
-        if (original && line) {
+        if (original && line)
+        {
             CanvasVector startPoint = original->GetStartPoint();
             CanvasVector endPoint = original->GetEndPoint();
-            if (m_EditHandleType == EditHandleType::LineStart) {
+            if (m_EditHandleType == EditHandleType::LineStart)
+            {
                 startPoint = worldPosition;
-            } else if (m_EditHandleType == EditHandleType::LineEnd) {
+            }
+            else if (m_EditHandleType == EditHandleType::LineEnd)
+            {
                 endPoint = worldPosition;
             }
             geometryUpdated = line->SetGeometry(startPoint, endPoint);
         }
         break;
     }
-    case CanvasEntityType::Arc: {
+    case CanvasEntityType::Arc:
+    {
         const CanvasArc *original = dynamic_cast<const CanvasArc *>(
                     m_EditOriginalEntity.data());
         CanvasArc *arc = dynamic_cast<CanvasArc *>(updated.data());
-        if (original && arc) {
+        if (original && arc)
+        {
             CanvasVector center = original->GetCenter();
             qreal radius = original->GetRadius();
             qreal startAngle = original->GetStartAngle();
             qreal endAngle = original->GetEndAngle();
-            if (m_EditHandleType == EditHandleType::ArcCenter) {
+            if (m_EditHandleType == EditHandleType::ArcCenter)
+            {
                 center = worldPosition;
-            } else if (m_EditHandleType == EditHandleType::ArcStart
-                       || m_EditHandleType == EditHandleType::ArcEnd) {
+            }
+            else if (m_EditHandleType == EditHandleType::ArcStart
+                       || m_EditHandleType == EditHandleType::ArcEnd)
+            {
                 const CanvasVector delta = worldPosition - center;
                 radius = delta.Length();
                 if (radius <= 0.0
-                        || !std::isfinite(static_cast<double>(radius))) {
+                        || !std::isfinite(static_cast<double>(radius)))
+                {
                     return false;
                 }
                 const qreal angle = std::atan2(delta.GetY(), delta.GetX());
-                if (m_EditHandleType == EditHandleType::ArcStart) {
+                if (m_EditHandleType == EditHandleType::ArcStart)
+                {
                     startAngle = angle;
-                } else {
+                }
+                else
+                {
                     endAngle = angle;
                 }
             }
@@ -3389,19 +3797,25 @@ bool CanvasView::UpdateEdit(const CanvasVector &worldPosition)
         }
         break;
     }
-    case CanvasEntityType::Circle: {
+    case CanvasEntityType::Circle:
+    {
         const CanvasCircle *original = dynamic_cast<const CanvasCircle *>(
                     m_EditOriginalEntity.data());
         CanvasCircle *circle = dynamic_cast<CanvasCircle *>(updated.data());
-        if (original && circle) {
+        if (original && circle)
+        {
             CanvasVector center = original->GetCenter();
             qreal radius = original->GetRadius();
-            if (m_EditHandleType == EditHandleType::CircleCenter) {
+            if (m_EditHandleType == EditHandleType::CircleCenter)
+            {
                 center = worldPosition;
-            } else if (m_EditHandleType == EditHandleType::CircleRadius) {
+            }
+            else if (m_EditHandleType == EditHandleType::CircleRadius)
+            {
                 radius = (worldPosition - center).Length();
                 if (radius <= 0.0
-                        || !std::isfinite(static_cast<double>(radius))) {
+                        || !std::isfinite(static_cast<double>(radius)))
+                {
                     return false;
                 }
             }
@@ -3409,11 +3823,13 @@ bool CanvasView::UpdateEdit(const CanvasVector &worldPosition)
         }
         break;
     }
-    case CanvasEntityType::Ellipse: {
+    case CanvasEntityType::Ellipse:
+    {
         const CanvasEllipse *original = dynamic_cast<const CanvasEllipse *>(
                     m_EditOriginalEntity.data());
         CanvasEllipse *ellipse = dynamic_cast<CanvasEllipse *>(updated.data());
-        if (!original || !ellipse) {
+        if (!original || !ellipse)
+        {
             break;
         }
 
@@ -3422,14 +3838,20 @@ bool CanvasView::UpdateEdit(const CanvasVector &worldPosition)
         qreal ratio = original->GetMinorMajorRatio();
         qreal startParameter = original->GetStartParameter();
         qreal endParameter = original->GetEndParameter();
-        if (m_EditHandleType == EditHandleType::EllipseCenter) {
+        if (m_EditHandleType == EditHandleType::EllipseCenter)
+        {
             center = worldPosition;
-        } else if (m_EditHandleType == EditHandleType::EllipseMajorAxis) {
+        }
+        else if (m_EditHandleType == EditHandleType::EllipseMajorAxis)
+        {
             majorAxis = worldPosition - center;
-        } else if (m_EditHandleType == EditHandleType::EllipseMinorAxis) {
+        }
+        else if (m_EditHandleType == EditHandleType::EllipseMinorAxis)
+        {
             const qreal majorLength = majorAxis.Length();
             if (majorLength <= 0.0
-                    || !std::isfinite(static_cast<double>(majorLength))) {
+                    || !std::isfinite(static_cast<double>(majorLength)))
+            {
                 return false;
             }
             const CanvasVector unitMinorAxis(
@@ -3438,13 +3860,16 @@ bool CanvasView::UpdateEdit(const CanvasVector &worldPosition)
             const qreal minorLength =
                     (worldPosition - center).Dot(unitMinorAxis);
             ratio = minorLength / majorLength;
-        } else if (m_EditHandleType == EditHandleType::EllipseStart
-                   || m_EditHandleType == EditHandleType::EllipseEnd) {
+        }
+        else if (m_EditHandleType == EditHandleType::EllipseStart
+                   || m_EditHandleType == EditHandleType::EllipseEnd)
+        {
             const qreal majorLengthSquared = majorAxis.SquaredLength();
             const CanvasVector minorAxis(-majorAxis.GetY() * ratio,
                                          majorAxis.GetX() * ratio);
             const qreal minorLengthSquared = minorAxis.SquaredLength();
-            if (majorLengthSquared <= 0.0 || minorLengthSquared <= 0.0) {
+            if (majorLengthSquared <= 0.0 || minorLengthSquared <= 0.0)
+            {
                 return false;
             }
             const CanvasVector delta = worldPosition - center;
@@ -3453,14 +3878,18 @@ bool CanvasView::UpdateEdit(const CanvasVector &worldPosition)
             const qreal minorCoordinate =
                     delta.Dot(minorAxis) / minorLengthSquared;
             if (!std::isfinite(static_cast<double>(majorCoordinate))
-                    || !std::isfinite(static_cast<double>(minorCoordinate))) {
+                    || !std::isfinite(static_cast<double>(minorCoordinate)))
+            {
                 return false;
             }
             const qreal parameter = std::atan2(minorCoordinate,
                                                 majorCoordinate);
-            if (m_EditHandleType == EditHandleType::EllipseStart) {
+            if (m_EditHandleType == EditHandleType::EllipseStart)
+            {
                 startParameter = parameter;
-            } else {
+            }
+            else
+            {
                 endParameter = parameter;
             }
         }
@@ -3470,11 +3899,13 @@ bool CanvasView::UpdateEdit(const CanvasVector &worldPosition)
                                                endParameter);
         break;
     }
-    case CanvasEntityType::Polyline: {
+    case CanvasEntityType::Polyline:
+    {
         const CanvasPolyline *polyline = dynamic_cast<const CanvasPolyline *>(
                     m_EditOriginalEntity.data());
         if (polyline
-                && m_EditHandleType == EditHandleType::PolylineVertex) {
+                && m_EditHandleType == EditHandleType::PolylineVertex)
+        {
             geometryUpdated = TryMovePolylineVertex(*polyline,
                                                     m_EditPointIndex,
                                                     worldPosition,
@@ -3482,14 +3913,16 @@ bool CanvasView::UpdateEdit(const CanvasVector &worldPosition)
         }
         break;
     }
-    case CanvasEntityType::Spline: {
+    case CanvasEntityType::Spline:
+    {
         const CanvasSpline *original = dynamic_cast<const CanvasSpline *>(
                     m_EditOriginalEntity.data());
         CanvasSpline *spline = dynamic_cast<CanvasSpline *>(updated.data());
         if (original && spline
                 && m_EditHandleType == EditHandleType::SplineControlPoint
                 && m_EditPointIndex >= 0
-                && m_EditPointIndex < original->GetControlPoints().size()) {
+                && m_EditPointIndex < original->GetControlPoints().size())
+        {
             QVector<CanvasVector> controlPoints = original->GetControlPoints();
             controlPoints[m_EditPointIndex] = worldPosition;
             geometryUpdated = spline->SetData(original->GetDegree(),
@@ -3508,7 +3941,8 @@ bool CanvasView::UpdateEdit(const CanvasVector &worldPosition)
     }
 
     if (!geometryUpdated || !updated->IsValid()
-            || !m_Document->ReplaceEntity(m_EditItemId, *updated)) {
+            || !m_Document->ReplaceEntity(m_EditItemId, *updated))
+    {
         return false;
     }
     m_EditGeometryChanged = true;
@@ -3528,7 +3962,8 @@ void CanvasView::ResetEditState()
 void CanvasView::CancelEdit()
 {
     if (m_Document && m_EditItemId != 0 && m_EditGeometryChanged
-            && !m_EditOriginalEntity.isNull()) {
+            && !m_EditOriginalEntity.isNull())
+    {
         m_Document->ReplaceEntity(m_EditItemId, *m_EditOriginalEntity);
     }
 
@@ -3576,10 +4011,12 @@ bool CanvasView::BuildHitTestMaximumDisplaySizeCacheForProfiling(
         QHash<ItemId, qreal> *displaySizeCache,
         quint64 *entityVisitCount) const
 {
-    if (entityVisitCount) {
+    if (entityVisitCount)
+    {
         *entityVisitCount = 0;
     }
-    if (!displaySizeCache || !m_Document) {
+    if (!displaySizeCache || !m_Document)
+    {
         return false;
     }
 
@@ -3587,20 +4024,24 @@ bool CanvasView::BuildHitTestMaximumDisplaySizeCacheForProfiling(
     const QVector<ItemId> ids = m_Document->GetItemIds();
     displaySizeCache->reserve(ids.size());
     quint64 totalEntityVisitCount = 0;
-    for (const ItemId id : ids) {
+    for (const ItemId id : ids)
+    {
         const CanvasEntity *entity = m_Document->GetEntity(id);
         qreal maximumDisplaySize = 0.0;
         if (!entity
                 || !TryGetMaximumHitDisplaySize(*entity,
                                                 logicalDpiX(),
                                                 m_LineWidthVisible,
-                                                &maximumDisplaySize)) {
+                                                &maximumDisplaySize))
+        {
             displaySizeCache->clear();
             return false;
         }
-        if (entityVisitCount) {
+        if (entityVisitCount)
+        {
             quint64 entityVisits = 0;
-            if (!TryCountHitDisplaySizeTreeNodes(*entity, &entityVisits)) {
+            if (!TryCountHitDisplaySizeTreeNodes(*entity, &entityVisits))
+            {
                 displaySizeCache->clear();
                 return false;
             }
@@ -3609,7 +4050,8 @@ bool CanvasView::BuildHitTestMaximumDisplaySizeCacheForProfiling(
         displaySizeCache->insert(id, maximumDisplaySize);
     }
 
-    if (entityVisitCount) {
+    if (entityVisitCount)
+    {
         *entityVisitCount = totalEntityVisitCount;
     }
     return displaySizeCache->size() == ids.size();
@@ -3632,7 +4074,8 @@ void CanvasView::ClearHitTestMaximumDisplaySizeCacheForProfiling()
 
 ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
 {
-    if (!m_Document || size().isEmpty()) {
+    if (!m_Document || size().isEmpty())
+    {
         return 0;
     }
 
@@ -3651,12 +4094,14 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
                                                              qreal distanceSquared,
                                                              qreal toleranceSquared) {
         if (!std::isfinite(static_cast<double>(distanceSquared))
-                || distanceSquared > toleranceSquared) {
+                || distanceSquared > toleranceSquared)
+        {
             return;
         }
 
         if (hitId == 0 || distanceSquared < bestDistanceSquared
-                || (qFuzzyCompare(distanceSquared, bestDistanceSquared) && id > hitId)) {
+                || (qFuzzyCompare(distanceSquared, bestDistanceSquared) && id > hitId))
+        {
             bestDistanceSquared = distanceSquared;
             hitId = id;
         }
@@ -3670,7 +4115,8 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
     m_PrivateData->m_HitTestProfile.itemIdEnumerationNanoseconds +=
             profileTimer.nsecsElapsed() - profileStageStartNanoseconds;
 #endif
-    for (int itemIndex = ids.size() - 1; itemIndex >= 0; --itemIndex) {
+    for (int itemIndex = ids.size() - 1; itemIndex >= 0; --itemIndex)
+    {
         const ItemId id = ids.at(itemIndex);
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
         ++m_PrivateData->m_HitTestProfile.itemIdVisitCount;
@@ -3680,42 +4126,50 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
 #endif
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
         const CanvasEntity *entity = nullptr;
-        if (profileSampleEntity) {
+        if (profileSampleEntity)
+        {
             profileStageStartNanoseconds = profileTimer.nsecsElapsed();
             entity = m_Document->GetEntity(id);
             m_PrivateData->m_HitTestProfile.entityLookupNanoseconds +=
                     (profileTimer.nsecsElapsed()
                      - profileStageStartNanoseconds)
                     * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
-        } else {
+        }
+        else
+        {
             entity = m_Document->GetEntity(id);
         }
 #else
         const CanvasEntity *entity = m_Document->GetEntity(id);
 #endif
-        if (!entity) {
+        if (!entity)
+        {
             continue;
         }
         bool useBoundsFilter = UsesRecursiveHitDisplaySize(*entity);
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-        if (m_PrivateData->m_HitTestBoundsFilterProfilingOverride) {
+        if (m_PrivateData->m_HitTestBoundsFilterProfilingOverride)
+        {
             useBoundsFilter = m_PrivateData->m_UseHitTestBoundsFilter;
         }
         const bool sampleBoundsStages = profileSampleEntity;
         const qint64 boundsCheckStartNanoseconds = sampleBoundsStages
                 ? profileTimer.nsecsElapsed() : 0;
-        if (useBoundsFilter) {
+        if (useBoundsFilter)
+        {
             ++m_PrivateData->m_HitTestProfile.boundsCheckCount;
         }
 #endif
         bool outsideBounds = false;
-        if (useBoundsFilter && worldPosition.IsValid()) {
+        if (useBoundsFilter && worldPosition.IsValid())
+        {
             QRectF geometryBounds;
             bool geometryBoundsAvailable = false;
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
             qint64 stageStartNanoseconds = sampleBoundsStages
                     ? profileTimer.nsecsElapsed() : 0;
-            if (m_PrivateData->m_UseHitTestGeometryBoundsCache) {
+            if (m_PrivateData->m_UseHitTestGeometryBoundsCache)
+            {
                 ++m_PrivateData->m_HitTestProfile
                         .geometryBoundsCacheLookupCount;
                 const auto cachedBounds =
@@ -3723,21 +4177,26 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
                         .constFind(id);
                 if (cachedBounds
                         != m_PrivateData->m_HitTestGeometryBoundsCache
-                        .constEnd()) {
+                        .constEnd())
+                {
                     geometryBounds = cachedBounds.value();
                     geometryBoundsAvailable = true;
-                } else {
+                }
+                else
+                {
                     ++m_PrivateData->m_HitTestProfile
                             .geometryBoundsCacheMissCount;
                 }
             }
 #endif
-            if (!geometryBoundsAvailable) {
+            if (!geometryBoundsAvailable)
+            {
                 geometryBoundsAvailable = TryGetGeometryBounds(
                             *entity, &geometryBounds);
             }
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-            if (sampleBoundsStages) {
+            if (sampleBoundsStages)
+            {
                 m_PrivateData->m_HitTestProfile
                         .geometryBoundsAccessNanoseconds +=
                         (profileTimer.nsecsElapsed()
@@ -3746,7 +4205,8 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
             }
 #endif
 
-            if (geometryBoundsAvailable) {
+            if (geometryBoundsAvailable)
+            {
                 qreal maximumDisplaySize = 0.0;
                 bool maximumDisplaySizeAvailable = false;
                 bool useProfilingDisplaySizeCache = false;
@@ -3754,8 +4214,10 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
                 useProfilingDisplaySizeCache =
                         m_PrivateData
                         ->m_UseHitTestMaximumDisplaySizeCacheForProfiling;
-                if (useProfilingDisplaySizeCache) {
-                    if (sampleBoundsStages) {
+                if (useProfilingDisplaySizeCache)
+                {
+                    if (sampleBoundsStages)
+                    {
                         stageStartNanoseconds = profileTimer.nsecsElapsed();
                     }
                     ++m_PrivateData->m_HitTestProfile
@@ -3770,14 +4232,18 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
                             .constEnd()
                             && std::isfinite(static_cast<double>(
                                                  cachedDisplaySize.value()))
-                            && cachedDisplaySize.value() >= 0.0) {
+                            && cachedDisplaySize.value() >= 0.0)
+                    {
                         maximumDisplaySize = cachedDisplaySize.value();
                         maximumDisplaySizeAvailable = true;
-                    } else {
+                    }
+                    else
+                    {
                         ++m_PrivateData->m_HitTestProfile
                                 .maximumDisplaySizeCacheMissCount;
                     }
-                    if (sampleBoundsStages) {
+                    if (sampleBoundsStages)
+                    {
                         m_PrivateData->m_HitTestProfile
                                 .maximumDisplaySizeCacheLookupNanoseconds +=
                                 (profileTimer.nsecsElapsed()
@@ -3792,9 +4258,11 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
                         && !m_PrivateData
                            ->m_BypassHitTestMaximumDisplaySizeCacheForProfiling
 #endif
-                        && UsesRecursiveHitDisplaySize(*entity)) {
+                        && UsesRecursiveHitDisplaySize(*entity))
+                {
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-                    if (sampleBoundsStages) {
+                    if (sampleBoundsStages)
+                    {
                         stageStartNanoseconds = profileTimer.nsecsElapsed();
                     }
                     ++m_PrivateData->m_HitTestProfile
@@ -3806,11 +4274,13 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
                                 logicalDpiX(), m_LineWidthVisible,
                                 &maximumDisplaySize);
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-                    if (!maximumDisplaySizeAvailable) {
+                    if (!maximumDisplaySizeAvailable)
+                    {
                         ++m_PrivateData->m_HitTestProfile
                                 .maximumDisplaySizeCacheMissCount;
                     }
-                    if (sampleBoundsStages) {
+                    if (sampleBoundsStages)
+                    {
                         m_PrivateData->m_HitTestProfile
                                 .maximumDisplaySizeCacheLookupNanoseconds +=
                                 (profileTimer.nsecsElapsed()
@@ -3820,11 +4290,13 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
 #endif
                 }
 
-                if (!maximumDisplaySizeAvailable) {
+                if (!maximumDisplaySizeAvailable)
+                {
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
                     ++m_PrivateData->m_HitTestProfile
                             .maximumDisplaySizeCalculationCallCount;
-                    if (sampleBoundsStages) {
+                    if (sampleBoundsStages)
+                    {
                         stageStartNanoseconds = profileTimer.nsecsElapsed();
                     }
 #endif
@@ -3832,7 +4304,8 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
                                 *entity, logicalDpiX(), m_LineWidthVisible,
                                 &maximumDisplaySize);
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-                    if (sampleBoundsStages) {
+                    if (sampleBoundsStages)
+                    {
                         m_PrivateData->m_HitTestProfile
                                 .maximumDisplaySizeCalculationNanoseconds +=
                                 (profileTimer.nsecsElapsed()
@@ -3842,9 +4315,11 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
 #endif
                 }
 
-                if (maximumDisplaySizeAvailable) {
+                if (maximumDisplaySizeAvailable)
+                {
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-                    if (sampleBoundsStages) {
+                    if (sampleBoundsStages)
+                    {
                         stageStartNanoseconds = profileTimer.nsecsElapsed();
                     }
 #endif
@@ -3852,7 +4327,8 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
                                 geometryBounds, worldPosition, zoom,
                                 maximumDisplaySize);
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-                    if (sampleBoundsStages) {
+                    if (sampleBoundsStages)
+                    {
                         m_PrivateData->m_HitTestProfile
                                 .hitBoundsExpansionNanoseconds +=
                                 (profileTimer.nsecsElapsed()
@@ -3864,14 +4340,16 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
             }
         }
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-        if (useBoundsFilter && sampleBoundsStages) {
+        if (useBoundsFilter && sampleBoundsStages)
+        {
             m_PrivateData->m_HitTestProfile.boundsCheckNanoseconds +=
                     (profileTimer.nsecsElapsed()
                      - boundsCheckStartNanoseconds)
                     * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
         }
 #endif
-        if (outsideBounds) {
+        if (outsideBounds)
+        {
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
             ++m_PrivateData->m_HitTestProfile.boundsRejectCount;
 #endif
@@ -3881,11 +4359,13 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
         const int entityTypeIndex = static_cast<int>(entity->GetType());
         const bool validEntityTypeIndex = entityTypeIndex >= 0
                 && entityTypeIndex < CanvasHitTestProfile::EntityTypeCount;
-        if (validEntityTypeIndex) {
+        if (validEntityTypeIndex)
+        {
             ++m_PrivateData->m_HitTestProfile
                     .entityCountByType[entityTypeIndex];
         }
-        if (profileSampleEntity) {
+        if (profileSampleEntity)
+        {
             profileStageStartNanoseconds = profileTimer.nsecsElapsed();
         }
 #endif
@@ -3896,38 +4376,45 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
         CollectEntitySelectionPaths(*entity, maximumWorldError,
                                     logicalDpiX(), m_LineWidthVisible, &paths);
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-        if (profileSampleEntity) {
+        if (profileSampleEntity)
+        {
             const qint64 pathCollectionNanoseconds =
                     (profileTimer.nsecsElapsed()
                      - profileStageStartNanoseconds)
                     * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
             m_PrivateData->m_HitTestProfile.pathCollectionNanoseconds +=
                     pathCollectionNanoseconds;
-            if (validEntityTypeIndex) {
+            if (validEntityTypeIndex)
+            {
                 m_PrivateData->m_HitTestProfile
                         .pathCollectionNanosecondsByType[entityTypeIndex]
                         += pathCollectionNanoseconds;
             }
         }
-        if (validEntityTypeIndex) {
+        if (validEntityTypeIndex)
+        {
             m_PrivateData->m_HitTestProfile
                     .selectionPathCountByType[entityTypeIndex]
                     += static_cast<quint64>(paths.size());
-            for (const EntitySelectionPath &path : paths) {
+            for (const EntitySelectionPath &path : paths)
+            {
                 m_PrivateData->m_HitTestProfile
                         .selectionPathPointCountByType[entityTypeIndex]
                         += static_cast<quint64>(path.points.size());
             }
         }
 #endif
-        for (const EntitySelectionPath &path : paths) {
+        for (const EntitySelectionPath &path : paths)
+        {
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
             ++m_PrivateData->m_HitTestProfile.distancePathCount;
-            if (path.points.size() > 1) {
+            if (path.points.size() > 1)
+            {
                 m_PrivateData->m_HitTestProfile.distanceSegmentCount +=
                         static_cast<quint64>(path.points.size() - 1);
             }
-            if (profileSampleEntity) {
+            if (profileSampleEntity)
+            {
                 profileStageStartNanoseconds = profileTimer.nsecsElapsed();
             }
 #endif
@@ -3936,14 +4423,16 @@ ItemId CanvasView::HitTestItem(const QPointF &viewportPosition) const
             considerHit(id, distanceSquared,
                         CalculateHitToleranceSquared(zoom, path.displaySize));
 #ifdef MINIGRAPH_ENABLE_PERF_PROFILING
-            if (profileSampleEntity) {
+            if (profileSampleEntity)
+            {
                 const qint64 distanceNanoseconds =
                         (profileTimer.nsecsElapsed()
                          - profileStageStartNanoseconds)
                         * HIT_TEST_PROFILE_SAMPLE_WEIGHT;
                 m_PrivateData->m_HitTestProfile.pathDistanceNanoseconds +=
                         distanceNanoseconds;
-                if (validEntityTypeIndex) {
+                if (validEntityTypeIndex)
+                {
                     m_PrivateData->m_HitTestProfile
                             .pathDistanceNanosecondsByType[entityTypeIndex]
                             += distanceNanoseconds;
@@ -3965,7 +4454,8 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
                                                    bool crossing) const
 {
     QVector<ItemId> selectedIds;
-    if (!m_Document) {
+    if (!m_Document)
+    {
         return selectedIds;
     }
 
@@ -3974,9 +4464,11 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
                                    CanvasTransform::GetMinimumZoom());
     const qreal maximumWorldError = qMax<qreal>(1.0e-6, 0.5 / zoom);
     const QVector<ItemId> ids = m_Document->GetItemIds();
-    for (const ItemId id : ids) {
+    for (const ItemId id : ids)
+    {
         const CanvasEntity *entity = m_Document->GetEntity(id);
-        if (!entity) {
+        if (!entity)
+        {
             continue;
         }
 
@@ -3986,7 +4478,8 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
         const bool selected = crossing
                 ? DoEntityPathsIntersectRect(paths, normalizedRect)
                 : AreEntityPathsContained(paths, normalizedRect);
-        if (selected) {
+        if (selected)
+        {
             selectedIds.append(id);
         }
     }
@@ -3996,11 +4489,13 @@ QVector<ItemId> CanvasView::CollectWindowSelection(const QRectF &worldRect,
 
 void CanvasView::ApplySingleSelection(ItemId id, bool append)
 {
-    if (!m_Document || id == 0) {
+    if (!m_Document || id == 0)
+    {
         return;
     }
 
-    if (append || m_Document->IsItemSelected(id)) {
+    if (append || m_Document->IsItemSelected(id))
+    {
         m_Document->ToggleItemSelection(id);
         return;
     }
@@ -4012,7 +4507,8 @@ void CanvasView::ApplySingleSelection(ItemId id, bool append)
 
 void CanvasView::ApplyWindowSelection(const QRectF &viewportRect, bool append)
 {
-    if (!m_Document) {
+    if (!m_Document)
+    {
         return;
     }
 
@@ -4024,13 +4520,17 @@ void CanvasView::ApplyWindowSelection(const QRectF &viewportRect, bool append)
                 QRectF(QPointF(worldStart.GetX(), worldStart.GetY()),
                        QPointF(worldEnd.GetX(), worldEnd.GetY())),
                                                                crossing);
-    if (selectedIds.isEmpty()) {
+    if (selectedIds.isEmpty())
+    {
         return;
     }
 
-    if (append) {
+    if (append)
+    {
         m_Document->ToggleItems(selectedIds);
-    } else {
+    }
+    else
+    {
         m_Document->SelectItems(selectedIds, false, false);
     }
 }
@@ -4047,7 +4547,8 @@ void CanvasView::CancelMove()
     if (m_SelectionState == SelectionState::Moving
             && m_Document
             && (m_MoveTotalWorldDelta.GetX() != 0.0
-                || m_MoveTotalWorldDelta.GetY() != 0.0)) {
+                || m_MoveTotalWorldDelta.GetY() != 0.0))
+    {
         m_Document->TranslateItems(m_MoveItemIds,
                                    -m_MoveTotalWorldDelta);
     }

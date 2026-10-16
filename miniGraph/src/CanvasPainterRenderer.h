@@ -8,9 +8,11 @@
 
 class QPainter;
 
-namespace mini_graph {
+namespace mini_graph
+{
 
-namespace detail {
+namespace detail
+{
 
 void RenderCanvasDataCommands(QPainter &painter,
                               const CanvasRenderContext &context,

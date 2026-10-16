@@ -10,7 +10,8 @@
 #include <QVector>
 #include <QtGlobal>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 // 画布图元的唯一标识。
 using ItemId = quint64;

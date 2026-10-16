@@ -7,8 +7,10 @@
 #include <cmath>
 #include <limits>
 
-namespace mini_graph {
-namespace {
+namespace mini_graph
+{
+namespace
+{
 
 const qreal kPolylineConnectionTolerance = 1e-4;
 
@@ -25,24 +27,29 @@ struct GroupTraversalFrame
 
 bool HasGroupNestingDepthAtMost(const CanvasEntity &entity, int maximumDepth)
 {
-    if (entity.GetType() != CanvasEntityType::GroupContainer) {
+    if (entity.GetType() != CanvasEntityType::GroupContainer)
+    {
         return true;
     }
-    if (maximumDepth < 1) {
+    if (maximumDepth < 1)
+    {
         return false;
     }
 
     const CanvasGroupContainer *root =
             dynamic_cast<const CanvasGroupContainer *>(&entity);
-    if (!root) {
+    if (!root)
+    {
         return false;
     }
 
     QVector<GroupTraversalFrame> pending;
     pending.append(GroupTraversalFrame{root, 0});
-    while (!pending.isEmpty()) {
+    while (!pending.isEmpty())
+    {
         GroupTraversalFrame &frame = pending.last();
-        if (frame.nextChildIndex >= frame.group->GetChildCount()) {
+        if (frame.nextChildIndex >= frame.group->GetChildCount())
+        {
             pending.removeLast();
             continue;
         }
@@ -50,19 +57,23 @@ bool HasGroupNestingDepthAtMost(const CanvasEntity &entity, int maximumDepth)
         const CanvasEntity *child =
                 frame.group->GetChild(frame.nextChildIndex);
         ++frame.nextChildIndex;
-        if (!child) {
+        if (!child)
+        {
             return false;
         }
-        if (child->GetType() != CanvasEntityType::GroupContainer) {
+        if (child->GetType() != CanvasEntityType::GroupContainer)
+        {
             continue;
         }
-        if (pending.size() >= maximumDepth) {
+        if (pending.size() >= maximumDepth)
+        {
             return false;
         }
 
         const CanvasGroupContainer *nestedGroup =
                 dynamic_cast<const CanvasGroupContainer *>(child);
-        if (!nestedGroup) {
+        if (!nestedGroup)
+        {
             return false;
         }
         pending.append(GroupTraversalFrame{nestedGroup, 0});
@@ -74,7 +85,8 @@ qreal NormalizeAngle(qreal angle)
 {
     const qreal fullTurn = 2.0 * std::acos(-1.0);
     qreal normalized = std::fmod(angle, fullTurn);
-    if (normalized < 0.0) {
+    if (normalized < 0.0)
+    {
         normalized += fullTurn;
     }
     return normalized == fullTurn ? 0.0 : normalized;
@@ -82,13 +94,15 @@ qreal NormalizeAngle(qreal angle)
 
 bool HasNonzeroSweep(qreal startAngle, qreal endAngle)
 {
-    if (!IsFinite(startAngle) || !IsFinite(endAngle)) {
+    if (!IsFinite(startAngle) || !IsFinite(endAngle))
+    {
         return false;
     }
 
     const qreal fullTurn = 2.0 * std::acos(-1.0);
     qreal angleDifference = endAngle - startAngle;
-    if (!IsFinite(angleDifference)) {
+    if (!IsFinite(angleDifference))
+    {
         angleDifference = NormalizeAngle(endAngle)
                 - NormalizeAngle(startAngle);
     }
@@ -103,7 +117,8 @@ bool IsValidArcData(const CanvasVector &center, qreal radius,
                     qreal startAngle, qreal endAngle)
 {
     if (!center.IsValid() || !IsFinite(radius) || radius <= 0.0
-            || !detail::IsValidArcSweep(startAngle, endAngle)) {
+            || !detail::IsValidArcSweep(startAngle, endAngle))
+    {
         return false;
     }
 
@@ -121,16 +136,19 @@ bool IsValidEllipseData(const CanvasVector &center,
 {
     if (!center.IsValid() || !majorAxis.IsValid()
             || !IsFinite(minorMajorRatio)
-            || minorMajorRatio <= 0.0 || minorMajorRatio > 1.0) {
+            || minorMajorRatio <= 0.0 || minorMajorRatio > 1.0)
+    {
         return false;
     }
 
     const qreal majorLength = majorAxis.Length();
-    if (!IsFinite(majorLength) || majorLength <= 0.0) {
+    if (!IsFinite(majorLength) || majorLength <= 0.0)
+    {
         return false;
     }
 
-    if (!isArc) {
+    if (!isArc)
+    {
         return startParameter == 0.0 && endParameter == 0.0;
     }
     return HasNonzeroSweep(startParameter, endParameter);
@@ -140,16 +158,19 @@ bool GetSegmentEndpoints(const CanvasEntity *entity,
                          CanvasVector *startPoint,
                          CanvasVector *endPoint)
 {
-    if (!entity || !startPoint || !endPoint || !entity->IsValid()) {
+    if (!entity || !startPoint || !endPoint || !entity->IsValid())
+    {
         return false;
     }
 
-    if (const CanvasLine *line = dynamic_cast<const CanvasLine *>(entity)) {
+    if (const CanvasLine *line = dynamic_cast<const CanvasLine *>(entity))
+    {
         *startPoint = line->GetStartPoint();
         *endPoint = line->GetEndPoint();
         return true;
     }
-    if (const CanvasArc *arc = dynamic_cast<const CanvasArc *>(entity)) {
+    if (const CanvasArc *arc = dynamic_cast<const CanvasArc *>(entity))
+    {
         *startPoint = arc->GetStartPoint();
         *endPoint = arc->GetEndPoint();
         return startPoint->IsValid() && endPoint->IsValid();
@@ -161,23 +182,29 @@ bool IsValidPolyline(const QVector<QSharedPointer<CanvasEntity> > &segments,
                      bool closed)
 {
     const int minimumCount = closed ? 2 : 1;
-    if (segments.size() < minimumCount) {
+    if (segments.size() < minimumCount)
+    {
         return false;
     }
 
     CanvasVector firstStart;
     CanvasVector previousEnd;
-    for (int index = 0; index < segments.size(); ++index) {
+    for (int index = 0; index < segments.size(); ++index)
+    {
         CanvasVector startPoint;
         CanvasVector endPoint;
         if (!GetSegmentEndpoints(segments.at(index).data(),
-                                 &startPoint, &endPoint)) {
+                                 &startPoint, &endPoint))
+        {
             return false;
         }
-        if (index == 0) {
+        if (index == 0)
+        {
             firstStart = startPoint;
-        } else if (!previousEnd.IsNearTo(startPoint,
-                                         kPolylineConnectionTolerance)) {
+        }
+        else if (!previousEnd.IsNearTo(startPoint,
+                                         kPolylineConnectionTolerance))
+        {
             return false;
         }
         previousEnd = endPoint;
@@ -194,38 +221,48 @@ bool IsValidSplineData(int degree,
 {
     if (degree < 1 || degree > 3
             || controlPoints.size() < degree + 1
-            || knots.size() != controlPoints.size() + degree + 1) {
+            || knots.size() != controlPoints.size() + degree + 1)
+    {
         return false;
     }
 
-    for (int index = 0; index < controlPoints.size(); ++index) {
-        if (!controlPoints.at(index).IsValid()) {
+    for (int index = 0; index < controlPoints.size(); ++index)
+    {
+        if (!controlPoints.at(index).IsValid())
+        {
             return false;
         }
     }
 
     int knotMultiplicity = 0;
-    for (int index = 0; index < knots.size(); ++index) {
+    for (int index = 0; index < knots.size(); ++index)
+    {
         if (!IsFinite(knots.at(index))
-                || (index > 0 && knots.at(index) < knots.at(index - 1))) {
+                || (index > 0 && knots.at(index) < knots.at(index - 1)))
+        {
             return false;
         }
         knotMultiplicity = index > 0
                 && knots.at(index) == knots.at(index - 1)
                 ? knotMultiplicity + 1 : 1;
-        if (knotMultiplicity > degree + 1) {
+        if (knotMultiplicity > degree + 1)
+        {
             return false;
         }
     }
-    if (knots.at(degree) >= knots.at(controlPoints.size())) {
+    if (knots.at(degree) >= knots.at(controlPoints.size()))
+    {
         return false;
     }
 
-    if (!weights.isEmpty() && weights.size() != controlPoints.size()) {
+    if (!weights.isEmpty() && weights.size() != controlPoints.size())
+    {
         return false;
     }
-    for (int index = 0; index < weights.size(); ++index) {
-        if (!IsFinite(weights.at(index)) || weights.at(index) <= 0.0) {
+    for (int index = 0; index < weights.size(); ++index)
+    {
+        if (!IsFinite(weights.at(index)) || weights.at(index) <= 0.0)
+        {
             return false;
         }
     }
@@ -244,7 +281,8 @@ CanvasEntity::CanvasEntity()
 
 CanvasEntity::~CanvasEntity()
 {
-    if (m_CanvasData && m_CanvasData->m_BoundEntity == this) {
+    if (m_CanvasData && m_CanvasData->m_BoundEntity == this)
+    {
         m_CanvasData->m_BoundEntity = nullptr;
         m_CanvasData->Update(nullptr);
     }
@@ -267,7 +305,8 @@ bool CanvasEntity::HasExplicitStyle() const
 
 bool CanvasEntity::SetStyle(const StruCanvasStyle &style)
 {
-    if (!style.IsValid()) {
+    if (!style.IsValid())
+    {
         return false;
     }
     m_Style = style;
@@ -287,20 +326,25 @@ void CanvasEntity::SetCanvasData(const std::shared_ptr<CanvasData> &data)
 
 bool CanvasEntity::TrySetCanvasData(const std::shared_ptr<CanvasData> &data)
 {
-    if (m_CanvasData == data) {
+    if (m_CanvasData == data)
+    {
         return true;
     }
-    if (data && data->m_BoundEntity && data->m_BoundEntity != this) {
+    if (data && data->m_BoundEntity && data->m_BoundEntity != this)
+    {
         return false;
     }
-    if (m_CanvasData) {
-        if (m_CanvasData->m_BoundEntity == this) {
+    if (m_CanvasData)
+    {
+        if (m_CanvasData->m_BoundEntity == this)
+        {
             m_CanvasData->m_BoundEntity = nullptr;
         }
         m_CanvasData->Update(nullptr);
     }
     m_CanvasData = data;
-    if (m_CanvasData) {
+    if (m_CanvasData)
+    {
         m_CanvasData->m_BoundEntity = this;
         m_CanvasData->Update(this);
     }
@@ -349,7 +393,8 @@ void CanvasEntity::SetReversed(bool reversed)
 
 bool CanvasEntity::CopyCommonPropertiesTo(CanvasEntity *target) const
 {
-    if (!target) {
+    if (!target)
+    {
         return false;
     }
     target->m_Style = m_Style;
@@ -358,12 +403,15 @@ bool CanvasEntity::CopyCommonPropertiesTo(CanvasEntity *target) const
     target->m_Tag = m_Tag;
     target->m_BusinessId = m_BusinessId;
     target->m_Reversed = m_Reversed;
-    if (m_CanvasData) {
+    if (m_CanvasData)
+    {
         const std::shared_ptr<CanvasData> clonedData = m_CanvasData->Clone();
-        if (!clonedData || clonedData.get() == m_CanvasData.get()) {
+        if (!clonedData || clonedData.get() == m_CanvasData.get())
+        {
             return false;
         }
-        if (!target->TrySetCanvasData(clonedData)) {
+        if (!target->TrySetCanvasData(clonedData))
+        {
             return false;
         }
     }
@@ -373,7 +421,8 @@ bool CanvasEntity::CopyCommonPropertiesTo(CanvasEntity *target) const
 void CanvasEntity::SetId(ItemId id)
 {
     m_Id = id;
-    if (m_CanvasData) {
+    if (m_CanvasData)
+    {
         m_CanvasData->Update(this);
     }
 }
@@ -391,7 +440,8 @@ CanvasVector CanvasPoint::GetPosition() const
 
 bool CanvasPoint::SetPosition(const CanvasVector &position)
 {
-    if (!position.IsValid()) {
+    if (!position.IsValid())
+    {
         return false;
     }
     m_Position = position;
@@ -411,7 +461,8 @@ bool CanvasPoint::IsValid() const
 QSharedPointer<CanvasEntity> CanvasPoint::Clone() const
 {
     QSharedPointer<CanvasPoint> clone(new CanvasPoint(m_Position));
-    if (!CopyCommonPropertiesTo(clone.data())) {
+    if (!CopyCommonPropertiesTo(clone.data()))
+    {
         return QSharedPointer<CanvasEntity>();
     }
     return clone;
@@ -438,7 +489,8 @@ CanvasVector CanvasLine::GetEndPoint() const
 bool CanvasLine::SetGeometry(const CanvasVector &startPoint,
                              const CanvasVector &endPoint)
 {
-    if (!startPoint.IsValid() || !endPoint.IsValid()) {
+    if (!startPoint.IsValid() || !endPoint.IsValid())
+    {
         return false;
     }
     m_StartPoint = startPoint;
@@ -460,7 +512,8 @@ QSharedPointer<CanvasEntity> CanvasLine::Clone() const
 {
     QSharedPointer<CanvasLine> clone(
                 new CanvasLine(m_StartPoint, m_EndPoint));
-    if (!CopyCommonPropertiesTo(clone.data())) {
+    if (!CopyCommonPropertiesTo(clone.data()))
+    {
         return QSharedPointer<CanvasEntity>();
     }
     return clone;
@@ -500,7 +553,8 @@ qreal CanvasArc::GetEndAngle() const
 bool CanvasArc::SetGeometry(const CanvasVector &center, qreal radius,
                             qreal startAngle, qreal endAngle)
 {
-    if (!IsValidArcData(center, radius, startAngle, endAngle)) {
+    if (!IsValidArcData(center, radius, startAngle, endAngle))
+    {
         return false;
     }
     m_Center = center;
@@ -512,7 +566,8 @@ bool CanvasArc::SetGeometry(const CanvasVector &center, qreal radius,
 
 CanvasVector CanvasArc::GetStartPoint() const
 {
-    if (!IsValid()) {
+    if (!IsValid())
+    {
         return CanvasVector();
     }
     return m_Center + CanvasVector::FromPolar(m_Radius, m_StartAngle);
@@ -520,7 +575,8 @@ CanvasVector CanvasArc::GetStartPoint() const
 
 CanvasVector CanvasArc::GetEndPoint() const
 {
-    if (!IsValid()) {
+    if (!IsValid())
+    {
         return CanvasVector();
     }
     return m_Center + CanvasVector::FromPolar(m_Radius, m_EndAngle);
@@ -543,7 +599,8 @@ QSharedPointer<CanvasEntity> CanvasArc::Clone() const
     clone->m_Radius = m_Radius;
     clone->m_StartAngle = m_StartAngle;
     clone->m_EndAngle = m_EndAngle;
-    if (!CopyCommonPropertiesTo(clone.data())) {
+    if (!CopyCommonPropertiesTo(clone.data()))
+    {
         return QSharedPointer<CanvasEntity>();
     }
     return clone;
@@ -568,7 +625,8 @@ qreal CanvasCircle::GetRadius() const
 
 bool CanvasCircle::SetGeometry(const CanvasVector &center, qreal radius)
 {
-    if (!center.IsValid() || !IsFinite(radius) || radius <= 0.0) {
+    if (!center.IsValid() || !IsFinite(radius) || radius <= 0.0)
+    {
         return false;
     }
     m_Center = center;
@@ -591,7 +649,8 @@ QSharedPointer<CanvasEntity> CanvasCircle::Clone() const
     QSharedPointer<CanvasCircle> clone(new CanvasCircle);
     clone->m_Center = m_Center;
     clone->m_Radius = m_Radius;
-    if (!CopyCommonPropertiesTo(clone.data())) {
+    if (!CopyCommonPropertiesTo(clone.data()))
+    {
         return QSharedPointer<CanvasEntity>();
     }
     return clone;
@@ -642,12 +701,14 @@ bool CanvasEllipse::SetGeometry(const CanvasVector &center,
                                 qreal minorMajorRatio, bool isArc,
                                 qreal startParameter, qreal endParameter)
 {
-    if (!isArc) {
+    if (!isArc)
+    {
         startParameter = 0.0;
         endParameter = 0.0;
     }
     if (!IsValidEllipseData(center, majorAxis, minorMajorRatio,
-                            isArc, startParameter, endParameter)) {
+                            isArc, startParameter, endParameter))
+    {
         return false;
     }
     m_Center = center;
@@ -679,7 +740,8 @@ QSharedPointer<CanvasEntity> CanvasEllipse::Clone() const
     clone->m_IsArc = m_IsArc;
     clone->m_StartParameter = m_StartParameter;
     clone->m_EndParameter = m_EndParameter;
-    if (!CopyCommonPropertiesTo(clone.data())) {
+    if (!CopyCommonPropertiesTo(clone.data()))
+    {
         return QSharedPointer<CanvasEntity>();
     }
     return clone;
@@ -713,16 +775,19 @@ bool CanvasPolyline::AddSegment(const CanvasArc &arc)
 
 bool CanvasPolyline::AddSegmentClone(const CanvasEntity &entity)
 {
-    if (!entity.IsValid()) {
+    if (!entity.IsValid())
+    {
         return false;
     }
     const QSharedPointer<CanvasEntity> clone = entity.Clone();
-    if (!clone || !clone->IsValid()) {
+    if (!clone || !clone->IsValid())
+    {
         return false;
     }
     QVector<QSharedPointer<CanvasEntity> > candidate = m_Segments;
     candidate.append(clone);
-    if (!IsValidPolyline(candidate, m_Closed)) {
+    if (!IsValidPolyline(candidate, m_Closed))
+    {
         return false;
     }
     m_Segments = candidate;
@@ -741,16 +806,19 @@ bool CanvasPolyline::SetSegment(int index, const CanvasArc &arc)
 
 bool CanvasPolyline::SetSegmentClone(int index, const CanvasEntity &entity)
 {
-    if (index < 0 || index >= m_Segments.size() || !entity.IsValid()) {
+    if (index < 0 || index >= m_Segments.size() || !entity.IsValid())
+    {
         return false;
     }
     const QSharedPointer<CanvasEntity> clone = entity.Clone();
-    if (!clone || !clone->IsValid()) {
+    if (!clone || !clone->IsValid())
+    {
         return false;
     }
     QVector<QSharedPointer<CanvasEntity> > candidate = m_Segments;
     candidate[index] = clone;
-    if (!IsValidPolyline(candidate, m_Closed)) {
+    if (!IsValidPolyline(candidate, m_Closed))
+    {
         return false;
     }
     m_Segments = candidate;
@@ -759,12 +827,14 @@ bool CanvasPolyline::SetSegmentClone(int index, const CanvasEntity &entity)
 
 bool CanvasPolyline::RemoveSegment(int index)
 {
-    if (index < 0 || index >= m_Segments.size()) {
+    if (index < 0 || index >= m_Segments.size())
+    {
         return false;
     }
     QVector<QSharedPointer<CanvasEntity> > candidate = m_Segments;
     candidate.removeAt(index);
-    if (!IsValidPolyline(candidate, m_Closed)) {
+    if (!IsValidPolyline(candidate, m_Closed))
+    {
         return false;
     }
     m_Segments = candidate;
@@ -778,10 +848,12 @@ bool CanvasPolyline::IsClosed() const
 
 bool CanvasPolyline::SetClosed(bool closed)
 {
-    if (closed == m_Closed) {
+    if (closed == m_Closed)
+    {
         return true;
     }
-    if (!IsValidPolyline(m_Segments, closed)) {
+    if (!IsValidPolyline(m_Segments, closed))
+    {
         return false;
     }
     m_Closed = closed;
@@ -802,18 +874,22 @@ QSharedPointer<CanvasEntity> CanvasPolyline::Clone() const
 {
     QSharedPointer<CanvasPolyline> clone(new CanvasPolyline);
     clone->m_Closed = m_Closed;
-    for (int index = 0; index < m_Segments.size(); ++index) {
+    for (int index = 0; index < m_Segments.size(); ++index)
+    {
         const QSharedPointer<CanvasEntity> &segment = m_Segments.at(index);
-        if (!segment) {
+        if (!segment)
+        {
             return QSharedPointer<CanvasEntity>();
         }
         const QSharedPointer<CanvasEntity> segmentClone = segment->Clone();
-        if (!segmentClone) {
+        if (!segmentClone)
+        {
             return QSharedPointer<CanvasEntity>();
         }
         clone->m_Segments.append(segmentClone);
     }
-    if (!CopyCommonPropertiesTo(clone.data())) {
+    if (!CopyCommonPropertiesTo(clone.data()))
+    {
         return QSharedPointer<CanvasEntity>();
     }
     return clone;
@@ -862,7 +938,8 @@ bool CanvasSpline::SetData(int degree,
                            const QVector<qreal> &weights,
                            bool closed, bool periodic)
 {
-    if (!IsValidSplineData(degree, controlPoints, knots, weights)) {
+    if (!IsValidSplineData(degree, controlPoints, knots, weights))
+    {
         return false;
     }
     m_Degree = degree;
@@ -894,7 +971,8 @@ QSharedPointer<CanvasEntity> CanvasSpline::Clone() const
     clone->m_Weights = m_Weights;
     clone->m_Closed = m_Closed;
     clone->m_Periodic = m_Periodic;
-    if (!CopyCommonPropertiesTo(clone.data())) {
+    if (!CopyCommonPropertiesTo(clone.data()))
+    {
         return QSharedPointer<CanvasEntity>();
     }
     return clone;
@@ -921,11 +999,13 @@ bool CanvasGroupContainer::AddChild(const CanvasEntity &entity)
     if (&entity == this
             || !HasGroupNestingDepthAtMost(
                 entity, MaximumNestingDepth - 1)
-            || !entity.IsValid()) {
+            || !entity.IsValid())
+    {
         return false;
     }
     const QSharedPointer<CanvasEntity> clone = entity.Clone();
-    if (!clone || !clone->IsValid()) {
+    if (!clone || !clone->IsValid())
+    {
         return false;
     }
     m_Children.append(clone);
@@ -939,11 +1019,13 @@ bool CanvasGroupContainer::ReplaceChild(int index,
             || &entity == this
             || !HasGroupNestingDepthAtMost(
                 entity, MaximumNestingDepth - 1)
-            || !entity.IsValid()) {
+            || !entity.IsValid())
+    {
         return false;
     }
     const QSharedPointer<CanvasEntity> clone = entity.Clone();
-    if (!clone || !clone->IsValid()) {
+    if (!clone || !clone->IsValid())
+    {
         return false;
     }
     m_Children[index] = clone;
@@ -952,7 +1034,8 @@ bool CanvasGroupContainer::ReplaceChild(int index,
 
 bool CanvasGroupContainer::RemoveChild(int index)
 {
-    if (index < 0 || index >= m_Children.size()) {
+    if (index < 0 || index >= m_Children.size())
+    {
         return false;
     }
     m_Children.removeAt(index);
@@ -976,11 +1059,14 @@ CanvasEntityType CanvasGroupContainer::GetType() const
 
 bool CanvasGroupContainer::IsValid() const
 {
-    if (m_Children.isEmpty()) {
+    if (m_Children.isEmpty())
+    {
         return false;
     }
-    for (int index = 0; index < m_Children.size(); ++index) {
-        if (!m_Children.at(index) || !m_Children.at(index)->IsValid()) {
+    for (int index = 0; index < m_Children.size(); ++index)
+    {
+        if (!m_Children.at(index) || !m_Children.at(index)->IsValid())
+        {
             return false;
         }
     }
@@ -991,18 +1077,22 @@ QSharedPointer<CanvasEntity> CanvasGroupContainer::Clone() const
 {
     QSharedPointer<CanvasGroupContainer> clone(new CanvasGroupContainer);
     clone->m_AllowExplode = m_AllowExplode;
-    for (int index = 0; index < m_Children.size(); ++index) {
+    for (int index = 0; index < m_Children.size(); ++index)
+    {
         const QSharedPointer<CanvasEntity> &child = m_Children.at(index);
-        if (!child) {
+        if (!child)
+        {
             return QSharedPointer<CanvasEntity>();
         }
         const QSharedPointer<CanvasEntity> childClone = child->Clone();
-        if (!childClone) {
+        if (!childClone)
+        {
             return QSharedPointer<CanvasEntity>();
         }
         clone->m_Children.append(childClone);
     }
-    if (!CopyCommonPropertiesTo(clone.data())) {
+    if (!CopyCommonPropertiesTo(clone.data()))
+    {
         return QSharedPointer<CanvasEntity>();
     }
     return clone;

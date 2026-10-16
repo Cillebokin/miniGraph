@@ -19,11 +19,13 @@
 
 #include <cmath>
 
-namespace {
+namespace
+{
 
 QString GetEntityTypeName(mini_graph::CanvasEntityType type)
 {
-    switch (type) {
+    switch (type)
+    {
     case mini_graph::CanvasEntityType::Point:
         return QObject::tr("Point");
     case mini_graph::CanvasEntityType::Line:
@@ -107,7 +109,8 @@ GeometryEditDialog::GeometryEditDialog(mini_graph::CanvasDocument *document,
 
     const bool loaded = LoadItem();
     typeLabel->setText(GetEntityTypeName(m_Type));
-    if (!loaded) {
+    if (!loaded)
+    {
         m_ButtonBox->button(QDialogButtonBox::Ok)->setEnabled(false);
     }
     resize(480, 560);
@@ -222,28 +225,35 @@ QWidget *GeometryEditDialog::CreatePolylinePage()
 
 bool GeometryEditDialog::LoadItem()
 {
-    if (!m_Document) {
+    if (!m_Document)
+    {
         return false;
     }
 
     m_Type = m_Document->GetItemType(m_ItemId);
-    if (m_Type == mini_graph::CanvasEntityType::Invalid) {
+    if (m_Type == mini_graph::CanvasEntityType::Invalid)
+    {
         return false;
     }
 
-    switch (m_Type) {
-    case mini_graph::CanvasEntityType::Point: {
+    switch (m_Type)
+    {
+    case mini_graph::CanvasEntityType::Point:
+    {
         mini_graph::StruPointGeometry geometry;
-        if (!m_Document->GetPointGeometry(m_ItemId, &geometry)) {
+        if (!m_Document->GetPointGeometry(m_ItemId, &geometry))
+        {
             return false;
         }
         m_PointXSpinBox->setValue(geometry.position.GetX());
         m_PointYSpinBox->setValue(geometry.position.GetY());
         break;
     }
-    case mini_graph::CanvasEntityType::Line: {
+    case mini_graph::CanvasEntityType::Line:
+    {
         mini_graph::StruLineGeometry geometry;
-        if (!m_Document->GetLineGeometry(m_ItemId, &geometry)) {
+        if (!m_Document->GetLineGeometry(m_ItemId, &geometry))
+        {
             return false;
         }
         m_LineStartXSpinBox->setValue(geometry.startPoint.GetX());
@@ -252,9 +262,11 @@ bool GeometryEditDialog::LoadItem()
         m_LineEndYSpinBox->setValue(geometry.endPoint.GetY());
         break;
     }
-    case mini_graph::CanvasEntityType::Arc: {
+    case mini_graph::CanvasEntityType::Arc:
+    {
         mini_graph::StruArcGeometry geometry;
-        if (!m_Document->GetArcGeometry(m_ItemId, &geometry)) {
+        if (!m_Document->GetArcGeometry(m_ItemId, &geometry))
+        {
             return false;
         }
         m_ArcCenterXSpinBox->setValue(geometry.center.GetX());
@@ -265,9 +277,11 @@ bool GeometryEditDialog::LoadItem()
         m_ArcReversedCheckBox->setChecked(geometry.reversed);
         break;
     }
-    case mini_graph::CanvasEntityType::Circle: {
+    case mini_graph::CanvasEntityType::Circle:
+    {
         mini_graph::StruCircleGeometry geometry;
-        if (!m_Document->GetCircleGeometry(m_ItemId, &geometry)) {
+        if (!m_Document->GetCircleGeometry(m_ItemId, &geometry))
+        {
             return false;
         }
         m_CircleCenterXSpinBox->setValue(geometry.center.GetX());
@@ -275,9 +289,11 @@ bool GeometryEditDialog::LoadItem()
         m_CircleRadiusSpinBox->setValue(geometry.radius);
         break;
     }
-    case mini_graph::CanvasEntityType::Polyline: {
+    case mini_graph::CanvasEntityType::Polyline:
+    {
         mini_graph::StruPolylineGeometry geometry;
-        if (!m_Document->GetPolylineGeometry(m_ItemId, &geometry)) {
+        if (!m_Document->GetPolylineGeometry(m_ItemId, &geometry))
+        {
             return false;
         }
         m_PolylineVerticesTextEdit->setPlainText(
@@ -290,7 +306,8 @@ bool GeometryEditDialog::LoadItem()
     }
 
     mini_graph::StruCanvasStyle style;
-    if (!m_Document->GetItemStyle(m_ItemId, &style)) {
+    if (!m_Document->GetItemStyle(m_ItemId, &style))
+    {
         return false;
     }
     m_StrokeColorLineEdit->setText(style.strokeColor.name());
@@ -304,11 +321,13 @@ bool GeometryEditDialog::LoadItem()
 
 bool GeometryEditDialog::ReadStyle(mini_graph::StruCanvasStyle *style) const
 {
-    if (!style || !m_Document) {
+    if (!style || !m_Document)
+    {
         return false;
     }
 
-    if (!m_Document->GetItemStyle(m_ItemId, style)) {
+    if (!m_Document->GetItemStyle(m_ItemId, style))
+    {
         return false;
     }
 
@@ -321,7 +340,8 @@ bool GeometryEditDialog::ReadStyle(mini_graph::StruCanvasStyle *style) const
             || !std::isfinite(static_cast<double>(m_StrokeWidthSpinBox->value()))
             || m_StrokeWidthSpinBox->value() < 0.0
             || !std::isfinite(static_cast<double>(m_PointSizeSpinBox->value()))
-            || m_PointSizeSpinBox->value() <= 0.0) {
+            || m_PointSizeSpinBox->value() <= 0.0)
+    {
         return false;
     }
 
@@ -335,19 +355,23 @@ bool GeometryEditDialog::ReadStyle(mini_graph::StruCanvasStyle *style) const
 
 bool GeometryEditDialog::ApplyGeometry()
 {
-    if (!m_Document) {
+    if (!m_Document)
+    {
         return false;
     }
 
-    switch (m_Type) {
-    case mini_graph::CanvasEntityType::Point: {
+    switch (m_Type)
+    {
+    case mini_graph::CanvasEntityType::Point:
+    {
         mini_graph::StruPointGeometry geometry;
         geometry.position = mini_graph::CanvasVector(m_PointXSpinBox->value(),
                                                       m_PointYSpinBox->value());
         m_Document->SetPointGeometry(m_ItemId, geometry);
         return m_Document->GetItemType(m_ItemId) == m_Type;
     }
-    case mini_graph::CanvasEntityType::Line: {
+    case mini_graph::CanvasEntityType::Line:
+    {
         mini_graph::StruLineGeometry geometry;
         geometry.startPoint = mini_graph::CanvasVector(m_LineStartXSpinBox->value(),
                                                         m_LineStartYSpinBox->value());
@@ -356,7 +380,8 @@ bool GeometryEditDialog::ApplyGeometry()
         m_Document->SetLineGeometry(m_ItemId, geometry);
         return m_Document->GetItemType(m_ItemId) == m_Type;
     }
-    case mini_graph::CanvasEntityType::Arc: {
+    case mini_graph::CanvasEntityType::Arc:
+    {
         mini_graph::StruArcGeometry geometry;
         geometry.center = mini_graph::CanvasVector(m_ArcCenterXSpinBox->value(),
                                                     m_ArcCenterYSpinBox->value());
@@ -364,35 +389,41 @@ bool GeometryEditDialog::ApplyGeometry()
         geometry.startAngle = m_ArcStartAngleSpinBox->value();
         geometry.endAngle = m_ArcEndAngleSpinBox->value();
         geometry.reversed = m_ArcReversedCheckBox->isChecked();
-        if (!mini_graph::IsValidGeometry(geometry)) {
+        if (!mini_graph::IsValidGeometry(geometry))
+        {
             ShowInvalidInput(tr("The arc parameters are invalid."));
             return false;
         }
         m_Document->SetArcGeometry(m_ItemId, geometry);
         return m_Document->GetItemType(m_ItemId) == m_Type;
     }
-    case mini_graph::CanvasEntityType::Circle: {
+    case mini_graph::CanvasEntityType::Circle:
+    {
         mini_graph::StruCircleGeometry geometry;
         geometry.center = mini_graph::CanvasVector(m_CircleCenterXSpinBox->value(),
                                                     m_CircleCenterYSpinBox->value());
         geometry.radius = m_CircleRadiusSpinBox->value();
-        if (!mini_graph::IsValidGeometry(geometry)) {
+        if (!mini_graph::IsValidGeometry(geometry))
+        {
             ShowInvalidInput(tr("The circle parameters are invalid."));
             return false;
         }
         m_Document->SetCircleGeometry(m_ItemId, geometry);
         return m_Document->GetItemType(m_ItemId) == m_Type;
     }
-    case mini_graph::CanvasEntityType::Polyline: {
+    case mini_graph::CanvasEntityType::Polyline:
+    {
         mini_graph::StruPolylineGeometry geometry;
         if (!basic_example::ParsePolylineText(
                     m_PolylineVerticesTextEdit->toPlainText(),
-                    &geometry.vertices)) {
+                    &geometry.vertices))
+        {
             ShowInvalidInput(tr("Enter at least two valid x,y vertices."));
             return false;
         }
         geometry.closed = m_PolylineClosedCheckBox->isChecked();
-        if (!mini_graph::IsValidGeometry(geometry)) {
+        if (!mini_graph::IsValidGeometry(geometry))
+        {
             ShowInvalidInput(tr("The polyline parameters are invalid."));
             return false;
         }
@@ -412,16 +443,19 @@ void GeometryEditDialog::ShowInvalidInput(const QString &message)
 void GeometryEditDialog::OnApplyRequested()
 {
     mini_graph::StruCanvasStyle style;
-    if (!ReadStyle(&style)) {
+    if (!ReadStyle(&style))
+    {
         ShowInvalidInput(tr("The display style is invalid."));
         return;
     }
 
-    if (!ApplyGeometry()) {
+    if (!ApplyGeometry())
+    {
         return;
     }
 
-    if (m_Document) {
+    if (m_Document)
+    {
         m_Document->SetItemStyle(m_ItemId, style);
     }
     accept();

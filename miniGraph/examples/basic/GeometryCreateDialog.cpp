@@ -166,21 +166,24 @@ QWidget *GeometryCreateDialog::CreatePolylinePage()
 
 void GeometryCreateDialog::OnCreateRequested()
 {
-    if (CreateGeometry()) {
+    if (CreateGeometry())
+    {
         accept();
     }
 }
 
 void GeometryCreateDialog::OnGeometryTypeChanged(int index)
 {
-    if (m_ParameterStack && index >= 0 && index < m_ParameterStack->count()) {
+    if (m_ParameterStack && index >= 0 && index < m_ParameterStack->count())
+    {
         m_ParameterStack->setCurrentIndex(index);
     }
 }
 
 bool GeometryCreateDialog::CreateGeometry()
 {
-    if (!m_Document) {
+    if (!m_Document)
+    {
         QMessageBox::warning(this,
                              tr("Create geometry"),
                              tr("No canvas document is available."));
@@ -190,7 +193,8 @@ bool GeometryCreateDialog::CreateGeometry()
     const mini_graph::CanvasEntityType type =
             static_cast<mini_graph::CanvasEntityType>(m_TypeComboBox->currentData().toInt());
     mini_graph::ItemId itemId = 0;
-    switch (type) {
+    switch (type)
+    {
     case mini_graph::CanvasEntityType::Point:
         itemId = m_Document->AddPoint(mini_graph::CanvasVector(
                                           m_PointXSpinBox->value(),
@@ -218,11 +222,13 @@ bool GeometryCreateDialog::CreateGeometry()
                                              m_CircleCenterYSpinBox->value()),
                     m_CircleRadiusSpinBox->value());
         break;
-    case mini_graph::CanvasEntityType::Polyline: {
+    case mini_graph::CanvasEntityType::Polyline:
+    {
         QVector<mini_graph::CanvasVector> vertices;
         if (basic_example::ParsePolylineText(
                     m_PolylineVerticesTextEdit->toPlainText(),
-                    &vertices)) {
+                    &vertices))
+        {
             itemId = m_Document->AddPolyline(vertices,
                                              m_PolylineClosedCheckBox->isChecked());
         }
@@ -232,7 +238,8 @@ bool GeometryCreateDialog::CreateGeometry()
         break;
     }
 
-    if (itemId == 0) {
+    if (itemId == 0)
+    {
         QMessageBox::warning(this,
                              tr("Create geometry"),
                              tr("The geometry parameters are invalid."));

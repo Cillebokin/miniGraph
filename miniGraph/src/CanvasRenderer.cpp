@@ -2,7 +2,8 @@
 
 #include <QtGlobal>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 CanvasRenderContext::CanvasRenderContext()
     : document(nullptr)
@@ -35,7 +36,8 @@ QPointF CanvasRenderContext::MapFromWorld(const CanvasVector &worldPosition) con
 
 QRectF CanvasRenderContext::GetVisibleWorldRect() const
 {
-    if (viewportSize.isEmpty()) {
+    if (viewportSize.isEmpty())
+    {
         return QRectF();
     }
 

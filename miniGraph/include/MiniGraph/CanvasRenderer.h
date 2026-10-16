@@ -12,7 +12,8 @@
 
 class QPainter;
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 class CanvasDocument;
 

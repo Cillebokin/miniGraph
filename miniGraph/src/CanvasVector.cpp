@@ -2,9 +2,11 @@
 
 #include <cmath>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
-namespace {
+namespace
+{
 
 // 返回非有限标量查询的统一结果。
 qreal InvalidScalar()
@@ -17,10 +19,12 @@ qreal NormalizeAngle(qreal radians)
 {
     const qreal fullTurn = 6.28318530717958647692;
     qreal normalized = std::fmod(radians, fullTurn);
-    if (normalized < 0.0) {
+    if (normalized < 0.0)
+    {
         normalized += fullTurn;
     }
-    if (normalized >= fullTurn) {
+    if (normalized >= fullTurn)
+    {
         normalized -= fullTurn;
     }
     return normalized;
@@ -60,7 +64,8 @@ bool CanvasVector::IsValid() const
 
 bool CanvasVector::Set(qreal x, qreal y)
 {
-    if (!std::isfinite(x) || !std::isfinite(y)) {
+    if (!std::isfinite(x) || !std::isfinite(y))
+    {
         return false;
     }
 
@@ -79,7 +84,8 @@ void CanvasVector::Invalidate()
 
 CanvasVector CanvasVector::operator+(const CanvasVector &other) const
 {
-    if (!m_Valid || !other.m_Valid) {
+    if (!m_Valid || !other.m_Valid)
+    {
         return CanvasVector();
     }
     return CanvasVector(m_X + other.m_X, m_Y + other.m_Y);
@@ -87,7 +93,8 @@ CanvasVector CanvasVector::operator+(const CanvasVector &other) const
 
 CanvasVector CanvasVector::operator-(const CanvasVector &other) const
 {
-    if (!m_Valid || !other.m_Valid) {
+    if (!m_Valid || !other.m_Valid)
+    {
         return CanvasVector();
     }
     return CanvasVector(m_X - other.m_X, m_Y - other.m_Y);
@@ -95,7 +102,8 @@ CanvasVector CanvasVector::operator-(const CanvasVector &other) const
 
 CanvasVector CanvasVector::operator-() const
 {
-    if (!m_Valid) {
+    if (!m_Valid)
+    {
         return CanvasVector();
     }
     return CanvasVector(-m_X, -m_Y);
@@ -103,7 +111,8 @@ CanvasVector CanvasVector::operator-() const
 
 CanvasVector CanvasVector::operator*(qreal scale) const
 {
-    if (!m_Valid || !std::isfinite(scale)) {
+    if (!m_Valid || !std::isfinite(scale))
+    {
         return CanvasVector();
     }
     return CanvasVector(m_X * scale, m_Y * scale);
@@ -111,7 +120,8 @@ CanvasVector CanvasVector::operator*(qreal scale) const
 
 CanvasVector CanvasVector::operator/(qreal divisor) const
 {
-    if (!m_Valid || !std::isfinite(divisor) || divisor == 0.0) {
+    if (!m_Valid || !std::isfinite(divisor) || divisor == 0.0)
+    {
         return CanvasVector();
     }
     return CanvasVector(m_X / divisor, m_Y / divisor);
@@ -143,10 +153,12 @@ CanvasVector &CanvasVector::operator/=(qreal divisor)
 
 bool CanvasVector::operator==(const CanvasVector &other) const
 {
-    if (m_Valid != other.m_Valid) {
+    if (m_Valid != other.m_Valid)
+    {
         return false;
     }
-    if (!m_Valid) {
+    if (!m_Valid)
+    {
         return true;
     }
     return m_X == other.m_X && m_Y == other.m_Y;
@@ -159,7 +171,8 @@ bool CanvasVector::operator!=(const CanvasVector &other) const
 
 qreal CanvasVector::Length() const
 {
-    if (!m_Valid) {
+    if (!m_Valid)
+    {
         return InvalidScalar();
     }
 
@@ -169,7 +182,8 @@ qreal CanvasVector::Length() const
 
 qreal CanvasVector::SquaredLength() const
 {
-    if (!m_Valid) {
+    if (!m_Valid)
+    {
         return InvalidScalar();
     }
 
@@ -179,13 +193,15 @@ qreal CanvasVector::SquaredLength() const
 
 qreal CanvasVector::DistanceTo(const CanvasVector &other) const
 {
-    if (!m_Valid || !other.m_Valid) {
+    if (!m_Valid || !other.m_Valid)
+    {
         return InvalidScalar();
     }
 
     const qreal deltaX = m_X - other.m_X;
     const qreal deltaY = m_Y - other.m_Y;
-    if (!std::isfinite(deltaX) || !std::isfinite(deltaY)) {
+    if (!std::isfinite(deltaX) || !std::isfinite(deltaY))
+    {
         return InvalidScalar();
     }
 
@@ -195,13 +211,15 @@ qreal CanvasVector::DistanceTo(const CanvasVector &other) const
 
 qreal CanvasVector::SquaredDistanceTo(const CanvasVector &other) const
 {
-    if (!m_Valid || !other.m_Valid) {
+    if (!m_Valid || !other.m_Valid)
+    {
         return InvalidScalar();
     }
 
     const qreal deltaX = m_X - other.m_X;
     const qreal deltaY = m_Y - other.m_Y;
-    if (!std::isfinite(deltaX) || !std::isfinite(deltaY)) {
+    if (!std::isfinite(deltaX) || !std::isfinite(deltaY))
+    {
         return InvalidScalar();
     }
 
@@ -211,7 +229,8 @@ qreal CanvasVector::SquaredDistanceTo(const CanvasVector &other) const
 
 qreal CanvasVector::Dot(const CanvasVector &other) const
 {
-    if (!m_Valid || !other.m_Valid) {
+    if (!m_Valid || !other.m_Valid)
+    {
         return InvalidScalar();
     }
 
@@ -221,7 +240,8 @@ qreal CanvasVector::Dot(const CanvasVector &other) const
 
 qreal CanvasVector::Cross(const CanvasVector &other) const
 {
-    if (!m_Valid || !other.m_Valid) {
+    if (!m_Valid || !other.m_Valid)
+    {
         return InvalidScalar();
     }
 
@@ -231,7 +251,8 @@ qreal CanvasVector::Cross(const CanvasVector &other) const
 
 qreal CanvasVector::Angle() const
 {
-    if (!m_Valid || (m_X == 0.0 && m_Y == 0.0)) {
+    if (!m_Valid || (m_X == 0.0 && m_Y == 0.0))
+    {
         return InvalidScalar();
     }
     return NormalizeAngle(std::atan2(m_Y, m_X));
@@ -239,7 +260,8 @@ qreal CanvasVector::Angle() const
 
 qreal CanvasVector::AngleTo(const CanvasVector &other) const
 {
-    if (!m_Valid || !other.m_Valid) {
+    if (!m_Valid || !other.m_Valid)
+    {
         return InvalidScalar();
     }
     return (other - *this).Angle();
@@ -247,7 +269,8 @@ qreal CanvasVector::AngleTo(const CanvasVector &other) const
 
 CanvasVector CanvasVector::Rotated(qreal radians) const
 {
-    if (!m_Valid || !std::isfinite(radians)) {
+    if (!m_Valid || !std::isfinite(radians))
+    {
         return CanvasVector();
     }
 
@@ -260,7 +283,8 @@ CanvasVector CanvasVector::Rotated(qreal radians) const
 CanvasVector CanvasVector::Normalized() const
 {
     const qreal length = Length();
-    if (!std::isfinite(length) || length == 0.0) {
+    if (!std::isfinite(length) || length == 0.0)
+    {
         return CanvasVector();
     }
     return *this / length;
@@ -269,7 +293,8 @@ CanvasVector CanvasVector::Normalized() const
 bool CanvasVector::IsNearTo(const CanvasVector &other, qreal tolerance) const
 {
     if (!m_Valid || !other.m_Valid || !std::isfinite(tolerance)
-            || tolerance < 0.0) {
+            || tolerance < 0.0)
+    {
         return false;
     }
 
@@ -279,7 +304,8 @@ bool CanvasVector::IsNearTo(const CanvasVector &other, qreal tolerance) const
 
 CanvasVector CanvasVector::FromPolar(qreal radius, qreal radians)
 {
-    if (!std::isfinite(radius) || !std::isfinite(radians)) {
+    if (!std::isfinite(radius) || !std::isfinite(radians))
+    {
         return CanvasVector();
     }
     return CanvasVector(radius * std::cos(radians),
@@ -289,7 +315,8 @@ CanvasVector CanvasVector::FromPolar(qreal radius, qreal radians)
 CanvasVector CanvasVector::Midpoint(const CanvasVector &first,
                                    const CanvasVector &second)
 {
-    if (!first.m_Valid || !second.m_Valid) {
+    if (!first.m_Valid || !second.m_Valid)
+    {
         return CanvasVector();
     }
     return CanvasVector(first.m_X * 0.5 + second.m_X * 0.5,

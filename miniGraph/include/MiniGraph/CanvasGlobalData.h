@@ -6,7 +6,8 @@
 
 #include <memory>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 // 文档级扩展数据；文档通过共享指针持有，同一实例也可以被多个文档引用。
 // CanvasView 会在 GUI 线程同步读取并绘制该数据；本类不提供并发保护，数据应在 GUI

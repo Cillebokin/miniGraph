@@ -3,7 +3,8 @@
 #include "CanvasTypes.h"
 #include "MiniGraph_global.h"
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 class CanvasDocument;
 

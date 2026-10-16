@@ -4,9 +4,11 @@
 
 #include <cmath>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
-namespace {
+namespace
+{
 const qreal MINIMUM_ZOOM = 0.000001;
 const qreal MAXIMUM_ZOOM = 100000.0;
 
@@ -44,7 +46,8 @@ qreal CanvasTransform::GetZoom() const
 
 void CanvasTransform::SetZoom(qreal zoom)
 {
-    if (!IsFinite(zoom) || zoom <= 0.0) {
+    if (!IsFinite(zoom) || zoom <= 0.0)
+    {
         return;
     }
 
@@ -58,7 +61,8 @@ CanvasVector CanvasTransform::GetCenter() const
 
 void CanvasTransform::SetCenter(const CanvasVector &center)
 {
-    if (center.IsValid()) {
+    if (center.IsValid())
+    {
         m_Center = center;
     }
 }
@@ -70,12 +74,14 @@ bool CanvasTransform::GetFlipX() const
 
 void CanvasTransform::SetFlipX(bool flipX)
 {
-    if (m_FlipX == flipX) {
+    if (m_FlipX == flipX)
+    {
         return;
     }
 
     const CanvasVector nextCenter(-m_Center.GetX(), m_Center.GetY());
-    if (!nextCenter.IsValid()) {
+    if (!nextCenter.IsValid())
+    {
         return;
     }
 
@@ -90,12 +96,14 @@ bool CanvasTransform::GetFlipY() const
 
 void CanvasTransform::SetFlipY(bool flipY)
 {
-    if (m_FlipY == flipY) {
+    if (m_FlipY == flipY)
+    {
         return;
     }
 
     const CanvasVector nextCenter(m_Center.GetX(), -m_Center.GetY());
-    if (!nextCenter.IsValid()) {
+    if (!nextCenter.IsValid())
+    {
         return;
     }
 
@@ -107,7 +115,8 @@ CanvasVector CanvasTransform::MapToWorld(const QPointF &viewportPoint,
                                          const QSizeF &viewportSize) const
 {
     if (!IsFinitePoint(viewportPoint) || !IsValidViewportSize(viewportSize)
-            || !m_Center.IsValid()) {
+            || !m_Center.IsValid())
+    {
         return CanvasVector();
     }
 
@@ -126,14 +135,16 @@ QPointF CanvasTransform::MapFromWorld(const CanvasVector &worldPoint,
                                       const QSizeF &viewportSize) const
 {
     if (!worldPoint.IsValid() || !m_Center.IsValid()
-            || !IsValidViewportSize(viewportSize)) {
+            || !IsValidViewportSize(viewportSize))
+    {
         return QPointF();
     }
 
     const QPointF viewportCenter(viewportSize.width() * 0.5,
                                  viewportSize.height() * 0.5);
     const CanvasVector delta = worldPoint - m_Center;
-    if (!delta.IsValid()) {
+    if (!delta.IsValid())
+    {
         return QPointF();
     }
 
@@ -148,7 +159,8 @@ QPointF CanvasTransform::MapFromWorld(const CanvasVector &worldPoint,
 
 void CanvasTransform::PanBy(const QPointF &viewportDelta)
 {
-    if (!IsFinite(viewportDelta.x()) || !IsFinite(viewportDelta.y())) {
+    if (!IsFinite(viewportDelta.x()) || !IsFinite(viewportDelta.y()))
+    {
         return;
     }
 
@@ -157,7 +169,8 @@ void CanvasTransform::PanBy(const QPointF &viewportDelta)
     const CanvasVector nextCenter = m_Center
             + CanvasVector(-viewportDelta.x() / (axisX * m_Zoom),
                            -viewportDelta.y() / (axisY * m_Zoom));
-    if (nextCenter.IsValid()) {
+    if (nextCenter.IsValid())
+    {
         m_Center = nextCenter;
     }
 }
@@ -167,13 +180,15 @@ void CanvasTransform::ZoomAt(const QPointF &viewportPoint,
                              qreal factor)
 {
     if (!IsFinitePoint(viewportPoint) || !IsValidViewportSize(viewportSize)
-            || !IsFinite(factor) || factor <= 0.0) {
+            || !IsFinite(factor) || factor <= 0.0)
+    {
         return;
     }
 
     const CanvasVector worldPoint = MapToWorld(viewportPoint, viewportSize);
     const qreal requestedZoom = m_Zoom * factor;
-    if (!worldPoint.IsValid() || !IsFinite(requestedZoom)) {
+    if (!worldPoint.IsValid() || !IsFinite(requestedZoom))
+    {
         return;
     }
 
@@ -190,7 +205,8 @@ void CanvasTransform::ZoomAt(const QPointF &viewportPoint,
                            viewportDelta.y() / (axisY * nextZoom));
     const CanvasVector centerAdjustment = worldPoint - worldPointAfterZoom;
     const CanvasVector nextCenter = m_Center + centerAdjustment;
-    if (!worldPointAfterZoom.IsValid() || !nextCenter.IsValid()) {
+    if (!worldPointAfterZoom.IsValid() || !nextCenter.IsValid())
+    {
         return;
     }
 
@@ -202,7 +218,8 @@ bool CanvasTransform::FitRect(const QRectF &worldRect,
                               const QSizeF &viewportSize,
                               qreal marginPixels)
 {
-    if (!IsValidViewportSize(viewportSize) || !IsFinite(marginPixels)) {
+    if (!IsValidViewportSize(viewportSize) || !IsFinite(marginPixels))
+    {
         return false;
     }
 
@@ -212,8 +229,10 @@ bool CanvasTransform::FitRect(const QRectF &worldRect,
         worldRect.right(),
         worldRect.bottom()
     };
-    for (const qreal coordinate : coordinates) {
-        if (!IsFinite(coordinate)) {
+    for (const qreal coordinate : coordinates)
+    {
+        if (!IsFinite(coordinate))
+        {
             return false;
         }
     }
@@ -223,7 +242,8 @@ bool CanvasTransform::FitRect(const QRectF &worldRect,
     const qreal worldHeight = normalizedRect.height();
     const QPointF rectCenter = normalizedRect.center();
     if (!IsFinite(worldWidth) || !IsFinite(worldHeight)
-            || !IsFinitePoint(rectCenter)) {
+            || !IsFinitePoint(rectCenter))
+    {
         return false;
     }
 
@@ -245,7 +265,8 @@ bool CanvasTransform::FitRect(const QRectF &worldRect,
     const CanvasVector nextCenter(rectCenter.x(), rectCenter.y());
     if (!IsFinite(requestedZoom) || requestedZoom <= 0.0
             || !IsFinite(nextZoom) || nextZoom <= 0.0
-            || !nextCenter.IsValid()) {
+            || !nextCenter.IsValid())
+    {
         return false;
     }
 

@@ -78,9 +78,12 @@ static bool HasVisiblePixelNear(const QImage &image,
     const int right = qMin(image.width() - 1, center.x() + radius);
     const int top = qMax(0, center.y() - radius);
     const int bottom = qMin(image.height() - 1, center.y() + radius);
-    for (int y = top; y <= bottom; ++y) {
-        for (int x = left; x <= right; ++x) {
-            if (image.pixelColor(x, y).alpha() > 0) {
+    for (int y = top; y <= bottom; ++y)
+    {
+        for (int x = left; x <= right; ++x)
+        {
+            if (image.pixelColor(x, y).alpha() > 0)
+            {
                 return true;
             }
         }
@@ -91,10 +94,13 @@ static bool HasVisiblePixelNear(const QImage &image,
 static int CountYellowPixels(const QImage &image)
 {
     int count = 0;
-    for (int y = 0; y < image.height(); ++y) {
-        for (int x = 0; x < image.width(); ++x) {
+    for (int y = 0; y < image.height(); ++y)
+    {
+        for (int x = 0; x < image.width(); ++x)
+        {
             const QColor color = image.pixelColor(x, y);
-            if (color.red() > 200 && color.green() > 200 && color.blue() < 128) {
+            if (color.red() > 200 && color.green() > 200 && color.blue() < 128)
+            {
                 ++count;
             }
         }
@@ -106,12 +112,14 @@ static int CountColorPixelsAlongHorizontal(const QImage &image,
                                            int y,
                                            const QColor &target)
 {
-    if (y < 0 || y >= image.height()) {
+    if (y < 0 || y >= image.height())
+    {
         return 0;
     }
 
     int count = 0;
-    for (int x = 0; x < image.width(); ++x) {
+    for (int x = 0; x < image.width(); ++x)
+    {
         const QColor color = image.pixelColor(x, y);
         if ((target.red() > target.green()
              && target.red() > target.blue()
@@ -123,7 +131,8 @@ static int CountColorPixelsAlongHorizontal(const QImage &image,
                 || (target.blue() > target.red()
                     && target.blue() > target.green()
                     && color.blue() > 50 && color.red() < 100
-                    && color.green() < 100)) {
+                    && color.green() < 100))
+        {
             ++count;
         }
     }
@@ -134,12 +143,14 @@ static int CountColorPixelsAlongVertical(const QImage &image,
                                          int x,
                                          const QColor &target)
 {
-    if (x < 0 || x >= image.width()) {
+    if (x < 0 || x >= image.width())
+    {
         return 0;
     }
 
     int count = 0;
-    for (int y = 0; y < image.height(); ++y) {
+    for (int y = 0; y < image.height(); ++y)
+    {
         const QColor color = image.pixelColor(x, y);
         if ((target.red() > target.green()
              && target.red() > target.blue()
@@ -151,7 +162,8 @@ static int CountColorPixelsAlongVertical(const QImage &image,
                 || (target.blue() > target.red()
                     && target.blue() > target.green()
                     && color.blue() > 50 && color.red() < 100
-                    && color.green() < 100)) {
+                    && color.green() < 100))
+        {
             ++count;
         }
     }
@@ -168,7 +180,8 @@ public:
 
     ~TestCanvasAction() override
     {
-        if (m_DestructionCount) {
+        if (m_DestructionCount)
+        {
             ++(*m_DestructionCount);
         }
     }
@@ -529,7 +542,8 @@ public:
 
     QStringList CalculateToQStringList() override
     {
-        if (m_Events) {
+        if (m_Events)
+        {
             m_Events->append(QStringLiteral("entity-data"));
         }
         return m_Commands;
@@ -609,7 +623,8 @@ public:
 
     QStringList CalToQStringListPre() override
     {
-        if (m_Events) {
+        if (m_Events)
+        {
             m_Events->append(QStringLiteral("global-before"));
         }
         return m_PreCommands;
@@ -617,7 +632,8 @@ public:
 
     QStringList CalToQStringListPost() override
     {
-        if (m_Events) {
+        if (m_Events)
+        {
             m_Events->append(QStringLiteral("global-after"));
         }
         return m_PostCommands;
@@ -704,7 +720,8 @@ public:
         Q_UNUSED(painter)
         Q_UNUSED(context)
         m_Events->append(m_Name + QStringLiteral(".geometry"));
-        if (geometryCallback) {
+        if (geometryCallback)
+        {
             geometryCallback();
         }
     }
@@ -1487,7 +1504,8 @@ void CanvasCoreTest::CanvasGroupRejectsExcessiveNestingWithoutMutation()
     QSharedPointer<mini_graph::CanvasEntity> nested(
             new mini_graph::CanvasPoint(mini_graph::CanvasVector(1.0, 2.0)));
 
-    for (int depth = 1; depth <= maximumDepth; ++depth) {
+    for (int depth = 1; depth <= maximumDepth; ++depth)
+    {
         QSharedPointer<mini_graph::CanvasGroupContainer> parent(
                 new mini_graph::CanvasGroupContainer);
         QVERIFY(parent->AddChild(*nested));
@@ -1500,7 +1518,8 @@ void CanvasCoreTest::CanvasGroupRejectsExcessiveNestingWithoutMutation()
     QVERIFY(clone->IsValid());
 
     const mini_graph::CanvasEntity *current = clone.data();
-    for (int depth = 0; depth < maximumDepth; ++depth) {
+    for (int depth = 0; depth < maximumDepth; ++depth)
+    {
         const mini_graph::CanvasGroupContainer *group =
                 dynamic_cast<const mini_graph::CanvasGroupContainer *>(current);
         QVERIFY(group);
@@ -1534,7 +1553,8 @@ void CanvasCoreTest::CanvasGroupRejectsExcessiveNestingWithoutMutation()
     QCOMPARE(replacementHost.GetChild(0), originalChild);
 
     mini_graph::CanvasGroupContainer wideGroup;
-    for (int index = 0; index < 256; ++index) {
+    for (int index = 0; index < 256; ++index)
+    {
         QVERIFY(wideGroup.AddChild(mini_graph::CanvasPoint(
                                       mini_graph::CanvasVector(index, index))));
     }
@@ -1708,7 +1728,8 @@ void CanvasCoreTest::CanvasTransformFlipKeepsPanAndZoomAnchorsConsistent()
     const mini_graph::CanvasVector point(35.0, -20.0);
     const QPointF panDelta(45.0, -18.0);
 
-    for (int flipMask = 0; flipMask < 4; ++flipMask) {
+    for (int flipMask = 0; flipMask < 4; ++flipMask)
+    {
         mini_graph::CanvasTransform transform;
         transform.SetCenter(mini_graph::CanvasVector(18.0, -9.0));
         transform.SetZoom(3.0);
@@ -1746,14 +1767,16 @@ void CanvasCoreTest::CanvasTransformRejectsNonFiniteInputsWithoutMutation()
         0.0,
         -1.0
     };
-    for (qreal value : invalidValues) {
+    for (qreal value : invalidValues)
+    {
         transform.SetZoom(value);
         QCOMPARE(transform.GetZoom(), 2.0);
     }
 
     const QPointF cursor(600.0, 200.0);
     const QSizeF viewport(800.0, 600.0);
-    for (qreal value : invalidValues) {
+    for (qreal value : invalidValues)
+    {
         transform.ZoomAt(cursor, viewport, value);
         QCOMPARE(transform.GetZoom(), 2.0);
         QVERIFY(transform.GetCenter() == originalCenter);
@@ -1813,7 +1836,8 @@ void CanvasCoreTest::CanvasTransformRejectsInvalidViewportDimensions()
         QSizeF(800.0, nan)
     };
 
-    for (const QSizeF &viewport : invalidViewports) {
+    for (const QSizeF &viewport : invalidViewports)
+    {
         QVERIFY(!transform.MapToWorld(QPointF(100.0, 100.0), viewport).IsValid());
         QCOMPARE(transform.MapFromWorld(mini_graph::CanvasVector(3.0, 4.0),
                                         viewport),
@@ -1876,7 +1900,8 @@ void CanvasCoreTest::FitRectRejectsInvalidViewport()
         QSizeF(infinity, 600.0),
         QSizeF(800.0, nan)
     };
-    for (const QSizeF &viewport : invalidViewports) {
+    for (const QSizeF &viewport : invalidViewports)
+    {
         QVERIFY(!transform.FitRect(QRectF(0.0, 0.0, 10.0, 10.0),
                                    viewport,
                                    40.0));
@@ -1895,7 +1920,8 @@ void CanvasCoreTest::FitRectRejectsNonFiniteInputsWithoutMutation()
     const qreal nan = std::numeric_limits<qreal>::quiet_NaN();
     const qreal infinity = std::numeric_limits<qreal>::infinity();
     const qreal invalidMargins[] = {nan, infinity, -infinity};
-    for (qreal margin : invalidMargins) {
+    for (qreal margin : invalidMargins)
+    {
         QVERIFY(!transform.FitRect(QRectF(-10.0, -5.0, 20.0, 10.0),
                                    QSizeF(800.0, 600.0),
                                    margin));
@@ -2549,7 +2575,8 @@ void CanvasCoreTest::DocumentOwnsCanvasEntityClonesAndBoundsAllTypes()
             << mini_graph::CanvasEntityType::GroupContainer;
 
     QCOMPARE(ids.size(), 8);
-    for (int index = 0; index < ids.size(); ++index) {
+    for (int index = 0; index < ids.size(); ++index)
+    {
         QVERIFY(ids.at(index) != 0);
         const mini_graph::CanvasEntity *stored = document.GetEntity(ids.at(index));
         QVERIFY(stored);
@@ -2866,7 +2893,8 @@ void CanvasCoreTest::DocumentPreservesCanvasDataWhenTranslatingPolyline()
     QCOMPARE(parentData->BoundEntity(),
              const_cast<mini_graph::CanvasPolyline *>(translated));
 
-    for (int index = 0; index < translated->GetSegmentCount(); ++index) {
+    for (int index = 0; index < translated->GetSegmentCount(); ++index)
+    {
         const mini_graph::CanvasEntity *segment = translated->GetSegment(index);
         QVERIFY(segment);
         QVERIFY(segment->GetCanvasData());
@@ -3011,8 +3039,10 @@ void CanvasCoreTest::CanvasViewAntialiasesGlobalCanvasData()
     bool foundGreen = false;
     bool foundPartialRed = false;
     bool foundPartialGreen = false;
-    for (int y = 0; y < image.height(); ++y) {
-        for (int x = 0; x < image.width(); ++x) {
+    for (int y = 0; y < image.height(); ++y)
+    {
+        for (int x = 0; x < image.width(); ++x)
+        {
             const QColor color = image.pixelColor(x, y);
             foundRed = foundRed
                     || (color.red() > 0 && color.green() < 10 && color.blue() < 10);
@@ -3138,7 +3168,8 @@ void CanvasCoreTest::CanvasStyleValidationIsConsistentAcrossEntityAndDocument()
     for (int index = 0;
          index < static_cast<int>(sizeof(invalidStyles)
                                   / sizeof(invalidStyles[0]));
-         ++index) {
+         ++index)
+    {
         mini_graph::CanvasPoint point(mini_graph::CanvasVector(0.0, 0.0));
         const mini_graph::StruCanvasStyle originalStyle = point.GetStyle();
         QVERIFY2(!point.SetStyle(invalidStyles[index]),
@@ -3173,7 +3204,8 @@ void CanvasCoreTest::CanvasStyleValidationIsConsistentAcrossEntityAndDocument()
 
 void CanvasCoreTest::CanvasStyleRejectsUnsupportedLineTypesAndWidthUnits()
 {
-    for (int value = 0; value <= 25; ++value) {
+    for (int value = 0; value <= 25; ++value)
+    {
         mini_graph::StruCanvasStyle style;
         style.lineType = static_cast<mini_graph::CanvasLineType>(value);
         QVERIFY2(style.IsValid(), "A CADLab-compatible line type should be accepted");
@@ -3243,7 +3275,8 @@ void CanvasCoreTest::DocumentRejectsNonFiniteLineWidths()
         std::numeric_limits<qreal>::infinity()
     };
 
-    for (qreal width : invalidWidths) {
+    for (qreal width : invalidWidths)
+    {
         QCOMPARE(document.AddLine(start, end, QColor(Qt::white), width),
                  mini_graph::ItemId(0));
         QCOMPARE(document.GetItemCount(), 0);
@@ -3306,13 +3339,15 @@ void CanvasCoreTest::GeometryAndCanvasArcUseConsistentSweepTolerance()
     };
     const bool directions[] = { false, true };
 
-    for (qreal sweep : invalidSweeps) {
+    for (qreal sweep : invalidSweeps)
+    {
         mini_graph::CanvasArc entity;
         QVERIFY(!entity.SetGeometry(mini_graph::CanvasVector(0.0, 0.0),
                                     1.0, startAngle, startAngle + sweep));
         QVERIFY(!entity.IsValid());
 
-        for (bool reversed : directions) {
+        for (bool reversed : directions)
+        {
             mini_graph::StruArcGeometry geometry;
             geometry.center = mini_graph::CanvasVector(0.0, 0.0);
             geometry.radius = 1.0;
@@ -3336,13 +3371,15 @@ void CanvasCoreTest::GeometryAndCanvasArcUseConsistentSweepTolerance()
         -fullTurn - 4.0 * tolerance
     };
 
-    for (qreal sweep : validSweeps) {
+    for (qreal sweep : validSweeps)
+    {
         mini_graph::CanvasArc entity;
         QVERIFY(entity.SetGeometry(mini_graph::CanvasVector(0.0, 0.0),
                                    1.0, startAngle, startAngle + sweep));
         QVERIFY(entity.IsValid());
 
-        for (bool reversed : directions) {
+        for (bool reversed : directions)
+        {
             mini_graph::StruArcGeometry geometry;
             geometry.center = mini_graph::CanvasVector(0.0, 0.0);
             geometry.radius = 1.0;
@@ -3605,7 +3642,8 @@ void CanvasCoreTest::GeometryTessellatesArcAndCircle()
                 mini_graph::CalculateArcPoint(arc, arc.startAngle)) < 0.000001);
     QVERIFY(arcPoints.last().DistanceTo(
                 mini_graph::CalculateArcPoint(arc, arc.endAngle)) < 0.000001);
-    for (const mini_graph::CanvasVector &point : arcPoints) {
+    for (const mini_graph::CanvasVector &point : arcPoints)
+    {
         QVERIFY(qAbs(arc.center.DistanceTo(point) - arc.radius) < 0.01);
     }
 
@@ -3616,7 +3654,8 @@ void CanvasCoreTest::GeometryTessellatesArcAndCircle()
             mini_graph::TessellateCircle(circle, 0.01);
     QVERIFY(circlePoints.size() >= 17);
     QCOMPARE(circlePoints.first(), circlePoints.last());
-    for (const mini_graph::CanvasVector &point : circlePoints) {
+    for (const mini_graph::CanvasVector &point : circlePoints)
+    {
         QVERIFY(qAbs(circle.center.DistanceTo(point) - circle.radius) < 0.01);
     }
 }
@@ -4120,10 +4159,13 @@ void CanvasCoreTest::CanvasViewRendersDocumentWithPainter()
     view.render(&image);
 
     bool foundRedPixel = false;
-    for (int y = 97; y <= 103 && !foundRedPixel; ++y) {
-        for (int x = 90; x <= 110; ++x) {
+    for (int y = 97; y <= 103 && !foundRedPixel; ++y)
+    {
+        for (int x = 90; x <= 110; ++x)
+        {
             const QColor color = image.pixelColor(x, y);
-            if (color.red() > 180 && color.green() < 100 && color.blue() < 100) {
+            if (color.red() > 180 && color.green() < 100 && color.blue() < 100)
+            {
                 foundRedPixel = true;
                 break;
             }
@@ -4221,7 +4263,8 @@ void CanvasCoreTest::CanvasViewPreservesLineTypePhaseAcrossPolylineArcSegments()
     CanvasViewHarness arcView;
     CanvasViewHarness chordView;
     CanvasViewHarness *views[] = {&arcView, &chordView};
-    for (CanvasViewHarness *view : views) {
+    for (CanvasViewHarness *view : views)
+    {
         view->resize(600, 400);
         view->setUpdatesEnabled(false);
         view->SetGridVisible(false);
@@ -4237,8 +4280,10 @@ void CanvasCoreTest::CanvasViewPreservesLineTypePhaseAcrossPolylineArcSegments()
     mini_graph::CanvasPolyline arcPolyline;
     mini_graph::CanvasPolyline chordPolyline;
 
-    for (int loop = 0; loop < 8; ++loop) {
-        for (int quadrant = 0; quadrant < 4; ++quadrant) {
+    for (int loop = 0; loop < 8; ++loop)
+    {
+        for (int quadrant = 0; quadrant < 4; ++quadrant)
+        {
             const qreal startAngle = quadrant * quarterTurn;
             const qreal endAngle = (quadrant + 1) * quarterTurn;
             const mini_graph::CanvasArc arc(
@@ -4253,7 +4298,8 @@ void CanvasCoreTest::CanvasViewPreservesLineTypePhaseAcrossPolylineArcSegments()
             const QVector<mini_graph::CanvasVector> points =
                     mini_graph::TessellateArc(geometry, maximumWorldError);
             QVERIFY(points.size() >= 2);
-            for (int pointIndex = 1; pointIndex < points.size(); ++pointIndex) {
+            for (int pointIndex = 1; pointIndex < points.size(); ++pointIndex)
+            {
                 QVERIFY(chordPolyline.AddSegment(mini_graph::CanvasLine(
                                                      points.at(pointIndex - 1),
                                                      points.at(pointIndex))));
@@ -4298,9 +4344,12 @@ void CanvasCoreTest::CanvasViewPreservesLineTypePhaseAcrossPolylineArcSegments()
                                    mini_graph::CanvasVector(radius + 80.0,
                                                             0.0)).y());
     int differingPixels = 0;
-    for (int x = startX; x <= endX; ++x) {
-        for (int y = centerY - 1; y <= centerY + 1; ++y) {
-            if (arcImage.pixelColor(x, y) != chordImage.pixelColor(x, y)) {
+    for (int x = startX; x <= endX; ++x)
+    {
+        for (int y = centerY - 1; y <= centerY + 1; ++y)
+        {
+            if (arcImage.pixelColor(x, y) != chordImage.pixelColor(x, y))
+            {
                 ++differingPixels;
             }
         }
@@ -4470,11 +4519,14 @@ void CanvasCoreTest::CanvasViewKeepsBlackEntityVisibleOnDarkCanvas()
     view.render(&image);
 
     bool foundBrightPixel = false;
-    for (int y = 97; y <= 103 && !foundBrightPixel; ++y) {
-        for (int x = 97; x <= 103; ++x) {
+    for (int y = 97; y <= 103 && !foundBrightPixel; ++y)
+    {
+        for (int x = 97; x <= 103; ++x)
+        {
             const QColor color = image.pixelColor(x, y);
             if (color.red() > 100 && color.green() > 100
-                    && color.blue() > 100) {
+                    && color.blue() > 100)
+            {
                 foundBrightPixel = true;
                 break;
             }
@@ -4671,10 +4723,13 @@ void CanvasCoreTest::CanvasViewDrawsAllCadLabCanvasDataCommands()
     view.render(&image);
 
     const auto hasRedPixel = [&image](int left, int top, int width, int height) {
-        for (int y = top; y < top + height; ++y) {
-            for (int x = left; x < left + width; ++x) {
+        for (int y = top; y < top + height; ++y)
+        {
+            for (int x = left; x < left + width; ++x)
+            {
                 const QColor color = image.pixelColor(x, y);
-                if (color.red() > 180 && color.green() < 100 && color.blue() < 100) {
+                if (color.red() > 180 && color.green() < 100 && color.blue() < 100)
+                {
                     return true;
                 }
             }
@@ -4694,10 +4749,13 @@ void CanvasCoreTest::CanvasViewDrawsAllCadLabCanvasDataCommands()
     QVERIFY(hasRedPixel(332, 45, 38, 24));
 
     bool foundMagentaPixel = false;
-    for (int y = 95; y < 110 && !foundMagentaPixel; ++y) {
-        for (int x = 345; x < 365; ++x) {
+    for (int y = 95; y < 110 && !foundMagentaPixel; ++y)
+    {
+        for (int x = 345; x < 365; ++x)
+        {
             const QColor color = image.pixelColor(x, y);
-            if (color.red() > 180 && color.blue() > 180 && color.green() < 100) {
+            if (color.red() > 180 && color.blue() > 180 && color.green() < 100)
+            {
                 foundMagentaPixel = true;
                 break;
             }
@@ -4740,9 +4798,12 @@ void CanvasCoreTest::CanvasDataImageMirrorsAroundMappedInsertionPointWhenViewFli
     };
     const auto countMagenta = [](const QImage &image, const QRect &rect) {
         int count = 0;
-        for (int y = rect.top(); y <= rect.bottom(); ++y) {
-            for (int x = rect.left(); x <= rect.right(); ++x) {
-                if (image.pixelColor(x, y) == QColor(255, 0, 255)) {
+        for (int y = rect.top(); y <= rect.bottom(); ++y)
+        {
+            for (int x = rect.left(); x <= rect.right(); ++x)
+            {
+                if (image.pixelColor(x, y) == QColor(255, 0, 255))
+                {
                     ++count;
                 }
             }
@@ -4788,10 +4849,13 @@ void CanvasCoreTest::CanvasDataBrushHatchFillsClosedShapes()
     view.render(&image);
 
     int greenPixels = 0;
-    for (int y = 85; y < 115; ++y) {
-        for (int x = 85; x < 115; ++x) {
+    for (int y = 85; y < 115; ++y)
+    {
+        for (int x = 85; x < 115; ++x)
+        {
             const QColor color = image.pixelColor(x, y);
-            if (color.green() > 180 && color.red() < 100 && color.blue() < 100) {
+            if (color.green() > 180 && color.red() < 100 && color.blue() < 100)
+            {
                 ++greenPixels;
             }
         }
@@ -4885,15 +4949,19 @@ void CanvasCoreTest::CanvasViewRendersAllCanvasEntityTypes()
         const QPointF position = view.MapFromWorld(world);
         const int centerX = qRound(position.x());
         const int centerY = qRound(position.y());
-        for (int y = centerY - 3; y <= centerY + 3; ++y) {
-            for (int x = centerX - 3; x <= centerX + 3; ++x) {
-                if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+        for (int y = centerY - 3; y <= centerY + 3; ++y)
+        {
+            for (int x = centerX - 3; x <= centerX + 3; ++x)
+            {
+                if (x < 0 || x >= image.width() || y < 0 || y >= image.height())
+                {
                     continue;
                 }
                 const QColor actualColor = image.pixelColor(x, y);
                 if (qAbs(actualColor.red() - expectedColor.red()) < 45
                         && qAbs(actualColor.green() - expectedColor.green()) < 45
-                        && qAbs(actualColor.blue() - expectedColor.blue()) < 45) {
+                        && qAbs(actualColor.blue() - expectedColor.blue()) < 45)
+                {
                     return true;
                 }
             }
@@ -4959,7 +5027,8 @@ void CanvasCoreTest::CanvasViewRendersCompleteSplineAtTessellationLimit()
     view.SetDocument(&document);
     view.CenterOnWorld(mini_graph::CanvasVector(1000.0, 0.0));
 
-    for (int index = 0; index < 100; ++index) {
+    for (int index = 0; index < 100; ++index)
+    {
         QWheelEvent wheelEvent(QPointF(160.0, 140.0),
                                QPointF(160.0, 140.0),
                                QPoint(0, 0),
@@ -4980,15 +5049,19 @@ void CanvasCoreTest::CanvasViewRendersCompleteSplineAtTessellationLimit()
                 mini_graph::CanvasVector(1000.0, 0.0));
     bool foundEndpoint = false;
     for (int y = qRound(endpoint.y()) - 3;
-         y <= qRound(endpoint.y()) + 3 && !foundEndpoint; ++y) {
+         y <= qRound(endpoint.y()) + 3 && !foundEndpoint; ++y)
+    {
         for (int x = qRound(endpoint.x()) - 3;
-             x <= qRound(endpoint.x()) + 3; ++x) {
-            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+             x <= qRound(endpoint.x()) + 3; ++x)
+        {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height())
+            {
                 continue;
             }
             const QColor actualColor = image.pixelColor(x, y);
             if (actualColor.red() > 180 && actualColor.green() < 100
-                    && actualColor.blue() < 100) {
+                    && actualColor.blue() < 100)
+            {
                 foundEndpoint = true;
                 break;
             }
@@ -5045,15 +5118,19 @@ void CanvasCoreTest::CanvasViewDoesNotCloseEachDiscontinuousSplinePath()
                 mini_graph::CanvasVector(-50.0, -60.0));
     bool foundUnwantedClosingSegment = false;
     for (int y = qRound(gapPoint.y()) - 1;
-         y <= qRound(gapPoint.y()) + 1 && !foundUnwantedClosingSegment; ++y) {
+         y <= qRound(gapPoint.y()) + 1 && !foundUnwantedClosingSegment; ++y)
+    {
         for (int x = qRound(gapPoint.x()) - 1;
-             x <= qRound(gapPoint.x()) + 1; ++x) {
-            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+             x <= qRound(gapPoint.x()) + 1; ++x)
+        {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height())
+            {
                 continue;
             }
             const QColor actualColor = image.pixelColor(x, y);
             if (actualColor.red() > 150 && actualColor.green() < 100
-                    && actualColor.blue() < 100) {
+                    && actualColor.blue() < 100)
+            {
                 foundUnwantedClosingSegment = true;
                 break;
             }
@@ -5066,15 +5143,19 @@ void CanvasCoreTest::CanvasViewDoesNotCloseEachDiscontinuousSplinePath()
     bool foundExpectedClosure = false;
     for (int y = qRound(expectedClosurePoint.y()) - 1;
          y <= qRound(expectedClosurePoint.y()) + 1 && !foundExpectedClosure;
-         ++y) {
+         ++y)
+    {
         for (int x = qRound(expectedClosurePoint.x()) - 1;
-             x <= qRound(expectedClosurePoint.x()) + 1; ++x) {
-            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+             x <= qRound(expectedClosurePoint.x()) + 1; ++x)
+        {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height())
+            {
                 continue;
             }
             const QColor actualColor = image.pixelColor(x, y);
             if (actualColor.red() > 150 && actualColor.green() < 100
-                    && actualColor.blue() < 100) {
+                    && actualColor.blue() < 100)
+            {
                 foundExpectedClosure = true;
                 break;
             }
@@ -5129,15 +5210,19 @@ void CanvasCoreTest::CanvasViewDoesNotCloseNonmatchingPeriodicSplineEndpoints()
                 mini_graph::CanvasVector(0.0, 0.0));
     bool foundArtificialClosure = false;
     for (int y = qRound(gapPoint.y()) - 1;
-         y <= qRound(gapPoint.y()) + 1 && !foundArtificialClosure; ++y) {
+         y <= qRound(gapPoint.y()) + 1 && !foundArtificialClosure; ++y)
+    {
         for (int x = qRound(gapPoint.x()) - 1;
-             x <= qRound(gapPoint.x()) + 1; ++x) {
-            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+             x <= qRound(gapPoint.x()) + 1; ++x)
+        {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height())
+            {
                 continue;
             }
             const QColor actualColor = image.pixelColor(x, y);
             if (actualColor.red() > 150 && actualColor.green() < 100
-                    && actualColor.blue() < 100) {
+                    && actualColor.blue() < 100)
+            {
                 foundArtificialClosure = true;
                 break;
             }
@@ -5149,15 +5234,19 @@ void CanvasCoreTest::CanvasViewDoesNotCloseNonmatchingPeriodicSplineEndpoints()
                 mini_graph::CanvasVector(0.0, 30.0));
     bool foundCurve = false;
     for (int y = qRound(curvePoint.y()) - 2;
-         y <= qRound(curvePoint.y()) + 2 && !foundCurve; ++y) {
+         y <= qRound(curvePoint.y()) + 2 && !foundCurve; ++y)
+    {
         for (int x = qRound(curvePoint.x()) - 2;
-             x <= qRound(curvePoint.x()) + 2; ++x) {
-            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+             x <= qRound(curvePoint.x()) + 2; ++x)
+        {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height())
+            {
                 continue;
             }
             const QColor actualColor = image.pixelColor(x, y);
             if (actualColor.red() > 150 && actualColor.green() < 100
-                    && actualColor.blue() < 100) {
+                    && actualColor.blue() < 100)
+            {
                 foundCurve = true;
                 break;
             }
@@ -5203,15 +5292,19 @@ void CanvasCoreTest::CanvasViewRendersNurbsWithLargeFiniteWeights()
                 mini_graph::CanvasVector(0.0, 30.0));
     bool foundCurve = false;
     for (int y = qRound(curvePoint.y()) - 2;
-         y <= qRound(curvePoint.y()) + 2 && !foundCurve; ++y) {
+         y <= qRound(curvePoint.y()) + 2 && !foundCurve; ++y)
+    {
         for (int x = qRound(curvePoint.x()) - 2;
-             x <= qRound(curvePoint.x()) + 2; ++x) {
-            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+             x <= qRound(curvePoint.x()) + 2; ++x)
+        {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height())
+            {
                 continue;
             }
             const QColor actualColor = image.pixelColor(x, y);
             if (actualColor.red() > 150 && actualColor.green() < 100
-                    && actualColor.blue() < 100) {
+                    && actualColor.blue() < 100)
+            {
                 foundCurve = true;
                 break;
             }
@@ -5258,15 +5351,19 @@ void CanvasCoreTest::CanvasViewRendersNurbsWithExtremeWeightRange()
                 mini_graph::CanvasVector(50.0, 0.0));
     bool foundEndpoint = false;
     for (int y = qRound(endpoint.y()) - 2;
-         y <= qRound(endpoint.y()) + 2 && !foundEndpoint; ++y) {
+         y <= qRound(endpoint.y()) + 2 && !foundEndpoint; ++y)
+    {
         for (int x = qRound(endpoint.x()) - 2;
-             x <= qRound(endpoint.x()) + 2; ++x) {
-            if (x < 0 || x >= image.width() || y < 0 || y >= image.height()) {
+             x <= qRound(endpoint.x()) + 2; ++x)
+        {
+            if (x < 0 || x >= image.width() || y < 0 || y >= image.height())
+            {
                 continue;
             }
             const QColor actualColor = image.pixelColor(x, y);
             if (actualColor.red() > 150 && actualColor.green() < 100
-                    && actualColor.blue() < 100) {
+                    && actualColor.blue() < 100)
+            {
                 foundEndpoint = true;
                 break;
             }
@@ -5320,15 +5417,18 @@ void CanvasCoreTest::CanvasRendererDrawsOpenAndClosedPolylines()
                                        const QColor &expectedColor) {
         const int centerX = qRound(position.x());
         const int centerY = qRound(position.y());
-        for (int y = centerY - 2; y <= centerY + 2; ++y) {
-            for (int x = centerX - 2; x <= centerX + 2; ++x) {
+        for (int y = centerY - 2; y <= centerY + 2; ++y)
+        {
+            for (int x = centerX - 2; x <= centerX + 2; ++x)
+            {
                 const QColor color = image.pixelColor(x, y);
                 if (color.red() > expectedColor.red() - 40
                         && color.red() < expectedColor.red() + 40
                         && color.green() > expectedColor.green() - 40
                         && color.green() < expectedColor.green() + 40
                         && color.blue() > expectedColor.blue() - 40
-                        && color.blue() < expectedColor.blue() + 40) {
+                        && color.blue() < expectedColor.blue() + 40)
+                {
                     return true;
                 }
             }
@@ -5390,15 +5490,18 @@ void CanvasCoreTest::CanvasRendererUsesEachPolylineSegmentStyle()
                                        const QColor &expectedColor) {
         const int centerX = qRound(position.x());
         const int centerY = qRound(position.y());
-        for (int y = centerY - 2; y <= centerY + 2; ++y) {
-            for (int x = centerX - 2; x <= centerX + 2; ++x) {
+        for (int y = centerY - 2; y <= centerY + 2; ++y)
+        {
+            for (int x = centerX - 2; x <= centerX + 2; ++x)
+            {
                 const QColor color = image.pixelColor(x, y);
                 if (color.red() > expectedColor.red() - 40
                         && color.red() < expectedColor.red() + 40
                         && color.green() > expectedColor.green() - 40
                         && color.green() < expectedColor.green() + 40
                         && color.blue() > expectedColor.blue() - 40
-                        && color.blue() < expectedColor.blue() + 40) {
+                        && color.blue() < expectedColor.blue() + 40)
+                {
                     return true;
                 }
             }
@@ -5447,15 +5550,18 @@ void CanvasCoreTest::CanvasPolylineInheritsParentStyleForUnstyledSegments()
                                        const QColor &expectedColor) {
         const int centerX = qRound(position.x());
         const int centerY = qRound(position.y());
-        for (int y = centerY - 2; y <= centerY + 2; ++y) {
-            for (int x = centerX - 2; x <= centerX + 2; ++x) {
+        for (int y = centerY - 2; y <= centerY + 2; ++y)
+        {
+            for (int x = centerX - 2; x <= centerX + 2; ++x)
+            {
                 const QColor color = image.pixelColor(x, y);
                 if (color.red() > expectedColor.red() - 40
                         && color.red() < expectedColor.red() + 40
                         && color.green() > expectedColor.green() - 40
                         && color.green() < expectedColor.green() + 40
                         && color.blue() > expectedColor.blue() - 40
-                        && color.blue() < expectedColor.blue() + 40) {
+                        && color.blue() < expectedColor.blue() + 40)
+                {
                     return true;
                 }
             }
@@ -5517,11 +5623,14 @@ void CanvasCoreTest::CanvasRendererSkipsInvisiblePolylineSegments()
     const auto hasRedPixelNear = [&image](const QPointF &position) {
         const int centerX = qRound(position.x());
         const int centerY = qRound(position.y());
-        for (int y = centerY - 3; y <= centerY + 3; ++y) {
-            for (int x = centerX - 3; x <= centerX + 3; ++x) {
+        for (int y = centerY - 3; y <= centerY + 3; ++y)
+        {
+            for (int x = centerX - 3; x <= centerX + 3; ++x)
+            {
                 const QColor color = image.pixelColor(x, y);
                 if (color.red() > 180 && color.green() < 100
-                        && color.blue() < 100) {
+                        && color.blue() < 100)
+                {
                     return true;
                 }
             }
@@ -5620,7 +5729,8 @@ void CanvasCoreTest::CanvasViewPreviewNavigationPansWithLeftAndMiddleButtons()
     view.SetInteractionMode(mini_graph::CanvasView::InteractionMode::PreviewNavigation);
 
     const Qt::MouseButton panButtons[] = { Qt::LeftButton, Qt::MiddleButton };
-    for (Qt::MouseButton button : panButtons) {
+    for (Qt::MouseButton button : panButtons)
+    {
         const QPointF before = view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0));
         QMouseEvent press(QEvent::MouseButtonPress, QPointF(100.0, 100.0),
                           QPointF(100.0, 100.0), QPointF(100.0, 100.0),
@@ -5778,7 +5888,8 @@ void CanvasCoreTest::CanvasViewPreviewNavigationIgnoresSelectionAndDelete()
 
 void CanvasCoreTest::CanvasViewPreviewNavigationMatchesCadLabWheelGestures()
 {
-    struct WheelCase {
+    struct WheelCase
+    {
         QPoint pixel;
         QPoint angle;
         Qt::KeyboardModifiers modifiers;
@@ -5806,7 +5917,8 @@ void CanvasCoreTest::CanvasViewPreviewNavigationMatchesCadLabWheelGestures()
           1.0, QPointF(0.0, 30.0) }
     };
 
-    for (const WheelCase &testCase : cases) {
+    for (const WheelCase &testCase : cases)
+    {
         CanvasViewHarness view;
         view.resize(640, 480);
         view.setUpdatesEnabled(false);
@@ -5819,10 +5931,13 @@ void CanvasCoreTest::CanvasViewPreviewNavigationMatchesCadLabWheelGestures()
                           Qt::ScrollUpdate, false);
         view.wheelEvent(&wheel);
         QVERIFY(qAbs(view.GetZoom() - testCase.expectedZoom) < 0.000001);
-        if (testCase.expectedZoom != 1.0) {
+        if (testCase.expectedZoom != 1.0)
+        {
             const mini_graph::CanvasVector anchored = view.MapToWorld(anchor);
             QVERIFY(anchored.DistanceTo(worldAtAnchor) < 0.000001);
-        } else {
+        }
+        else
+        {
             QCOMPARE(view.MapFromWorld(mini_graph::CanvasVector(0.0, 0.0)),
                      originBefore + testCase.expectedPan);
         }
@@ -5970,11 +6085,14 @@ void CanvasCoreTest::CanvasViewBackgroundColorCanBeChanged()
     const auto hasDarkPixelNear = [&image](const QPointF &position) {
         const int centerX = qRound(position.x());
         const int centerY = qRound(position.y());
-        for (int y = centerY - 2; y <= centerY + 2; ++y) {
-            for (int x = centerX - 2; x <= centerX + 2; ++x) {
+        for (int y = centerY - 2; y <= centerY + 2; ++y)
+        {
+            for (int x = centerX - 2; x <= centerX + 2; ++x)
+            {
                 const QColor pixel = image.pixelColor(x, y);
                 if (pixel.red() < 64 && pixel.green() < 64
-                        && pixel.blue() < 64) {
+                        && pixel.blue() < 64)
+                {
                     return true;
                 }
             }
@@ -6056,8 +6174,10 @@ void CanvasCoreTest::CanvasViewSubpixelNoPenGeometryRemainsInvisible()
     QImage image(view.size(), QImage::Format_ARGB32_Premultiplied);
     image.fill(Qt::black);
     view.render(&image);
-    for (int y = 96; y <= 103; ++y) {
-        for (int x = 96; x <= 103; ++x) {
+    for (int y = 96; y <= 103; ++y)
+    {
+        for (int x = 96; x <= 103; ++x)
+        {
             const QColor pixel = image.pixelColor(x, y);
             QVERIFY2(!(pixel.red() > 100 && pixel.green() < 80
                        && pixel.blue() < 80),
@@ -6347,9 +6467,12 @@ void CanvasCoreTest::CanvasViewZoomInShowsFinerGridUnits()
     painter.end();
 
     int fineGridPixelCount = 0;
-    for (int x = 499; x <= 501; ++x) {
-        for (int y = 220; y <= 280; ++y) {
-            if (image.pixelColor(x, y) == QColor(64, 64, 64)) {
+    for (int x = 499; x <= 501; ++x)
+    {
+        for (int y = 220; y <= 280; ++y)
+        {
+            if (image.pixelColor(x, y) == QColor(64, 64, 64))
+            {
                 ++fineGridPixelCount;
             }
         }
@@ -6374,8 +6497,10 @@ void CanvasCoreTest::CanvasViewGridAndRulerHandleLargeFiniteCoordinates()
     gridPainter.end();
 
     int verticalGridPixelCount = 0;
-    for (int y = 0; y < gridImage.height(); ++y) {
-        if (gridImage.pixelColor(400, y) == QColor(64, 64, 64)) {
+    for (int y = 0; y < gridImage.height(); ++y)
+    {
+        if (gridImage.pixelColor(400, y) == QColor(64, 64, 64))
+        {
             ++verticalGridPixelCount;
         }
     }
@@ -6405,9 +6530,12 @@ void CanvasCoreTest::CanvasViewGridAndRulerSkipUnsafeTickIndices()
     gridPainter.end();
 
     int gridPixelCount = 0;
-    for (int y = 0; y < gridImage.height(); ++y) {
-        for (int x = 0; x < gridImage.width(); ++x) {
-            if (gridImage.pixelColor(x, y) != Qt::black) {
+    for (int y = 0; y < gridImage.height(); ++y)
+    {
+        for (int x = 0; x < gridImage.width(); ++x)
+        {
+            if (gridImage.pixelColor(x, y) != Qt::black)
+            {
                 ++gridPixelCount;
             }
         }
@@ -6444,8 +6572,10 @@ void CanvasCoreTest::CanvasViewGridCapsVisibleTickCount()
     samplePainter.end();
 
     int verticalLinePixelCount = 0;
-    for (int y = 0; y < gridSample.height(); ++y) {
-        if (gridSample.pixelColor(50, y) == QColor(64, 64, 64)) {
+    for (int y = 0; y < gridSample.height(); ++y)
+    {
+        if (gridSample.pixelColor(50, y) == QColor(64, 64, 64))
+        {
             ++verticalLinePixelCount;
         }
     }
@@ -6479,7 +6609,8 @@ void CanvasCoreTest::CanvasViewGridSpacingRejectsNonFiniteValues()
         std::numeric_limits<qreal>::infinity(),
         -std::numeric_limits<qreal>::infinity()
     };
-    for (qreal spacing : invalidSpacings) {
+    for (qreal spacing : invalidSpacings)
+    {
         view.SetGridSpacing(spacing);
         QCOMPARE(view.GetGridSpacing(), 25.0);
         QCOMPARE(spacingSpy.count(), 0);
@@ -6553,9 +6684,12 @@ void CanvasCoreTest::CanvasViewAxesStayAttachedToWorldAfterPan()
     painter.end();
 
     int screenAnchoredMarkerPixels = 0;
-    for (int x = 20; x <= 105; ++x) {
-        for (int y = 555; y <= 585; ++y) {
-            if (image.pixelColor(x, y) != QColor(Qt::black)) {
+    for (int x = 20; x <= 105; ++x)
+    {
+        for (int y = 555; y <= 585; ++y)
+        {
+            if (image.pixelColor(x, y) != QColor(Qt::black))
+            {
                 ++screenAnchoredMarkerPixels;
             }
         }
@@ -7434,23 +7568,27 @@ void CanvasCoreTest::CanvasViewMaximumDisplaySizeCacheInvalidatesOnDocumentChang
 {
     const auto addNestedGroup = [](mini_graph::CanvasDocument *document,
                                    qreal strokeWidth) {
-        if (!document) {
+        if (!document)
+        {
             return mini_graph::ItemId(0);
         }
         mini_graph::CanvasLine line(mini_graph::CanvasVector(0.0, 0.0),
                                     mini_graph::CanvasVector(40.0, 0.0));
         mini_graph::StruCanvasStyle lineStyle = line.GetStyle();
         lineStyle.strokeWidth = strokeWidth;
-        if (!line.SetStyle(lineStyle)) {
+        if (!line.SetStyle(lineStyle))
+        {
             return mini_graph::ItemId(0);
         }
 
         mini_graph::CanvasGroupContainer innerGroup;
-        if (!innerGroup.AddChild(line)) {
+        if (!innerGroup.AddChild(line))
+        {
             return mini_graph::ItemId(0);
         }
         mini_graph::CanvasGroupContainer outerGroup;
-        if (!outerGroup.AddChild(innerGroup)) {
+        if (!outerGroup.AddChild(innerGroup))
+        {
             return mini_graph::ItemId(0);
         }
         return document->AddEntity(outerGroup);
@@ -7459,11 +7597,13 @@ void CanvasCoreTest::CanvasViewMaximumDisplaySizeCacheInvalidatesOnDocumentChang
             mini_graph::CanvasDocument *document,
             mini_graph::ItemId itemId,
             qreal strokeWidth) {
-        if (!document) {
+        if (!document)
+        {
             return false;
         }
         const mini_graph::CanvasEntity *entity = document->GetEntity(itemId);
-        if (!entity) {
+        if (!entity)
+        {
             return false;
         }
         QSharedPointer<mini_graph::CanvasEntity> outerClone = entity->Clone();
@@ -7482,7 +7622,8 @@ void CanvasCoreTest::CanvasViewMaximumDisplaySizeCacheInvalidatesOnDocumentChang
         const mini_graph::CanvasLine *storedLine = innerGroup
                 ? dynamic_cast<const mini_graph::CanvasLine *>(
                     innerGroup->GetChild(0)) : nullptr;
-        if (!outerGroup || !innerGroup || !storedLine) {
+        if (!outerGroup || !innerGroup || !storedLine)
+        {
             return false;
         }
 
@@ -7493,7 +7634,8 @@ void CanvasCoreTest::CanvasViewMaximumDisplaySizeCacheInvalidatesOnDocumentChang
         lineStyle.strokeWidth = strokeWidth;
         if (!replacementLine.SetStyle(lineStyle)
                 || !innerGroup->ReplaceChild(0, replacementLine)
-                || !outerGroup->ReplaceChild(0, *innerGroup)) {
+                || !outerGroup->ReplaceChild(0, *innerGroup))
+        {
             return false;
         }
         return document->ReplaceEntity(itemId, *outerGroup);
@@ -9094,7 +9236,8 @@ void CanvasCoreTest::CanvasViewDrawsPolylineVertexHandles()
     view.DrawEditHandles(painter);
     painter.end();
 
-    for (const mini_graph::CanvasVector &vertex : vertices) {
+    for (const mini_graph::CanvasVector &vertex : vertices)
+    {
         const QPointF position = view.MapFromWorld(vertex);
         QCOMPARE(image.pixelColor(qRound(position.x()), qRound(position.y())),
                  QColor(0, 170, 255));
@@ -9309,7 +9452,8 @@ void CanvasCoreTest::CanvasViewDefersRendererCollectionChangesUntilNextFrame()
 
     bool changedCollection = false;
     first.geometryCallback = [&]() {
-        if (changedCollection) {
+        if (changedCollection)
+        {
             return;
         }
         changedCollection = true;
@@ -10274,7 +10418,8 @@ void CanvasCoreTest::CanvasViewLifecycleCanBeCreatedAndDestroyed()
                     20.0, 0.0, 1.5707963267948966);
     document.AddCircle(mini_graph::CanvasVector(50.0, 40.0), 15.0);
 
-    for (int index = 0; index < 2; ++index) {
+    for (int index = 0; index < 2; ++index)
+    {
         CanvasViewHarness *view = new CanvasViewHarness;
         view->resize(640, 480);
         view->SetDocument(&document);

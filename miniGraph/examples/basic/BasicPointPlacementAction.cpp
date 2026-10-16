@@ -13,13 +13,15 @@ BasicPointPlacementAction::BasicPointPlacementAction(QObject *parent)
 
 void BasicPointPlacementAction::MousePressEvent(QMouseEvent *event)
 {
-    if (!event || event->button() != Qt::LeftButton) {
+    if (!event || event->button() != Qt::LeftButton)
+    {
         return;
     }
 
     mini_graph::CanvasView *view = GetCanvasView();
     mini_graph::CanvasDocument *document = view ? view->GetDocument() : nullptr;
-    if (!view || !document) {
+    if (!view || !document)
+    {
         return;
     }
 
@@ -27,7 +29,8 @@ void BasicPointPlacementAction::MousePressEvent(QMouseEvent *event)
     const mini_graph::CanvasVector position = snap.IsValid()
             ? snap.position
             : view->MapToWorld(event->localPos());
-    if (document->AddPoint(position) != 0) {
+    if (document->AddPoint(position) != 0)
+    {
         Finish();
     }
 }

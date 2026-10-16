@@ -5,7 +5,8 @@
 #include <QMouseEvent>
 #include <QPainter>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 CanvasAction::CanvasAction(QObject *parent)
     : QObject(parent)

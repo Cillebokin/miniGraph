@@ -8,39 +8,51 @@
 #include <cmath>
 #include <limits>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
-namespace {
+namespace
+{
 
 bool IsValidEntityTree(const CanvasEntity &entity)
 {
     if (entity.GetType() == CanvasEntityType::Invalid
             || !entity.IsValid()
-            || !entity.GetStyle().IsValid()) {
+            || !entity.GetStyle().IsValid())
+    {
         return false;
     }
 
-    if (entity.GetType() == CanvasEntityType::Polyline) {
+    if (entity.GetType() == CanvasEntityType::Polyline)
+    {
         const CanvasPolyline *polyline =
                 dynamic_cast<const CanvasPolyline *>(&entity);
-        if (!polyline) {
+        if (!polyline)
+        {
             return false;
         }
-        for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+        for (int index = 0; index < polyline->GetSegmentCount(); ++index)
+        {
             const CanvasEntity *segment = polyline->GetSegment(index);
-            if (!segment || !IsValidEntityTree(*segment)) {
+            if (!segment || !IsValidEntityTree(*segment))
+            {
                 return false;
             }
         }
-    } else if (entity.GetType() == CanvasEntityType::GroupContainer) {
+    }
+    else if (entity.GetType() == CanvasEntityType::GroupContainer)
+    {
         const CanvasGroupContainer *group =
                 dynamic_cast<const CanvasGroupContainer *>(&entity);
-        if (!group) {
+        if (!group)
+        {
             return false;
         }
-        for (int index = 0; index < group->GetChildCount(); ++index) {
+        for (int index = 0; index < group->GetChildCount(); ++index)
+        {
             const CanvasEntity *child = group->GetChild(index);
-            if (!child || !IsValidEntityTree(*child)) {
+            if (!child || !IsValidEntityTree(*child))
+            {
                 return false;
             }
         }
@@ -51,7 +63,8 @@ bool IsValidEntityTree(const CanvasEntity &entity)
 
 bool IsUsableDocumentEntity(const CanvasEntity &entity)
 {
-    if (!IsValidEntityTree(entity)) {
+    if (!IsValidEntityTree(entity))
+    {
         return false;
     }
     QRectF bounds;
@@ -64,7 +77,8 @@ bool IsUsableDocumentEntity(const CanvasEntity &entity)
 
 bool CopyCommonProperties(const CanvasEntity &source, CanvasEntity *target)
 {
-    if (!target) {
+    if (!target)
+    {
         return false;
     }
     target->SetStyle(source.GetStyle());
@@ -76,7 +90,8 @@ bool CopyCommonProperties(const CanvasEntity &source, CanvasEntity *target)
     const std::shared_ptr<CanvasData> copiedData =
             sourceData ? sourceData->Clone() : std::shared_ptr<CanvasData>();
     if (sourceData
-            && (!copiedData || copiedData.get() == sourceData.get())) {
+            && (!copiedData || copiedData.get() == sourceData.get()))
+    {
         return false;
     }
     return target->TrySetCanvasData(copiedData);
@@ -109,17 +124,20 @@ bool AreSamePolylineGeometry(const StruPolylineGeometry &left,
 bool BuildPolylineEntity(const StruPolylineGeometry &geometry,
                          CanvasPolyline *polyline)
 {
-    if (!polyline || !IsValidGeometry(geometry)) {
+    if (!polyline || !IsValidGeometry(geometry))
+    {
         return false;
     }
 
     const int edgeCount = geometry.closed
             ? geometry.vertices.size() : geometry.vertices.size() - 1;
-    for (int index = 0; index < edgeCount; ++index) {
+    for (int index = 0; index < edgeCount; ++index)
+    {
         const CanvasVector &start = geometry.vertices.at(index);
         const CanvasVector &end = geometry.vertices.at(
                     (index + 1) % geometry.vertices.size());
-        if (!polyline->AddSegment(CanvasLine(start, end))) {
+        if (!polyline->AddSegment(CanvasLine(start, end)))
+        {
             return false;
         }
     }
@@ -129,26 +147,32 @@ bool BuildPolylineEntity(const StruPolylineGeometry &geometry,
 bool ExtractPolylineGeometry(const CanvasPolyline &polyline,
                              StruPolylineGeometry *geometry)
 {
-    if (!geometry || polyline.GetSegmentCount() == 0) {
+    if (!geometry || polyline.GetSegmentCount() == 0)
+    {
         return false;
     }
 
     StruPolylineGeometry candidate;
     candidate.closed = polyline.IsClosed();
-    for (int index = 0; index < polyline.GetSegmentCount(); ++index) {
+    for (int index = 0; index < polyline.GetSegmentCount(); ++index)
+    {
         const CanvasLine *line = dynamic_cast<const CanvasLine *>(
                     polyline.GetSegment(index));
-        if (!line) {
+        if (!line)
+        {
             return false;
         }
-        if (index == 0) {
+        if (index == 0)
+        {
             candidate.vertices.append(line->GetStartPoint());
         }
-        if (!candidate.closed || index + 1 < polyline.GetSegmentCount()) {
+        if (!candidate.closed || index + 1 < polyline.GetSegmentCount())
+        {
             candidate.vertices.append(line->GetEndPoint());
         }
     }
-    if (!IsValidGeometry(candidate)) {
+    if (!IsValidGeometry(candidate))
+    {
         return false;
     }
     *geometry = candidate;
@@ -159,58 +183,70 @@ bool TranslateEntity(const CanvasEntity &source,
                      const CanvasVector &delta,
                      QSharedPointer<CanvasEntity> *translated)
 {
-    if (!translated || !delta.IsValid() || !IsUsableDocumentEntity(source)) {
+    if (!translated || !delta.IsValid() || !IsUsableDocumentEntity(source))
+    {
         return false;
     }
 
     QSharedPointer<CanvasEntity> candidate = source.Clone();
-    if (!candidate || candidate->GetType() != source.GetType()) {
+    if (!candidate || candidate->GetType() != source.GetType())
+    {
         return false;
     }
 
-    switch (source.GetType()) {
-    case CanvasEntityType::Point: {
+    switch (source.GetType())
+    {
+    case CanvasEntityType::Point:
+    {
         const CanvasPoint *original = dynamic_cast<const CanvasPoint *>(&source);
         CanvasPoint *updated = dynamic_cast<CanvasPoint *>(candidate.data());
         if (!original || !updated
-                || !updated->SetPosition(original->GetPosition() + delta)) {
+                || !updated->SetPosition(original->GetPosition() + delta))
+        {
             return false;
         }
         break;
     }
-    case CanvasEntityType::Line: {
+    case CanvasEntityType::Line:
+    {
         const CanvasLine *original = dynamic_cast<const CanvasLine *>(&source);
         CanvasLine *updated = dynamic_cast<CanvasLine *>(candidate.data());
         if (!original || !updated
                 || !updated->SetGeometry(original->GetStartPoint() + delta,
-                                         original->GetEndPoint() + delta)) {
+                                         original->GetEndPoint() + delta))
+        {
             return false;
         }
         break;
     }
-    case CanvasEntityType::Arc: {
+    case CanvasEntityType::Arc:
+    {
         const CanvasArc *original = dynamic_cast<const CanvasArc *>(&source);
         CanvasArc *updated = dynamic_cast<CanvasArc *>(candidate.data());
         if (!original || !updated
                 || !updated->SetGeometry(original->GetCenter() + delta,
                                          original->GetRadius(),
                                          original->GetStartAngle(),
-                                         original->GetEndAngle())) {
+                                         original->GetEndAngle()))
+        {
             return false;
         }
         break;
     }
-    case CanvasEntityType::Circle: {
+    case CanvasEntityType::Circle:
+    {
         const CanvasCircle *original = dynamic_cast<const CanvasCircle *>(&source);
         CanvasCircle *updated = dynamic_cast<CanvasCircle *>(candidate.data());
         if (!original || !updated
                 || !updated->SetGeometry(original->GetCenter() + delta,
-                                         original->GetRadius())) {
+                                         original->GetRadius()))
+        {
             return false;
         }
         break;
     }
-    case CanvasEntityType::Ellipse: {
+    case CanvasEntityType::Ellipse:
+    {
         const CanvasEllipse *original = dynamic_cast<const CanvasEllipse *>(&source);
         CanvasEllipse *updated = dynamic_cast<CanvasEllipse *>(candidate.data());
         if (!original || !updated
@@ -219,88 +255,111 @@ bool TranslateEntity(const CanvasEntity &source,
                                          original->GetMinorMajorRatio(),
                                          original->IsArc(),
                                          original->GetStartParameter(),
-                                         original->GetEndParameter())) {
+                                         original->GetEndParameter()))
+        {
             return false;
         }
         break;
     }
-    case CanvasEntityType::Polyline: {
+    case CanvasEntityType::Polyline:
+    {
         const CanvasPolyline *original =
                 dynamic_cast<const CanvasPolyline *>(&source);
-        if (!original) {
+        if (!original)
+        {
             return false;
         }
 
         QSharedPointer<CanvasPolyline> updated(new CanvasPolyline);
-        for (int index = 0; index < original->GetSegmentCount(); ++index) {
+        for (int index = 0; index < original->GetSegmentCount(); ++index)
+        {
             const CanvasEntity *segment = original->GetSegment(index);
             if (const CanvasLine *line =
-                    dynamic_cast<const CanvasLine *>(segment)) {
+                    dynamic_cast<const CanvasLine *>(segment))
+            {
                 CanvasLine translatedLine(line->GetStartPoint() + delta,
                                           line->GetEndPoint() + delta);
-                if (!CopyCommonProperties(*line, &translatedLine)) {
+                if (!CopyCommonProperties(*line, &translatedLine))
+                {
                     return false;
                 }
-                if (!updated->AddSegment(translatedLine)) {
+                if (!updated->AddSegment(translatedLine))
+                {
                     return false;
                 }
-            } else if (const CanvasArc *arc =
-                       dynamic_cast<const CanvasArc *>(segment)) {
+            }
+            else if (const CanvasArc *arc =
+                       dynamic_cast<const CanvasArc *>(segment))
+            {
                 CanvasArc translatedArc(arc->GetCenter() + delta,
                                         arc->GetRadius(),
                                         arc->GetStartAngle(),
                                         arc->GetEndAngle(),
                                         arc->IsReversed());
-                if (!CopyCommonProperties(*arc, &translatedArc)) {
+                if (!CopyCommonProperties(*arc, &translatedArc))
+                {
                     return false;
                 }
-                if (!updated->AddSegment(translatedArc)) {
+                if (!updated->AddSegment(translatedArc))
+                {
                     return false;
                 }
-            } else {
+            }
+            else
+            {
                 return false;
             }
         }
-        if (!updated->SetClosed(original->IsClosed())) {
+        if (!updated->SetClosed(original->IsClosed()))
+        {
             return false;
         }
-        if (!CopyCommonProperties(source, updated.data())) {
+        if (!CopyCommonProperties(source, updated.data()))
+        {
             return false;
         }
         candidate = updated;
         break;
     }
-    case CanvasEntityType::Spline: {
+    case CanvasEntityType::Spline:
+    {
         const CanvasSpline *original = dynamic_cast<const CanvasSpline *>(&source);
         CanvasSpline *updated = dynamic_cast<CanvasSpline *>(candidate.data());
-        if (!original || !updated) {
+        if (!original || !updated)
+        {
             return false;
         }
         QVector<CanvasVector> controlPoints;
         controlPoints.reserve(original->GetControlPoints().size());
-        for (const CanvasVector &point : original->GetControlPoints()) {
+        for (const CanvasVector &point : original->GetControlPoints())
+        {
             controlPoints.append(point + delta);
         }
         if (!updated->SetData(original->GetDegree(), controlPoints,
                               original->GetKnots(), original->GetWeights(),
-                              original->IsClosed(), original->IsPeriodic())) {
+                              original->IsClosed(), original->IsPeriodic()))
+        {
             return false;
         }
         break;
     }
-    case CanvasEntityType::GroupContainer: {
+    case CanvasEntityType::GroupContainer:
+    {
         const CanvasGroupContainer *original =
                 dynamic_cast<const CanvasGroupContainer *>(&source);
         CanvasGroupContainer *updated =
                 dynamic_cast<CanvasGroupContainer *>(candidate.data());
-        if (!original || !updated) {
+        if (!original || !updated)
+        {
             return false;
         }
-        for (int index = 0; index < original->GetChildCount(); ++index) {
+        for (int index = 0; index < original->GetChildCount(); ++index)
+        {
             const CanvasEntity *child = original->GetChild(index);
             QSharedPointer<CanvasEntity> translatedChild;
             if (!child || !TranslateEntity(*child, delta, &translatedChild)
-                    || !updated->ReplaceChild(index, *translatedChild)) {
+                    || !updated->ReplaceChild(index, *translatedChild))
+            {
                 return false;
             }
         }
@@ -311,7 +370,8 @@ bool TranslateEntity(const CanvasEntity &source,
         return false;
     }
 
-    if (!IsUsableDocumentEntity(*candidate)) {
+    if (!IsUsableDocumentEntity(*candidate))
+    {
         return false;
     }
     *translated = candidate;
@@ -329,13 +389,15 @@ CanvasDocument::CanvasDocument(QObject *parent)
 
 ItemId CanvasDocument::AddEntity(const CanvasEntity &entity)
 {
-    if (m_NextId == 0 || !IsUsableDocumentEntity(entity)) {
+    if (m_NextId == 0 || !IsUsableDocumentEntity(entity))
+    {
         return 0;
     }
 
     QSharedPointer<CanvasEntity> clone = entity.Clone();
     if (!clone || clone->GetType() != entity.GetType()
-            || !IsUsableDocumentEntity(*clone)) {
+            || !IsUsableDocumentEntity(*clone))
+    {
         return 0;
     }
 
@@ -357,13 +419,15 @@ const CanvasEntity *CanvasDocument::GetEntity(ItemId id) const
 bool CanvasDocument::ReplaceEntity(ItemId id, const CanvasEntity &entity)
 {
     CanvasEntity *current = FindEntity(id);
-    if (!current || !IsUsableDocumentEntity(entity)) {
+    if (!current || !IsUsableDocumentEntity(entity))
+    {
         return false;
     }
 
     QSharedPointer<CanvasEntity> clone = entity.Clone();
     if (!clone || clone->GetType() != entity.GetType()
-            || !IsUsableDocumentEntity(*clone)) {
+            || !IsUsableDocumentEntity(*clone))
+    {
         return false;
     }
 
@@ -389,18 +453,21 @@ ItemId CanvasDocument::AddLine(const StruLineGeometry &geometry,
                                const QColor &color,
                                qreal width)
 {
-    if (!std::isfinite(static_cast<double>(width))) {
+    if (!std::isfinite(static_cast<double>(width)))
+    {
         return 0;
     }
 
     CanvasLine line(geometry.startPoint, geometry.endPoint);
-    if (!line.IsValid()) {
+    if (!line.IsValid())
+    {
         return 0;
     }
     StruCanvasStyle style = line.GetStyle();
     style.strokeColor = color.isValid() ? color : QColor(Qt::white);
     style.strokeWidth = qMax<qreal>(0.0, width);
-    if (!line.SetStyle(style)) {
+    if (!line.SetStyle(style))
+    {
         return 0;
     }
     return AddEntity(line);
@@ -408,7 +475,8 @@ ItemId CanvasDocument::AddLine(const StruLineGeometry &geometry,
 
 ItemId CanvasDocument::AddPoint(const CanvasVector &position)
 {
-    if (!position.IsValid()) {
+    if (!position.IsValid())
+    {
         return 0;
     }
     return AddEntity(CanvasPoint(position));
@@ -436,7 +504,8 @@ ItemId CanvasDocument::AddArc(const CanvasVector &center,
 
 ItemId CanvasDocument::AddArc(const StruArcGeometry &geometry)
 {
-    if (!IsValidGeometry(geometry)) {
+    if (!IsValidGeometry(geometry))
+    {
         return 0;
     }
     CanvasArc arc(geometry.center, geometry.radius, geometry.startAngle,
@@ -455,7 +524,8 @@ ItemId CanvasDocument::AddCircle(const CanvasVector &center, qreal radius)
 
 ItemId CanvasDocument::AddCircle(const StruCircleGeometry &geometry)
 {
-    if (!IsValidGeometry(geometry)) {
+    if (!IsValidGeometry(geometry))
+    {
         return 0;
     }
     return AddEntity(CanvasCircle(geometry.center, geometry.radius));
@@ -473,7 +543,8 @@ ItemId CanvasDocument::AddPolyline(const QVector<CanvasVector> &vertices,
 ItemId CanvasDocument::AddPolyline(const StruPolylineGeometry &geometry)
 {
     CanvasPolyline polyline;
-    if (!BuildPolylineEntity(geometry, &polyline)) {
+    if (!BuildPolylineEntity(geometry, &polyline))
+    {
         return 0;
     }
     return AddEntity(polyline);
@@ -481,7 +552,8 @@ ItemId CanvasDocument::AddPolyline(const StruPolylineGeometry &geometry)
 
 bool CanvasDocument::RemoveItem(ItemId id)
 {
-    if (!m_Entities.remove(id)) {
+    if (!m_Entities.remove(id))
+    {
         return false;
     }
 
@@ -489,7 +561,8 @@ bool CanvasDocument::RemoveItem(ItemId id)
     const bool selectionChanged = m_SelectedIds.contains(id);
     m_SelectedIds.remove(id);
     InvalidatePrimitiveViews();
-    if (selectionChanged) {
+    if (selectionChanged)
+    {
         emit SelectionChanged();
     }
     emit Changed();
@@ -500,39 +573,48 @@ bool CanvasDocument::TranslateItems(const QVector<ItemId> &ids,
                                     const CanvasVector &delta)
 {
     if (ids.isEmpty() || !delta.IsValid()
-            || (delta.GetX() == 0.0 && delta.GetY() == 0.0)) {
+            || (delta.GetX() == 0.0 && delta.GetY() == 0.0))
+    {
         return false;
     }
 
     QSet<ItemId> requestedIds;
     requestedIds.reserve(ids.size());
-    for (const ItemId id : ids) {
-        if (FindEntity(id)) {
+    for (const ItemId id : ids)
+    {
+        if (FindEntity(id))
+        {
             requestedIds.insert(id);
         }
     }
-    if (requestedIds.isEmpty()) {
+    if (requestedIds.isEmpty())
+    {
         return false;
     }
 
     QHash<ItemId, QSharedPointer<CanvasEntity>> translatedEntities;
     translatedEntities.reserve(requestedIds.size());
-    for (const ItemId id : m_ItemOrder) {
-        if (!requestedIds.contains(id)) {
+    for (const ItemId id : m_ItemOrder)
+    {
+        if (!requestedIds.contains(id))
+        {
             continue;
         }
         const CanvasEntity *entity = FindEntity(id);
         QSharedPointer<CanvasEntity> translated;
-        if (!entity || !TranslateEntity(*entity, delta, &translated)) {
+        if (!entity || !TranslateEntity(*entity, delta, &translated))
+        {
             return false;
         }
         translated->SetId(id);
         translatedEntities.insert(id, translated);
     }
 
-    for (const ItemId id : m_ItemOrder) {
+    for (const ItemId id : m_ItemOrder)
+    {
         const auto translated = translatedEntities.constFind(id);
-        if (translated != translatedEntities.constEnd()) {
+        if (translated != translatedEntities.constEnd())
+        {
             m_Entities[id] = translated.value();
         }
     }
@@ -545,7 +627,8 @@ void CanvasDocument::Clear()
 {
     const bool contentChanged = !m_ItemOrder.isEmpty();
     const bool selectionChanged = !m_SelectedIds.isEmpty();
-    if (!contentChanged && !selectionChanged) {
+    if (!contentChanged && !selectionChanged)
+    {
         return;
     }
 
@@ -553,10 +636,12 @@ void CanvasDocument::Clear()
     m_ItemOrder.clear();
     m_SelectedIds.clear();
     InvalidatePrimitiveViews();
-    if (selectionChanged) {
+    if (selectionChanged)
+    {
         emit SelectionChanged();
     }
-    if (contentChanged) {
+    if (contentChanged)
+    {
         emit Changed();
     }
 }
@@ -610,7 +695,8 @@ CanvasEntityType CanvasDocument::GetItemType(ItemId id) const
 bool CanvasDocument::GetItemStyle(ItemId id, StruCanvasStyle *style) const
 {
     const CanvasEntity *entity = FindEntity(id);
-    if (!entity || !style) {
+    if (!entity || !style)
+    {
         return false;
     }
     *style = entity->GetStyle();
@@ -620,7 +706,8 @@ bool CanvasDocument::GetItemStyle(ItemId id, StruCanvasStyle *style) const
 bool CanvasDocument::SetItemStyle(ItemId id, const StruCanvasStyle &style)
 {
     CanvasEntity *entity = FindEntity(id);
-    if (!entity || entity->GetStyle() == style || !entity->SetStyle(style)) {
+    if (!entity || entity->GetStyle() == style || !entity->SetStyle(style))
+    {
         return false;
     }
     InvalidatePrimitiveViews();
@@ -638,10 +725,12 @@ bool CanvasDocument::SetItemCanvasData(
         ItemId id, const std::shared_ptr<CanvasData> &data)
 {
     CanvasEntity *entity = FindEntity(id);
-    if (!entity) {
+    if (!entity)
+    {
         return false;
     }
-    if (!entity->TrySetCanvasData(data)) {
+    if (!entity->TrySetCanvasData(data))
+    {
         return false;
     }
     emit Changed();
@@ -651,7 +740,8 @@ bool CanvasDocument::SetItemCanvasData(
 bool CanvasDocument::NotifyItemCanvasDataChanged(ItemId id)
 {
     const CanvasEntity *entity = FindEntity(id);
-    if (!entity || !entity->GetCanvasData()) {
+    if (!entity || !entity->GetCanvasData())
+    {
         return false;
     }
     emit Changed();
@@ -672,7 +762,8 @@ void CanvasDocument::SetCanvasGlobalData(
 
 bool CanvasDocument::NotifyCanvasGlobalDataChanged()
 {
-    if (!m_CanvasGlobalData) {
+    if (!m_CanvasGlobalData)
+    {
         return false;
     }
     emit Changed();
@@ -683,7 +774,8 @@ bool CanvasDocument::GetPointGeometry(ItemId id,
                                       StruPointGeometry *geometry) const
 {
     const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(FindEntity(id));
-    if (!point || !geometry) {
+    if (!point || !geometry)
+    {
         return false;
     }
     geometry->position = point->GetPosition();
@@ -696,7 +788,8 @@ bool CanvasDocument::SetPointGeometry(ItemId id,
     const CanvasPoint *current =
             dynamic_cast<const CanvasPoint *>(FindEntity(id));
     if (!current || !geometry.position.IsValid()
-            || current->GetPosition() == geometry.position) {
+            || current->GetPosition() == geometry.position)
+    {
         return false;
     }
     QSharedPointer<CanvasEntity> clone = current->Clone();
@@ -710,7 +803,8 @@ bool CanvasDocument::GetLineGeometry(ItemId id,
                                      StruLineGeometry *geometry) const
 {
     const CanvasLine *line = dynamic_cast<const CanvasLine *>(FindEntity(id));
-    if (!line || !geometry) {
+    if (!line || !geometry)
+    {
         return false;
     }
     geometry->startPoint = line->GetStartPoint();
@@ -725,7 +819,8 @@ bool CanvasDocument::SetLineGeometry(ItemId id,
             dynamic_cast<const CanvasLine *>(FindEntity(id));
     if (!current
             || (current->GetStartPoint() == geometry.startPoint
-                && current->GetEndPoint() == geometry.endPoint)) {
+                && current->GetEndPoint() == geometry.endPoint))
+    {
         return false;
     }
     QSharedPointer<CanvasEntity> clone = current->Clone();
@@ -740,7 +835,8 @@ bool CanvasDocument::GetArcGeometry(ItemId id,
                                     StruArcGeometry *geometry) const
 {
     const CanvasArc *arc = dynamic_cast<const CanvasArc *>(FindEntity(id));
-    if (!arc || !geometry) {
+    if (!arc || !geometry)
+    {
         return false;
     }
     geometry->center = arc->GetCenter();
@@ -756,7 +852,8 @@ bool CanvasDocument::SetArcGeometry(ItemId id,
 {
     const CanvasArc *current =
             dynamic_cast<const CanvasArc *>(FindEntity(id));
-    if (!current || !IsValidGeometry(geometry)) {
+    if (!current || !IsValidGeometry(geometry))
+    {
         return false;
     }
     StruArcGeometry currentGeometry;
@@ -765,7 +862,8 @@ bool CanvasDocument::SetArcGeometry(ItemId id,
     currentGeometry.startAngle = current->GetStartAngle();
     currentGeometry.endAngle = current->GetEndAngle();
     currentGeometry.reversed = current->IsReversed();
-    if (AreSameArcGeometry(currentGeometry, geometry)) {
+    if (AreSameArcGeometry(currentGeometry, geometry))
+    {
         return false;
     }
     QSharedPointer<CanvasEntity> clone = current->Clone();
@@ -773,7 +871,8 @@ bool CanvasDocument::SetArcGeometry(ItemId id,
             ? dynamic_cast<CanvasArc *>(clone.data()) : nullptr;
     if (!updated || !updated->SetGeometry(geometry.center, geometry.radius,
                                           geometry.startAngle,
-                                          geometry.endAngle)) {
+                                          geometry.endAngle))
+    {
         return false;
     }
     updated->SetReversed(geometry.reversed);
@@ -785,7 +884,8 @@ bool CanvasDocument::GetCircleGeometry(ItemId id,
 {
     const CanvasCircle *circle =
             dynamic_cast<const CanvasCircle *>(FindEntity(id));
-    if (!circle || !geometry) {
+    if (!circle || !geometry)
+    {
         return false;
     }
     geometry->center = circle->GetCenter();
@@ -798,13 +898,15 @@ bool CanvasDocument::SetCircleGeometry(ItemId id,
 {
     const CanvasCircle *current =
             dynamic_cast<const CanvasCircle *>(FindEntity(id));
-    if (!current || !IsValidGeometry(geometry)) {
+    if (!current || !IsValidGeometry(geometry))
+    {
         return false;
     }
     StruCircleGeometry currentGeometry;
     currentGeometry.center = current->GetCenter();
     currentGeometry.radius = current->GetRadius();
-    if (AreSameCircleGeometry(currentGeometry, geometry)) {
+    if (AreSameCircleGeometry(currentGeometry, geometry))
+    {
         return false;
     }
     QSharedPointer<CanvasEntity> clone = current->Clone();
@@ -827,38 +929,45 @@ bool CanvasDocument::SetPolylineGeometry(ItemId id,
 {
     const CanvasPolyline *current =
             dynamic_cast<const CanvasPolyline *>(FindEntity(id));
-    if (!current || !IsValidGeometry(geometry)) {
+    if (!current || !IsValidGeometry(geometry))
+    {
         return false;
     }
     StruPolylineGeometry currentGeometry;
     if (!ExtractPolylineGeometry(*current, &currentGeometry)
-            || AreSamePolylineGeometry(currentGeometry, geometry)) {
+            || AreSamePolylineGeometry(currentGeometry, geometry))
+    {
         return false;
     }
 
     CanvasPolyline updated;
-    if (!BuildPolylineEntity(geometry, &updated)) {
+    if (!BuildPolylineEntity(geometry, &updated))
+    {
         return false;
     }
     const int segmentsToPreserve = qMin(current->GetSegmentCount(),
                                         updated.GetSegmentCount());
-    for (int index = 0; index < segmentsToPreserve; ++index) {
+    for (int index = 0; index < segmentsToPreserve; ++index)
+    {
         const CanvasLine *currentSegment = dynamic_cast<const CanvasLine *>(
                     current->GetSegment(index));
         const CanvasLine *updatedSegment = dynamic_cast<const CanvasLine *>(
                     updated.GetSegment(index));
-        if (!currentSegment || !updatedSegment) {
+        if (!currentSegment || !updatedSegment)
+        {
             return false;
         }
 
         CanvasLine segmentWithProperties(updatedSegment->GetStartPoint(),
                                          updatedSegment->GetEndPoint());
         if (!CopyCommonProperties(*currentSegment, &segmentWithProperties)
-                || !updated.SetSegment(index, segmentWithProperties)) {
+                || !updated.SetSegment(index, segmentWithProperties))
+        {
             return false;
         }
     }
-    if (!CopyCommonProperties(*current, &updated)) {
+    if (!CopyCommonProperties(*current, &updated))
+    {
         return false;
     }
     return ReplaceEntity(id, updated);
@@ -873,8 +982,10 @@ QVector<ItemId> CanvasDocument::GetSelectedItemIds() const
 {
     QVector<ItemId> selectedIds;
     selectedIds.reserve(m_SelectedIds.size());
-    for (const ItemId id : m_ItemOrder) {
-        if (m_SelectedIds.contains(id)) {
+    for (const ItemId id : m_ItemOrder)
+    {
+        if (m_SelectedIds.contains(id))
+        {
             selectedIds.append(id);
         }
     }
@@ -888,7 +999,8 @@ bool CanvasDocument::IsItemSelected(ItemId id) const
 
 void CanvasDocument::SelectItem(ItemId id)
 {
-    if (!FindEntity(id) || m_SelectedIds.contains(id)) {
+    if (!FindEntity(id) || m_SelectedIds.contains(id))
+    {
         return;
     }
     m_SelectedIds.insert(id);
@@ -897,12 +1009,16 @@ void CanvasDocument::SelectItem(ItemId id)
 
 void CanvasDocument::ToggleItemSelection(ItemId id)
 {
-    if (!FindEntity(id)) {
+    if (!FindEntity(id))
+    {
         return;
     }
-    if (m_SelectedIds.contains(id)) {
+    if (m_SelectedIds.contains(id))
+    {
         m_SelectedIds.remove(id);
-    } else {
+    }
+    else
+    {
         m_SelectedIds.insert(id);
     }
     emit SelectionChanged();
@@ -914,26 +1030,36 @@ void CanvasDocument::SelectItems(const QVector<ItemId> &ids,
 {
     QSet<ItemId> validIds;
     validIds.reserve(ids.size());
-    for (const ItemId id : ids) {
-        if (FindEntity(id)) {
+    for (const ItemId id : ids)
+    {
+        if (FindEntity(id))
+        {
             validIds.insert(id);
         }
     }
 
     QSet<ItemId> nextSelection = append ? m_SelectedIds : QSet<ItemId>();
-    if (toggle) {
-        for (const ItemId id : validIds) {
-            if (nextSelection.contains(id)) {
+    if (toggle)
+    {
+        for (const ItemId id : validIds)
+        {
+            if (nextSelection.contains(id))
+            {
                 nextSelection.remove(id);
-            } else {
+            }
+            else
+            {
                 nextSelection.insert(id);
             }
         }
-    } else {
+    }
+    else
+    {
         nextSelection.unite(validIds);
     }
 
-    if (nextSelection == m_SelectedIds) {
+    if (nextSelection == m_SelectedIds)
+    {
         return;
     }
     m_SelectedIds = nextSelection;
@@ -947,7 +1073,8 @@ void CanvasDocument::ToggleItems(const QVector<ItemId> &ids)
 
 void CanvasDocument::ClearSelection()
 {
-    if (m_SelectedIds.isEmpty()) {
+    if (m_SelectedIds.isEmpty())
+    {
         return;
     }
     m_SelectedIds.clear();
@@ -961,28 +1088,34 @@ QRectF CanvasDocument::GetBounds() const
 
 QRectF CanvasDocument::GetBounds(const QVector<ItemId> &ids) const
 {
-    if (ids.isEmpty()) {
+    if (ids.isEmpty())
+    {
         return QRectF();
     }
 
     QSet<ItemId> requestedIds;
     requestedIds.reserve(ids.size());
-    for (const ItemId id : ids) {
+    for (const ItemId id : ids)
+    {
         requestedIds.insert(id);
     }
 
     QRectF result;
     bool hasBounds = false;
-    for (const ItemId id : m_ItemOrder) {
-        if (!requestedIds.contains(id)) {
+    for (const ItemId id : m_ItemOrder)
+    {
+        if (!requestedIds.contains(id))
+        {
             continue;
         }
         const CanvasEntity *entity = FindEntity(id);
         QRectF entityBounds;
-        if (!entity || !TryGetGeometryBounds(*entity, &entityBounds)) {
+        if (!entity || !TryGetGeometryBounds(*entity, &entityBounds))
+        {
             continue;
         }
-        if (!hasBounds) {
+        if (!hasBounds)
+        {
             result = entityBounds;
             hasBounds = true;
             continue;
@@ -997,7 +1130,8 @@ QRectF CanvasDocument::GetBounds(const QVector<ItemId> &ids) const
         if (!std::isfinite(static_cast<double>(left))
                 || !std::isfinite(static_cast<double>(top))
                 || !std::isfinite(static_cast<double>(width))
-                || !std::isfinite(static_cast<double>(height))) {
+                || !std::isfinite(static_cast<double>(height)))
+        {
             return QRectF();
         }
         result = QRectF(left, top, width, height);
@@ -1024,7 +1158,8 @@ void CanvasDocument::InvalidatePrimitiveViews()
 
 void CanvasDocument::EnsurePrimitiveViews() const
 {
-    if (!m_PrimitiveViewsDirty) {
+    if (!m_PrimitiveViewsDirty)
+    {
         return;
     }
 
@@ -1034,15 +1169,20 @@ void CanvasDocument::EnsurePrimitiveViews() const
     m_CirclePrimitiveView.clear();
     m_PolylinePrimitiveView.clear();
 
-    for (const ItemId id : m_ItemOrder) {
+    for (const ItemId id : m_ItemOrder)
+    {
         const CanvasEntity *entity = FindEntity(id);
-        if (!entity) {
+        if (!entity)
+        {
             continue;
         }
-        switch (entity->GetType()) {
-        case CanvasEntityType::Point: {
+        switch (entity->GetType())
+        {
+        case CanvasEntityType::Point:
+        {
             const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(entity);
-            if (!point) {
+            if (!point)
+            {
                 break;
             }
             StruPointPrimitive primitive;
@@ -1052,9 +1192,11 @@ void CanvasDocument::EnsurePrimitiveViews() const
             m_PointPrimitiveView.append(primitive);
             break;
         }
-        case CanvasEntityType::Line: {
+        case CanvasEntityType::Line:
+        {
             const CanvasLine *line = dynamic_cast<const CanvasLine *>(entity);
-            if (!line) {
+            if (!line)
+            {
                 break;
             }
             StruLinePrimitive primitive;
@@ -1067,9 +1209,11 @@ void CanvasDocument::EnsurePrimitiveViews() const
             m_LinePrimitiveView.append(primitive);
             break;
         }
-        case CanvasEntityType::Arc: {
+        case CanvasEntityType::Arc:
+        {
             const CanvasArc *arc = dynamic_cast<const CanvasArc *>(entity);
-            if (!arc) {
+            if (!arc)
+            {
                 break;
             }
             StruArcPrimitive primitive;
@@ -1083,10 +1227,12 @@ void CanvasDocument::EnsurePrimitiveViews() const
             m_ArcPrimitiveView.append(primitive);
             break;
         }
-        case CanvasEntityType::Circle: {
+        case CanvasEntityType::Circle:
+        {
             const CanvasCircle *circle =
                     dynamic_cast<const CanvasCircle *>(entity);
-            if (!circle) {
+            if (!circle)
+            {
                 break;
             }
             StruCirclePrimitive primitive;
@@ -1097,14 +1243,17 @@ void CanvasDocument::EnsurePrimitiveViews() const
             m_CirclePrimitiveView.append(primitive);
             break;
         }
-        case CanvasEntityType::Polyline: {
+        case CanvasEntityType::Polyline:
+        {
             const CanvasPolyline *polyline =
                     dynamic_cast<const CanvasPolyline *>(entity);
-            if (!polyline) {
+            if (!polyline)
+            {
                 break;
             }
             StruPolylinePrimitive primitive;
-            if (!ExtractPolylineGeometry(*polyline, &primitive.geometry)) {
+            if (!ExtractPolylineGeometry(*polyline, &primitive.geometry))
+            {
                 break;
             }
             primitive.id = id;

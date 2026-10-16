@@ -6,7 +6,8 @@
 #include <QRectF>
 #include <QVector>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 // 判断圆弧数据是否有效；角差对 2π 取余后绝对值不大于 1e-12 弧度时无效。
 // 完整圆周应使用圆几何数据。

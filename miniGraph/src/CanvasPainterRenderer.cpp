@@ -19,9 +19,11 @@
 #include <cmath>
 #include <limits>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
-namespace {
+namespace
+{
 
 const qreal kTwoPi = 6.28318530717958647692;
 const qreal kAngleTolerance = 1.0e-12;
@@ -61,7 +63,8 @@ QColor GetDisplayColor(const StruCanvasStyle &style,
     if (color.alpha() > 0
             && (sameAsBackground
                 || (isBlack
-                    && CalculateColorDistancePercent(color, background) < 20))) {
+                    && CalculateColorDistancePercent(color, background) < 20)))
+    {
         const QColor foreground = background.lightness() < 128
                 ? QColor(Qt::white) : QColor(Qt::black);
         color.setRgb(foreground.red(), foreground.green(), foreground.blue(),
@@ -109,7 +112,8 @@ const CadLabLineTypePattern *GetCadLabLineTypePattern(CanvasLineType lineType)
 
     const int value = static_cast<int>(lineType);
     if (value < static_cast<int>(CanvasLineType::DotLine)
-            || value > static_cast<int>(CanvasLineType::BorderLineX2)) {
+            || value > static_cast<int>(CanvasLineType::BorderLineX2))
+    {
         return nullptr;
     }
     return &patterns[value - static_cast<int>(CanvasLineType::DotLine)];
@@ -125,16 +129,19 @@ qreal GetPenWidth(const StruCanvasStyle &style,
                   qreal logicalDpiX,
                   bool lineWidthVisible)
 {
-    if (style.strokeWidthUnit == CanvasLineWidthUnit::ViewportPixels) {
+    if (style.strokeWidthUnit == CanvasLineWidthUnit::ViewportPixels)
+    {
         return qMax<qreal>(1.0, style.strokeWidth);
     }
-    if (!lineWidthVisible || style.strokeWidth <= 0.0) {
+    if (!lineWidthVisible || style.strokeWidth <= 0.0)
+    {
         return 0.0;
     }
 
     const qreal widthPixels = style.strokeWidth
             * GetEffectiveLogicalDpi(logicalDpiX) / 25.4;
-    if (!IsFinite(widthPixels)) {
+    if (!IsFinite(widthPixels))
+    {
         return 0.0;
     }
 
@@ -159,16 +166,19 @@ QPen BuildEntityPen(const StruCanvasStyle &style,
     pen.setCapStyle(Qt::RoundCap);
     pen.setJoinStyle(Qt::RoundJoin);
 
-    if (lineType == CanvasLineType::NoPen) {
+    if (lineType == CanvasLineType::NoPen)
+    {
         pen.setStyle(Qt::NoPen);
         return pen;
     }
-    if (lineType == CanvasLineType::SolidLine) {
+    if (lineType == CanvasLineType::SolidLine)
+    {
         return pen;
     }
 
     const CadLabLineTypePattern *pattern = GetCadLabLineTypePattern(lineType);
-    if (!pattern || pattern->count <= 0) {
+    if (!pattern || pattern->count <= 0)
+    {
         return pen;
     }
 
@@ -178,7 +188,8 @@ QPen BuildEntityPen(const StruCanvasStyle &style,
     QVector<qreal> dashPattern;
     dashPattern.reserve(pattern->count);
     qreal patternLengthPixels = 0.0;
-    for (int index = 0; index < pattern->count; ++index) {
+    for (int index = 0; index < pattern->count; ++index)
+    {
         const qreal segmentPixels = qMax<qreal>(
                     1.0, std::fabs(pattern->values[index])
                     * pixelsPerMillimeter);
@@ -187,10 +198,12 @@ QPen BuildEntityPen(const StruCanvasStyle &style,
     }
     pen.setStyle(Qt::CustomDashLine);
     pen.setDashPattern(dashPattern);
-    if (IsFinite(dashOffsetPixels) && patternLengthPixels > 0.0) {
+    if (IsFinite(dashOffsetPixels) && patternLengthPixels > 0.0)
+    {
         qreal normalizedOffset = std::fmod(dashOffsetPixels,
                                            patternLengthPixels);
-        if (normalizedOffset < 0.0) {
+        if (normalizedOffset < 0.0)
+        {
             normalizedOffset += patternLengthPixels;
         }
         pen.setDashOffset(normalizedOffset / patternPenWidth);
@@ -235,7 +248,8 @@ QPen CreateEntityPen(const StruCanvasStyle &style,
     const int strokeWidthUnit = static_cast<int>(style.strokeWidthUnit);
     const qreal strokeWidth = style.strokeWidth;
 
-    for (const EntityPenCacheEntry &entry : cache) {
+    for (const EntityPenCacheEntry &entry : cache)
+    {
         if (entry.strokeColor == strokeColor
                 && entry.selectedStrokeColor == selectedStrokeColor
                 && entry.backgroundColor == background
@@ -245,7 +259,8 @@ QPen CreateEntityPen(const StruCanvasStyle &style,
                 && entry.logicalDpiX == logicalDpiX
                 && entry.dashOffsetPixels == dashOffsetPixels
                 && entry.selected == selected
-                && entry.lineWidthVisible == lineWidthVisible) {
+                && entry.lineWidthVisible == lineWidthVisible)
+        {
             return entry.pen;
         }
     }
@@ -253,7 +268,8 @@ QPen CreateEntityPen(const StruCanvasStyle &style,
     const QPen pen = BuildEntityPen(style, selected, logicalDpiX,
                                     lineWidthVisible, backgroundColor,
                                     dashOffsetPixels);
-    if (cache.size() >= kMaximumEntityPenCacheSize) {
+    if (cache.size() >= kMaximumEntityPenCacheSize)
+    {
         cache.clear();
     }
     cache.append(EntityPenCacheEntry{strokeColor, selectedStrokeColor, background,
@@ -268,7 +284,8 @@ QPolygonF MapPolyline(const QVector<CanvasVector> &worldPoints,
 {
     QPolygonF viewportPoints;
     viewportPoints.reserve(worldPoints.size());
-    for (const CanvasVector &worldPoint : worldPoints) {
+    for (const CanvasVector &worldPoint : worldPoints)
+    {
         viewportPoints.append(context.MapFromWorld(worldPoint));
     }
     return viewportPoints;
@@ -284,7 +301,8 @@ void DrawWorldPath(QPainter &painter,
                    bool lineWidthVisible,
                    qreal dashOffsetPixels = 0.0)
 {
-    if (worldPoints.size() < 2) {
+    if (worldPoints.size() < 2)
+    {
         return;
     }
 
@@ -293,9 +311,12 @@ void DrawWorldPath(QPainter &painter,
                                    lineWidthVisible, context.backgroundColor,
                                    dashOffsetPixels));
     const QPolygonF viewportPoints = MapPolyline(worldPoints, context);
-    if (closed && viewportPoints.size() >= 3) {
+    if (closed && viewportPoints.size() >= 3)
+    {
         painter.drawPolygon(viewportPoints);
-    } else {
+    }
+    else
+    {
         painter.drawPolyline(viewportPoints);
     }
 }
@@ -306,23 +327,27 @@ int CalculateSegmentCount(qreal sweep,
                           int minimumSegments)
 {
     if (!IsFinite(sweep) || !IsFinite(radius) || !IsFinite(maximumError)
-            || sweep <= 0.0 || radius <= 0.0 || maximumError <= 0.0) {
+            || sweep <= 0.0 || radius <= 0.0 || maximumError <= 0.0)
+    {
         return 0;
     }
 
     qreal maximumStep = kTwoPi / 4.0;
-    if (maximumError < radius) {
+    if (maximumError < radius)
+    {
         const qreal cosineArgument = qBound<qreal>(
                     -1.0, 1.0 - maximumError / radius, 1.0);
         maximumStep = 2.0 * std::acos(cosineArgument);
     }
-    if (!IsFinite(maximumStep) || maximumStep <= 0.0) {
+    if (!IsFinite(maximumStep) || maximumStep <= 0.0)
+    {
         return kMaximumTessellationSegments;
     }
 
     const qreal requiredSegments = std::ceil(sweep / maximumStep);
     if (!IsFinite(requiredSegments)
-            || requiredSegments >= kMaximumTessellationSegments) {
+            || requiredSegments >= kMaximumTessellationSegments)
+    {
         return kMaximumTessellationSegments;
     }
     return qBound(minimumSegments,
@@ -333,7 +358,8 @@ int CalculateSegmentCount(qreal sweep,
 qreal NormalizeAngle(qreal angle)
 {
     qreal normalized = std::fmod(angle, kTwoPi);
-    if (normalized < 0.0) {
+    if (normalized < 0.0)
+    {
         normalized += kTwoPi;
     }
     return normalized;
@@ -345,22 +371,26 @@ qreal CalculateDirectedSweep(qreal startAngle,
 {
     qreal directedDelta = reversed ? startAngle - endAngle
                                    : endAngle - startAngle;
-    if (!IsFinite(directedDelta)) {
+    if (!IsFinite(directedDelta))
+    {
         const qreal normalizedStart = NormalizeAngle(startAngle);
         const qreal normalizedEnd = NormalizeAngle(endAngle);
         directedDelta = reversed ? normalizedStart - normalizedEnd
                                  : normalizedEnd - normalizedStart;
     }
-    if (!IsFinite(directedDelta)) {
+    if (!IsFinite(directedDelta))
+    {
         return 0.0;
     }
 
     qreal sweep = std::fmod(directedDelta, kTwoPi);
-    if (sweep < 0.0) {
+    if (sweep < 0.0)
+    {
         sweep += kTwoPi;
     }
     if (qAbs(sweep) <= kAngleTolerance
-            && qAbs(directedDelta) > kAngleTolerance) {
+            && qAbs(directedDelta) > kAngleTolerance)
+    {
         return kTwoPi;
     }
     return sweep;
@@ -371,10 +401,12 @@ QVector<CanvasVector> TessellateEllipse(const CanvasEllipse &ellipse,
                                         bool *closed)
 {
     QVector<CanvasVector> points;
-    if (closed) {
+    if (closed)
+    {
         *closed = false;
     }
-    if (!ellipse.IsValid() || !IsFinite(maximumError) || maximumError <= 0.0) {
+    if (!ellipse.IsValid() || !IsFinite(maximumError) || maximumError <= 0.0)
+    {
         return points;
     }
 
@@ -388,28 +420,33 @@ QVector<CanvasVector> TessellateEllipse(const CanvasEllipse &ellipse,
                                      ellipse.GetEndParameter(),
                                      ellipse.IsReversed())
             : kTwoPi;
-    if (majorLength <= 0.0 || sweep <= 0.0) {
+    if (majorLength <= 0.0 || sweep <= 0.0)
+    {
         return points;
     }
 
     const bool isClosed = !isArc || sweep >= kTwoPi - kAngleTolerance;
     const int segmentCount = CalculateSegmentCount(
                 sweep, majorLength, maximumError, isClosed ? 16 : 2);
-    if (segmentCount <= 0) {
+    if (segmentCount <= 0)
+    {
         return points;
     }
 
     const qreal ratio = ellipse.GetMinorMajorRatio();
     const qreal minorAxisX = -majorAxis.GetY() * ratio;
     const qreal minorAxisY = majorAxis.GetX() * ratio;
-    if (!IsFinite(minorAxisX) || !IsFinite(minorAxisY)) {
+    if (!IsFinite(minorAxisX) || !IsFinite(minorAxisY))
+    {
         return points;
     }
 
     points.reserve(segmentCount + 1);
     const bool reversed = isArc && ellipse.IsReversed();
-    for (int index = 0; index <= segmentCount; ++index) {
-        if (isClosed && index == segmentCount) {
+    for (int index = 0; index <= segmentCount; ++index)
+    {
+        if (isClosed && index == segmentCount)
+        {
             points.append(points.first());
             continue;
         }
@@ -426,14 +463,16 @@ QVector<CanvasVector> TessellateEllipse(const CanvasEllipse &ellipse,
                 + majorAxis.GetY() * std::cos(parameter)
                 + minorAxisY * std::sin(parameter);
         const CanvasVector point(x, y);
-        if (!point.IsValid()) {
+        if (!point.IsValid())
+        {
             points.clear();
             return points;
         }
         points.append(point);
     }
 
-    if (closed) {
+    if (closed)
+    {
         *closed = isClosed;
     }
     return points;
@@ -444,7 +483,8 @@ bool DistanceToSegment(const CanvasVector &point,
                        const CanvasVector &end,
                        qreal *distance)
 {
-    if (!distance) {
+    if (!distance)
+    {
         return false;
     }
 
@@ -455,14 +495,17 @@ bool DistanceToSegment(const CanvasVector &point,
     const qreal lengthSquared = deltaX * deltaX + deltaY * deltaY;
     if (!IsFinite(deltaX) || !IsFinite(deltaY)
             || !IsFinite(pointX) || !IsFinite(pointY)
-            || !IsFinite(lengthSquared)) {
+            || !IsFinite(lengthSquared))
+    {
         return false;
     }
 
     qreal progress = 0.0;
-    if (lengthSquared > 0.0) {
+    if (lengthSquared > 0.0)
+    {
         progress = (pointX * deltaX + pointY * deltaY) / lengthSquared;
-        if (!IsFinite(progress)) {
+        if (!IsFinite(progress))
+        {
             return false;
         }
         progress = qBound<qreal>(0.0, progress, 1.0);
@@ -486,15 +529,18 @@ bool AppendSplineInterval(const CanvasSpline &spline,
                           int segmentBudget,
                           QVector<CanvasVector> *points)
 {
-    if (!points || segmentBudget <= 0) {
+    if (!points || segmentBudget <= 0)
+    {
         return false;
     }
 
     const qreal parameterDelta = endParameter - startParameter;
-    if (!IsFinite(parameterDelta) || parameterDelta <= 0.0) {
+    if (!IsFinite(parameterDelta) || parameterDelta <= 0.0)
+    {
         return false;
     }
-    if (segmentBudget == 1) {
+    if (segmentBudget == 1)
+    {
         points->append(endPoint);
         return true;
     }
@@ -512,7 +558,8 @@ bool AppendSplineInterval(const CanvasSpline &spline,
                                              middleParameter, &middlePoint)
             || !detail::EvaluateSplineInSpan(spline, knotSpan,
                                              thirdQuarterParameter,
-                                             &thirdQuarterPoint)) {
+                                             &thirdQuarterPoint))
+    {
         return false;
     }
 
@@ -524,14 +571,16 @@ bool AppendSplineInterval(const CanvasSpline &spline,
             || !DistanceToSegment(middlePoint, startPoint, endPoint,
                                   &middleDeviation)
             || !DistanceToSegment(thirdQuarterPoint, startPoint, endPoint,
-                                  &thirdDeviation)) {
+                                  &thirdDeviation))
+    {
         return false;
     }
 
     const qreal maximumDeviation = qMax(firstDeviation,
                                         qMax(middleDeviation, thirdDeviation));
     if (maximumDeviation <= maximumError
-            || depth >= kMaximumSplineSubdivisionDepth) {
+            || depth >= kMaximumSplineSubdivisionDepth)
+    {
         points->append(endPoint);
         return true;
     }
@@ -552,7 +601,8 @@ QVector<QVector<CanvasVector>> TessellateSpline(const CanvasSpline &spline,
                                                  qreal maximumError)
 {
     QVector<QVector<CanvasVector>> paths;
-    if (!spline.IsValid() || !IsFinite(maximumError) || maximumError <= 0.0) {
+    if (!spline.IsValid() || !IsFinite(maximumError) || maximumError <= 0.0)
+    {
         return paths;
     }
 
@@ -562,20 +612,24 @@ QVector<QVector<CanvasVector>> TessellateSpline(const CanvasSpline &spline,
     const qreal domainStart = knots.at(degree);
     const qreal domainEnd = knots.at(controlPoints.size());
     if (!IsFinite(domainStart) || !IsFinite(domainEnd)
-            || domainStart >= domainEnd) {
+            || domainStart >= domainEnd)
+    {
         return paths;
     }
 
     int activeSpanCount = 0;
     for (int knotSpan = degree;
          knotSpan < controlPoints.size();
-         ++knotSpan) {
+         ++knotSpan)
+    {
         if (qMax(domainStart, knots.at(knotSpan))
-                < qMin(domainEnd, knots.at(knotSpan + 1))) {
+                < qMin(domainEnd, knots.at(knotSpan + 1)))
+        {
             ++activeSpanCount;
         }
     }
-    if (activeSpanCount == 0) {
+    if (activeSpanCount == 0)
+    {
         return paths;
     }
 
@@ -585,10 +639,12 @@ QVector<QVector<CanvasVector>> TessellateSpline(const CanvasSpline &spline,
     const qreal joinTolerance = qMax<qreal>(1.0e-9, maximumError * 0.01);
     for (int knotSpan = degree;
          knotSpan < controlPoints.size();
-         ++knotSpan) {
+         ++knotSpan)
+    {
         const qreal startParameter = qMax(domainStart, knots.at(knotSpan));
         const qreal endParameter = qMin(domainEnd, knots.at(knotSpan + 1));
-        if (startParameter >= endParameter) {
+        if (startParameter >= endParameter)
+        {
             continue;
         }
 
@@ -603,7 +659,8 @@ QVector<QVector<CanvasVector>> TessellateSpline(const CanvasSpline &spline,
         if (!detail::EvaluateSplineInSpan(spline, knotSpan,
                                           startParameter, &startPoint)
                 || !detail::EvaluateSplineInSpan(spline, knotSpan,
-                                                 endParameter, &endPoint)) {
+                                                 endParameter, &endPoint))
+        {
             return QVector<QVector<CanvasVector>>();
         }
 
@@ -612,28 +669,36 @@ QVector<QVector<CanvasVector>> TessellateSpline(const CanvasSpline &spline,
         if (!AppendSplineInterval(spline, knotSpan,
                                   startParameter, endParameter,
                                   startPoint, endPoint, maximumError,
-                                  0, spanBudget, &spanPoints)) {
+                                  0, spanBudget, &spanPoints))
+        {
             return QVector<QVector<CanvasVector>>();
         }
-        if (spanPoints.size() < 2) {
+        if (spanPoints.size() < 2)
+        {
             continue;
         }
 
         if (!paths.isEmpty()
                 && paths.last().last().IsNearTo(spanPoints.first(),
-                                                 joinTolerance)) {
-            for (int index = 1; index < spanPoints.size(); ++index) {
+                                                 joinTolerance))
+        {
+            for (int index = 1; index < spanPoints.size(); ++index)
+            {
                 paths.last().append(spanPoints.at(index));
             }
-        } else {
+        }
+        else
+        {
             paths.append(spanPoints);
         }
     }
 
-    if (spline.IsClosed() && !paths.isEmpty()) {
+    if (spline.IsClosed() && !paths.isEmpty())
+    {
         QVector<CanvasVector> &lastPath = paths.last();
         const CanvasVector firstPoint = paths.first().first();
-        if (!lastPath.last().IsNearTo(firstPoint, joinTolerance)) {
+        if (!lastPath.last().IsNearTo(firstPoint, joinTolerance))
+        {
             lastPath.append(firstPoint);
         }
     }
@@ -643,13 +708,15 @@ QVector<QVector<CanvasVector>> TessellateSpline(const CanvasSpline &spline,
 
 bool ParseCommandReal(const QStringList &arguments, int index, qreal *value)
 {
-    if (!value || index < 0 || index >= arguments.size()) {
+    if (!value || index < 0 || index >= arguments.size())
+    {
         return false;
     }
 
     bool ok = false;
     const qreal parsed = arguments.at(index).toDouble(&ok);
-    if (!ok || !IsFinite(parsed)) {
+    if (!ok || !IsFinite(parsed))
+    {
         return false;
     }
     *value = parsed;
@@ -658,13 +725,15 @@ bool ParseCommandReal(const QStringList &arguments, int index, qreal *value)
 
 bool ParseCommandInteger(const QStringList &arguments, int index, int *value)
 {
-    if (!value || index < 0 || index >= arguments.size()) {
+    if (!value || index < 0 || index >= arguments.size())
+    {
         return false;
     }
 
     bool ok = false;
     const int parsed = arguments.at(index).toInt(&ok);
-    if (!ok) {
+    if (!ok)
+    {
         return false;
     }
     *value = parsed;
@@ -675,21 +744,25 @@ QVector<CanvasVector> ParseCommandPoints(const QStringList &arguments,
                                          int firstValueIndex)
 {
     QVector<CanvasVector> points;
-    if (firstValueIndex < 0 || firstValueIndex > arguments.size()) {
+    if (firstValueIndex < 0 || firstValueIndex > arguments.size())
+    {
         return points;
     }
 
     const int valueCount = arguments.size() - firstValueIndex;
-    if (valueCount < 4 || valueCount % 2 != 0) {
+    if (valueCount < 4 || valueCount % 2 != 0)
+    {
         return points;
     }
 
     points.reserve(valueCount / 2);
-    for (int index = firstValueIndex; index < arguments.size(); index += 2) {
+    for (int index = firstValueIndex; index < arguments.size(); index += 2)
+    {
         qreal x = 0.0;
         qreal y = 0.0;
         if (!ParseCommandReal(arguments, index, &x)
-                || !ParseCommandReal(arguments, index + 1, &y)) {
+                || !ParseCommandReal(arguments, index + 1, &y))
+        {
             return QVector<CanvasVector>();
         }
         points.append(CanvasVector(x, y));
@@ -708,12 +781,14 @@ void DrawCanvasDataCommand(QPainter &painter,
                            qreal maximumWorldError,
                            bool isGlobal)
 {
-    if (arguments.isEmpty()) {
+    if (arguments.isEmpty())
+    {
         return;
     }
 
     const QString command = arguments.first().toLower();
-    if (command == QStringLiteral("pen")) {
+    if (command == QStringLiteral("pen"))
+    {
         int red = 0;
         int green = 0;
         int blue = 0;
@@ -729,7 +804,8 @@ void DrawCanvasDataCommand(QPainter &painter,
                 || !ParseCommandInteger(arguments, 6, &style)
                 || red < 0 || red > 255 || green < 0 || green > 255
                 || blue < 0 || blue > 255 || alpha < 0 || alpha > 255
-                || width < 0.0 || style < 0 || style > 6) {
+                || width < 0.0 || style < 0 || style > 6)
+        {
             return;
         }
         QPen pen(QColor(red, green, blue, alpha));
@@ -739,7 +815,8 @@ void DrawCanvasDataCommand(QPainter &painter,
         return;
     }
 
-    if (command == QStringLiteral("brush")) {
+    if (command == QStringLiteral("brush"))
+    {
         int red = 0;
         int green = 0;
         int blue = 0;
@@ -753,7 +830,8 @@ void DrawCanvasDataCommand(QPainter &painter,
                 || !ParseCommandInteger(arguments, 5, &style)
                 || red < 0 || red > 255 || green < 0 || green > 255
                 || blue < 0 || blue > 255 || alpha < 0 || alpha > 255
-                || !IsSupportedBrushStyle(style)) {
+                || !IsSupportedBrushStyle(style))
+        {
             return;
         }
         painter.setBrush(QBrush(QColor(red, green, blue, alpha),
@@ -761,7 +839,8 @@ void DrawCanvasDataCommand(QPainter &painter,
         return;
     }
 
-    if (command == QStringLiteral("font")) {
+    if (command == QStringLiteral("font"))
+    {
         int pointSize = 0;
         int bold = 0;
         int italic = 0;
@@ -769,7 +848,8 @@ void DrawCanvasDataCommand(QPainter &painter,
                 || !ParseCommandInteger(arguments, 2, &pointSize)
                 || !ParseCommandInteger(arguments, 3, &bold)
                 || !ParseCommandInteger(arguments, 4, &italic)
-                || pointSize <= 0) {
+                || pointSize <= 0)
+        {
             return;
         }
         QFont font;
@@ -781,18 +861,21 @@ void DrawCanvasDataCommand(QPainter &painter,
         return;
     }
 
-    if (command == QStringLiteral("point")) {
+    if (command == QStringLiteral("point"))
+    {
         qreal x = 0.0;
         qreal y = 0.0;
         if (arguments.size() >= 3
                 && ParseCommandReal(arguments, 1, &x)
-                && ParseCommandReal(arguments, 2, &y)) {
+                && ParseCommandReal(arguments, 2, &y))
+        {
             painter.drawPoint(context.MapFromWorld(CanvasVector(x, y)));
         }
         return;
     }
 
-    if (command == QStringLiteral("line")) {
+    if (command == QStringLiteral("line"))
+    {
         qreal x1 = 0.0;
         qreal y1 = 0.0;
         qreal x2 = 0.0;
@@ -801,14 +884,16 @@ void DrawCanvasDataCommand(QPainter &painter,
                 && ParseCommandReal(arguments, 1, &x1)
                 && ParseCommandReal(arguments, 2, &y1)
                 && ParseCommandReal(arguments, 3, &x2)
-                && ParseCommandReal(arguments, 4, &y2)) {
+                && ParseCommandReal(arguments, 4, &y2))
+        {
             painter.drawLine(context.MapFromWorld(CanvasVector(x1, y1)),
                              context.MapFromWorld(CanvasVector(x2, y2)));
         }
         return;
     }
 
-    if (command == QStringLiteral("arc")) {
+    if (command == QStringLiteral("arc"))
+    {
         qreal centerX = 0.0;
         qreal centerY = 0.0;
         qreal radius = 0.0;
@@ -823,7 +908,8 @@ void DrawCanvasDataCommand(QPainter &painter,
                 || !ParseCommandReal(arguments, 5, &endAngle)
                 || !ParseCommandInteger(arguments, 6, &counterClockwise)
                 || radius <= 0.0
-                || (counterClockwise != 0 && counterClockwise != 1)) {
+                || (counterClockwise != 0 && counterClockwise != 1))
+        {
             return;
         }
         StruArcGeometry geometry;
@@ -834,13 +920,15 @@ void DrawCanvasDataCommand(QPainter &painter,
         geometry.reversed = counterClockwise == 0;
         const QVector<CanvasVector> worldPoints = TessellateArc(
                     geometry, maximumWorldError);
-        if (worldPoints.size() >= 2) {
+        if (worldPoints.size() >= 2)
+        {
             painter.drawPolyline(MapPolyline(worldPoints, context));
         }
         return;
     }
 
-    if (command == QStringLiteral("ellipse")) {
+    if (command == QStringLiteral("ellipse"))
+    {
         qreal centerX = 0.0;
         qreal centerY = 0.0;
         qreal radiusX = 0.0;
@@ -850,7 +938,8 @@ void DrawCanvasDataCommand(QPainter &painter,
                 || !ParseCommandReal(arguments, 2, &centerY)
                 || !ParseCommandReal(arguments, 3, &radiusX)
                 || !ParseCommandReal(arguments, 4, &radiusY)
-                || radiusX <= 0.0 || radiusY <= 0.0) {
+                || radiusX <= 0.0 || radiusY <= 0.0)
+        {
             return;
         }
         const CanvasVector center(centerX, centerY);
@@ -866,21 +955,27 @@ void DrawCanvasDataCommand(QPainter &painter,
     }
 
     if (command == QStringLiteral("polyline")
-            || command == QStringLiteral("polygon")) {
+            || command == QStringLiteral("polygon"))
+    {
         const QVector<CanvasVector> worldPoints = ParseCommandPoints(arguments, 1);
         if ((command == QStringLiteral("polyline") && worldPoints.size() >= 2)
-                || (command == QStringLiteral("polygon") && worldPoints.size() >= 3)) {
+                || (command == QStringLiteral("polygon") && worldPoints.size() >= 3))
+        {
             const QPolygonF viewportPoints = MapPolyline(worldPoints, context);
-            if (command == QStringLiteral("polygon")) {
+            if (command == QStringLiteral("polygon"))
+            {
                 painter.drawPolygon(viewportPoints);
-            } else {
+            }
+            else
+            {
                 painter.drawPolyline(viewportPoints);
             }
         }
         return;
     }
 
-    if (command == QStringLiteral("rect")) {
+    if (command == QStringLiteral("rect"))
+    {
         qreal left = 0.0;
         qreal top = 0.0;
         qreal width = 0.0;
@@ -889,7 +984,8 @@ void DrawCanvasDataCommand(QPainter &painter,
                 || !ParseCommandReal(arguments, 1, &left)
                 || !ParseCommandReal(arguments, 2, &top)
                 || !ParseCommandReal(arguments, 3, &width)
-                || !ParseCommandReal(arguments, 4, &height)) {
+                || !ParseCommandReal(arguments, 4, &height))
+        {
             return;
         }
         const QVector<CanvasVector> corners = QVector<CanvasVector>()
@@ -902,67 +998,79 @@ void DrawCanvasDataCommand(QPainter &painter,
     }
 
     if (command == QStringLiteral("cubic")
-            || command == QStringLiteral("quad")) {
+            || command == QStringLiteral("quad"))
+    {
         int closed = 0;
         if (arguments.size() < 4
                 || !ParseCommandInteger(arguments, 1, &closed)
-                || (closed != 0 && closed != 1)) {
+                || (closed != 0 && closed != 1))
+        {
             return;
         }
 
         const int valuesPerSegment = command == QStringLiteral("cubic") ? 6 : 4;
         const int coordinateCount = arguments.size() - 4;
         if (coordinateCount < valuesPerSegment
-                || coordinateCount % valuesPerSegment != 0) {
+                || coordinateCount % valuesPerSegment != 0)
+        {
             return;
         }
 
         qreal startX = 0.0;
         qreal startY = 0.0;
         if (!ParseCommandReal(arguments, 2, &startX)
-                || !ParseCommandReal(arguments, 3, &startY)) {
+                || !ParseCommandReal(arguments, 3, &startY))
+        {
             return;
         }
         QPainterPath path(context.MapFromWorld(CanvasVector(startX, startY)));
         for (int index = 4; index < arguments.size();
-             index += valuesPerSegment) {
+             index += valuesPerSegment)
+        {
             qreal firstX = 0.0;
             qreal firstY = 0.0;
             qreal secondX = 0.0;
             qreal secondY = 0.0;
             qreal endX = 0.0;
             qreal endY = 0.0;
-            if (command == QStringLiteral("cubic")) {
+            if (command == QStringLiteral("cubic"))
+            {
                 if (!ParseCommandReal(arguments, index, &firstX)
                         || !ParseCommandReal(arguments, index + 1, &firstY)
                         || !ParseCommandReal(arguments, index + 2, &secondX)
                         || !ParseCommandReal(arguments, index + 3, &secondY)
                         || !ParseCommandReal(arguments, index + 4, &endX)
-                        || !ParseCommandReal(arguments, index + 5, &endY)) {
+                        || !ParseCommandReal(arguments, index + 5, &endY))
+                {
                     return;
                 }
                 path.cubicTo(context.MapFromWorld(CanvasVector(firstX, firstY)),
                              context.MapFromWorld(CanvasVector(secondX, secondY)),
                              context.MapFromWorld(CanvasVector(endX, endY)));
-            } else {
+            }
+            else
+            {
                 if (!ParseCommandReal(arguments, index, &firstX)
                         || !ParseCommandReal(arguments, index + 1, &firstY)
                         || !ParseCommandReal(arguments, index + 2, &endX)
-                        || !ParseCommandReal(arguments, index + 3, &endY)) {
+                        || !ParseCommandReal(arguments, index + 3, &endY))
+                {
                     return;
                 }
                 path.quadTo(context.MapFromWorld(CanvasVector(firstX, firstY)),
                             context.MapFromWorld(CanvasVector(endX, endY)));
             }
         }
-        if (closed == 1) {
+        if (closed == 1)
+        {
             path.closeSubpath();
         }
         painter.drawPath(path);
         return;
     }
 
-    if (command == QStringLiteral("text")) {
+    if (command == QStringLiteral("text"))
+    {
         qreal x = 0.0;
         qreal y = 0.0;
         qreal radians = 0.0;
@@ -971,7 +1079,8 @@ void DrawCanvasDataCommand(QPainter &painter,
                 || !ParseCommandReal(arguments, 2, &x)
                 || !ParseCommandReal(arguments, 3, &y)
                 || !ParseCommandInteger(arguments, 4, &alignment)
-                || !ParseCommandReal(arguments, 5, &radians)) {
+                || !ParseCommandReal(arguments, 5, &radians))
+        {
             return;
         }
 
@@ -982,7 +1091,8 @@ void DrawCanvasDataCommand(QPainter &painter,
         const qreal textHeight = metrics.height();
         qreal baselineX = 0.0;
         qreal baselineY = 0.0;
-        switch (alignment) {
+        switch (alignment)
+        {
         case 1:
             baselineY = textHeight - descent;
             break;
@@ -1029,7 +1139,8 @@ void DrawCanvasDataCommand(QPainter &painter,
         return;
     }
 
-    if (command == QStringLiteral("image")) {
+    if (command == QStringLiteral("image"))
+    {
         qreal x = 0.0;
         qreal y = 0.0;
         qreal radians = 0.0;
@@ -1042,20 +1153,26 @@ void DrawCanvasDataCommand(QPainter &painter,
                 || !ParseCommandReal(arguments, 4, &radians)
                 || !ParseCommandReal(arguments, 5, &scaleX)
                 || !ParseCommandReal(arguments, 6, &scaleY)
-                || !ParseCommandInteger(arguments, 7, &followScale)) {
+                || !ParseCommandInteger(arguments, 7, &followScale))
+        {
             return;
         }
-        if (scaleX <= 0.0) {
+        if (scaleX <= 0.0)
+        {
             scaleX = 1.0;
         }
-        if (scaleY <= 0.0) {
+        if (scaleY <= 0.0)
+        {
             scaleY = 1.0;
         }
-        if (followScale == 1) {
+        if (followScale == 1)
+        {
             const qreal zoom = context.transform.GetZoom();
             scaleX *= zoom;
             scaleY *= zoom;
-        } else {
+        }
+        else
+        {
             scaleX = 1.0;
             scaleY = 1.0;
         }
@@ -1063,7 +1180,8 @@ void DrawCanvasDataCommand(QPainter &painter,
         QImageReader reader(arguments.at(1));
         reader.setDecideFormatFromContent(true);
         const QImage image = reader.read();
-        if (image.isNull()) {
+        if (image.isNull())
+        {
             return;
         }
 
@@ -1096,7 +1214,8 @@ void RenderCanvasData(QPainter &painter,
                       qreal dashOffsetPixels = 0.0)
 {
     const std::shared_ptr<CanvasData> &data = entity.GetCanvasData();
-    if (!data) {
+    if (!data)
+    {
         return;
     }
 
@@ -1114,16 +1233,19 @@ qreal GetPolylineDisplayPathLength(
         const QVector<CanvasVector> &worldPoints,
         const CanvasRenderContext &context)
 {
-    if (worldPoints.size() < 2) {
+    if (worldPoints.size() < 2)
+    {
         return 0.0;
     }
 
     QPointF previousPoint = context.MapFromWorld(worldPoints.first());
     qreal length = 0.0;
-    for (int index = 1; index < worldPoints.size(); ++index) {
+    for (int index = 1; index < worldPoints.size(); ++index)
+    {
         const QPointF currentPoint = context.MapFromWorld(worldPoints.at(index));
         const qreal segmentLength = QLineF(previousPoint, currentPoint).length();
-        if (!IsFinite(segmentLength) || !IsFinite(length + segmentLength)) {
+        if (!IsFinite(segmentLength) || !IsFinite(length + segmentLength))
+        {
             return 0.0;
         }
         length += segmentLength;
@@ -1139,7 +1261,8 @@ qreal GetPolylineSegmentDisplayLength(
         QVector<CanvasVector> *tessellatedArcPoints)
 {
     if (const CanvasLine *line =
-            dynamic_cast<const CanvasLine *>(&segment)) {
+            dynamic_cast<const CanvasLine *>(&segment))
+    {
         const QPointF start = context.MapFromWorld(line->GetStartPoint());
         const QPointF end = context.MapFromWorld(line->GetEndPoint());
         const qreal length = QLineF(start, end).length();
@@ -1147,8 +1270,10 @@ qreal GetPolylineSegmentDisplayLength(
     }
 
     if (const CanvasArc *arc =
-            dynamic_cast<const CanvasArc *>(&segment)) {
-        if (!arc->IsValid() || !tessellatedArcPoints) {
+            dynamic_cast<const CanvasArc *>(&segment))
+    {
+        if (!arc->IsValid() || !tessellatedArcPoints)
+        {
             return 0.0;
         }
 
@@ -1176,24 +1301,29 @@ void DrawEntityGeometry(QPainter &painter,
                         qreal dashOffsetPixels = 0.0,
                         const QVector<CanvasVector> *preTessellatedArcPoints = nullptr)
 {
-    switch (entity.GetType()) {
-    case CanvasEntityType::Point: {
+    switch (entity.GetType())
+    {
+    case CanvasEntityType::Point:
+    {
         const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(&entity);
-        if (!point || !point->IsValid()) {
+        if (!point || !point->IsValid())
+        {
             return;
         }
 
         const QPointF viewportPosition = context.MapFromWorld(point->GetPosition());
         // 点标记的像素尺寸固定，缩放过小时它会压过周围的小图元。低于该缩放时，所有点统一只画一个像素。
         constexpr qreal kPointSinglePixelZoom = 0.1;
-        if (context.transform.GetZoom() < kPointSinglePixelZoom) {
+        if (context.transform.GetZoom() < kPointSinglePixelZoom)
+        {
             painter.setBrush(Qt::NoBrush);
             painter.setPen(QPen(GetDisplayColor(style, selected,
                                                 context.backgroundColor), 0.0));
             painter.drawPoint(viewportPosition);
             return;
         }
-        if (style.pointShape == CanvasPointShape::Cross) {
+        if (style.pointShape == CanvasPointShape::Cross)
+        {
             painter.setBrush(Qt::NoBrush);
             painter.setPen(CreateEntityPen(style, selected, logicalDpiX,
                                            lineWidthVisible,
@@ -1214,9 +1344,11 @@ void DrawEntityGeometry(QPainter &painter,
         painter.drawEllipse(viewportPosition, radius, radius);
         return;
     }
-    case CanvasEntityType::Line: {
+    case CanvasEntityType::Line:
+    {
         const CanvasLine *line = dynamic_cast<const CanvasLine *>(&entity);
-        if (!line || !line->IsValid()) {
+        if (!line || !line->IsValid())
+        {
             return;
         }
 
@@ -1229,9 +1361,11 @@ void DrawEntityGeometry(QPainter &painter,
                          context.MapFromWorld(line->GetEndPoint()));
         return;
     }
-    case CanvasEntityType::Arc: {
+    case CanvasEntityType::Arc:
+    {
         const CanvasArc *arc = dynamic_cast<const CanvasArc *>(&entity);
-        if (!arc || !arc->IsValid()) {
+        if (!arc || !arc->IsValid())
+        {
             return;
         }
 
@@ -1243,7 +1377,8 @@ void DrawEntityGeometry(QPainter &painter,
         geometry.reversed = arc->IsReversed();
         QVector<CanvasVector> generatedPoints;
         const QVector<CanvasVector> *arcPoints = preTessellatedArcPoints;
-        if (!arcPoints) {
+        if (!arcPoints)
+        {
             generatedPoints = TessellateArc(geometry, maximumError);
             arcPoints = &generatedPoints;
         }
@@ -1252,9 +1387,11 @@ void DrawEntityGeometry(QPainter &painter,
                       logicalDpiX, lineWidthVisible, dashOffsetPixels);
         return;
     }
-    case CanvasEntityType::Circle: {
+    case CanvasEntityType::Circle:
+    {
         const CanvasCircle *circle = dynamic_cast<const CanvasCircle *>(&entity);
-        if (!circle || !circle->IsValid()) {
+        if (!circle || !circle->IsValid())
+        {
             return;
         }
 
@@ -1266,9 +1403,11 @@ void DrawEntityGeometry(QPainter &painter,
                       logicalDpiX, lineWidthVisible, dashOffsetPixels);
         return;
     }
-    case CanvasEntityType::Ellipse: {
+    case CanvasEntityType::Ellipse:
+    {
         const CanvasEllipse *ellipse = dynamic_cast<const CanvasEllipse *>(&entity);
-        if (!ellipse) {
+        if (!ellipse)
+        {
             return;
         }
 
@@ -1279,24 +1418,29 @@ void DrawEntityGeometry(QPainter &painter,
                       logicalDpiX, lineWidthVisible, dashOffsetPixels);
         return;
     }
-    case CanvasEntityType::Polyline: {
+    case CanvasEntityType::Polyline:
+    {
         const CanvasPolyline *polyline =
                 dynamic_cast<const CanvasPolyline *>(&entity);
-        if (!polyline || !polyline->IsValid()) {
+        if (!polyline || !polyline->IsValid())
+        {
             return;
         }
 
         qreal dashOffsetPixels = 0.0;
-        for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+        for (int index = 0; index < polyline->GetSegmentCount(); ++index)
+        {
             const CanvasEntity *segment = polyline->GetSegment(index);
-            if (!segment) {
+            if (!segment)
+            {
                 continue;
             }
             QVector<CanvasVector> tessellatedArcPoints;
             const qreal segmentLength = GetPolylineSegmentDisplayLength(
                         *segment, context, maximumError,
                         &tessellatedArcPoints);
-            if (segment->GetStyle().visible) {
+            if (segment->GetStyle().visible)
+            {
                 const StruCanvasStyle &segmentStyle =
                         segment->HasExplicitStyle()
                         ? segment->GetStyle() : style;
@@ -1310,21 +1454,25 @@ void DrawEntityGeometry(QPainter &painter,
                                    dashOffsetPixels, &tessellatedArcPoints);
             }
             if (IsFinite(segmentLength) && segmentLength > 0.0
-                    && IsFinite(dashOffsetPixels + segmentLength)) {
+                    && IsFinite(dashOffsetPixels + segmentLength))
+            {
                 dashOffsetPixels += segmentLength;
             }
         }
         return;
     }
-    case CanvasEntityType::Spline: {
+    case CanvasEntityType::Spline:
+    {
         const CanvasSpline *spline = dynamic_cast<const CanvasSpline *>(&entity);
-        if (!spline) {
+        if (!spline)
+        {
             return;
         }
 
         const QVector<QVector<CanvasVector>> paths = TessellateSpline(
                     *spline, maximumError);
-        for (int index = 0; index < paths.size(); ++index) {
+        for (int index = 0; index < paths.size(); ++index)
+        {
             DrawWorldPath(painter, paths.at(index), context, style, selected,
                           false, logicalDpiX, lineWidthVisible);
         }
@@ -1346,10 +1494,12 @@ bool TryGetSubPixelDot(const CanvasDocument &document,
                        QPen *pen,
                        QPointF *position)
 {
-    if (!pen || !position || entity.GetCanvasData() || !entity.GetStyle().visible) {
+    if (!pen || !position || entity.GetCanvasData() || !entity.GetStyle().visible)
+    {
         return false;
     }
-    switch (entity.GetType()) {
+    switch (entity.GetType())
+    {
     case CanvasEntityType::GroupContainer:
     case CanvasEntityType::Point:
     case CanvasEntityType::Invalid:
@@ -1359,7 +1509,8 @@ bool TryGetSubPixelDot(const CanvasDocument &document,
     }
 
     QRectF bounds;
-    if (!TryGetGeometryBounds(entity, &bounds) || bounds.isEmpty()) {
+    if (!TryGetGeometryBounds(entity, &bounds) || bounds.isEmpty())
+    {
         return false;
     }
     const QPointF viewportStart = context.MapFromWorld(
@@ -1368,7 +1519,8 @@ bool TryGetSubPixelDot(const CanvasDocument &document,
                 CanvasVector(bounds.right(), bounds.bottom()));
     const QRectF viewportBounds = QRectF(viewportStart, viewportEnd).normalized();
     if (!IsFinite(viewportBounds.width()) || !IsFinite(viewportBounds.height())
-            || qMax(viewportBounds.width(), viewportBounds.height()) >= 1.0) {
+            || qMax(viewportBounds.width(), viewportBounds.height()) >= 1.0)
+    {
         return false;
     }
 
@@ -1379,7 +1531,8 @@ bool TryGetSubPixelDot(const CanvasDocument &document,
                                          context.backgroundColor);
     if (basePen.style() != Qt::SolidLine
             || basePen.color().alpha() == 0
-            || basePen.widthF() > 1.0) {
+            || basePen.widthF() > 1.0)
+    {
         return false;
     }
     // 宽度 0 为 1 像素的修饰线宽，保证点只占一个像素
@@ -1400,13 +1553,15 @@ bool TryBuildBatchSegment(const CanvasDocument &document,
                           QPen *pen,
                           QPainterPath *path)
 {
-    if (!pen || !path || entity.GetCanvasData() || !entity.GetStyle().visible) {
+    if (!pen || !path || entity.GetCanvasData() || !entity.GetStyle().visible)
+    {
         return false;
     }
 
     const bool isLine = entity.GetType() == CanvasEntityType::Line;
     const bool isArc = entity.GetType() == CanvasEntityType::Arc;
-    if (!isLine && !isArc) {
+    if (!isLine && !isArc)
+    {
         return false;
     }
 
@@ -1415,20 +1570,26 @@ bool TryBuildBatchSegment(const CanvasDocument &document,
     const QPen candidate = CreateEntityPen(entity.GetStyle(), selected,
                                            logicalDpiX, lineWidthVisible,
                                            context.backgroundColor);
-    if (candidate.style() != Qt::SolidLine || candidate.color().alpha() != 255) {
+    if (candidate.style() != Qt::SolidLine || candidate.color().alpha() != 255)
+    {
         return false;
     }
 
-    if (isLine) {
+    if (isLine)
+    {
         const CanvasLine *line = dynamic_cast<const CanvasLine *>(&entity);
-        if (!line || !line->IsValid()) {
+        if (!line || !line->IsValid())
+        {
             return false;
         }
         path->moveTo(context.MapFromWorld(line->GetStartPoint()));
         path->lineTo(context.MapFromWorld(line->GetEndPoint()));
-    } else {
+    }
+    else
+    {
         const CanvasArc *arc = dynamic_cast<const CanvasArc *>(&entity);
-        if (!arc || !arc->IsValid()) {
+        if (!arc || !arc->IsValid())
+        {
             return false;
         }
         StruArcGeometry geometry;
@@ -1438,11 +1599,13 @@ bool TryBuildBatchSegment(const CanvasDocument &document,
         geometry.endAngle = arc->GetEndAngle();
         geometry.reversed = arc->IsReversed();
         const QVector<CanvasVector> points = TessellateArc(geometry, maximumWorldError);
-        if (points.size() < 2) {
+        if (points.size() < 2)
+        {
             return false;
         }
         path->moveTo(context.MapFromWorld(points.first()));
-        for (int index = 1; index < points.size(); ++index) {
+        for (int index = 1; index < points.size(); ++index)
+        {
             path->lineTo(context.MapFromWorld(points.at(index)));
         }
     }
@@ -1460,24 +1623,29 @@ void RenderEntity(QPainter &painter,
                   qreal logicalDpiX,
                   bool lineWidthVisible)
 {
-    if (!entity || !entity->GetStyle().visible) {
+    if (!entity || !entity->GetStyle().visible)
+    {
         return;
     }
 
     bool selected = inheritedSelection;
-    if (!selected && entity->GetId() != 0) {
+    if (!selected && entity->GetId() != 0)
+    {
         selected = document.IsItemSelected(entity->GetId());
     }
 
-    if (entity->GetType() == CanvasEntityType::GroupContainer) {
+    if (entity->GetType() == CanvasEntityType::GroupContainer)
+    {
         const CanvasGroupContainer *group =
                 dynamic_cast<const CanvasGroupContainer *>(entity);
-        if (!group) {
+        if (!group)
+        {
             return;
         }
         RenderCanvasData(painter, context, *entity, entity->GetStyle(), selected,
                          logicalDpiX, lineWidthVisible);
-        for (int index = 0; index < group->GetChildCount(); ++index) {
+        for (int index = 0; index < group->GetChildCount(); ++index)
+        {
             RenderEntity(painter, context, document, group->GetChild(index),
                          selected, maximumError,
                          logicalDpiX, lineWidthVisible);
@@ -1494,31 +1662,41 @@ void RenderEntity(QPainter &painter,
 
 bool HasCanvasDataInTree(const CanvasEntity &entity)
 {
-    if (entity.GetCanvasData()) {
+    if (entity.GetCanvasData())
+    {
         return true;
     }
 
-    if (entity.GetType() == CanvasEntityType::GroupContainer) {
+    if (entity.GetType() == CanvasEntityType::GroupContainer)
+    {
         const CanvasGroupContainer *group =
                 dynamic_cast<const CanvasGroupContainer *>(&entity);
-        if (!group) {
+        if (!group)
+        {
             return false;
         }
-        for (int index = 0; index < group->GetChildCount(); ++index) {
+        for (int index = 0; index < group->GetChildCount(); ++index)
+        {
             const CanvasEntity *child = group->GetChild(index);
-            if (child && HasCanvasDataInTree(*child)) {
+            if (child && HasCanvasDataInTree(*child))
+            {
                 return true;
             }
         }
-    } else if (entity.GetType() == CanvasEntityType::Polyline) {
+    }
+    else if (entity.GetType() == CanvasEntityType::Polyline)
+    {
         const CanvasPolyline *polyline =
                 dynamic_cast<const CanvasPolyline *>(&entity);
-        if (!polyline) {
+        if (!polyline)
+        {
             return false;
         }
-        for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+        for (int index = 0; index < polyline->GetSegmentCount(); ++index)
+        {
             const CanvasEntity *segment = polyline->GetSegment(index);
-            if (segment && segment->GetCanvasData()) {
+            if (segment && segment->GetCanvasData())
+            {
                 return true;
             }
         }
@@ -1532,16 +1710,21 @@ qreal GetEntityCullingMarginPixels(const CanvasEntity &entity,
                                   qreal zoom)
 {
     const StruCanvasStyle &style = entity.GetStyle();
-    switch (entity.GetType()) {
-    case CanvasEntityType::Point: {
+    switch (entity.GetType())
+    {
+    case CanvasEntityType::Point:
+    {
         const CanvasPoint *point = dynamic_cast<const CanvasPoint *>(&entity);
-        if (!point || !point->IsValid()) {
+        if (!point || !point->IsValid())
+        {
             return 0.0;
         }
-        if (zoom < 0.1) {
+        if (zoom < 0.1)
+        {
             return 0.5;
         }
-        if (style.pointShape == CanvasPointShape::Cross) {
+        if (style.pointShape == CanvasPointShape::Cross)
+        {
             return qMax<qreal>(1.0, style.pointSize) * 0.5
                     + detail::GetDisplayStrokeWidth(
                           style, logicalDpiX, lineWidthVisible) * 0.5;
@@ -1549,21 +1732,26 @@ qreal GetEntityCullingMarginPixels(const CanvasEntity &entity,
         return detail::GetDisplayPointSize(
                     style, logicalDpiX, lineWidthVisible) * 0.5;
     }
-    case CanvasEntityType::Polyline: {
+    case CanvasEntityType::Polyline:
+    {
         const CanvasPolyline *polyline =
                 dynamic_cast<const CanvasPolyline *>(&entity);
-        if (!polyline) {
+        if (!polyline)
+        {
             return 0.0;
         }
         qreal margin = 0.0;
-        for (int index = 0; index < polyline->GetSegmentCount(); ++index) {
+        for (int index = 0; index < polyline->GetSegmentCount(); ++index)
+        {
             const CanvasEntity *segment = polyline->GetSegment(index);
-            if (!segment || !segment->GetStyle().visible) {
+            if (!segment || !segment->GetStyle().visible)
+            {
                 continue;
             }
             const StruCanvasStyle &segmentStyle = segment->HasExplicitStyle()
                     ? segment->GetStyle() : style;
-            if (segmentStyle.visible) {
+            if (segmentStyle.visible)
+            {
                 margin = qMax(margin, detail::GetDisplayStrokeWidth(
                                  segmentStyle, logicalDpiX,
                                  lineWidthVisible) * 0.5);
@@ -1571,16 +1759,20 @@ qreal GetEntityCullingMarginPixels(const CanvasEntity &entity,
         }
         return margin;
     }
-    case CanvasEntityType::GroupContainer: {
+    case CanvasEntityType::GroupContainer:
+    {
         const CanvasGroupContainer *group =
                 dynamic_cast<const CanvasGroupContainer *>(&entity);
-        if (!group) {
+        if (!group)
+        {
             return 0.0;
         }
         qreal margin = 0.0;
-        for (int index = 0; index < group->GetChildCount(); ++index) {
+        for (int index = 0; index < group->GetChildCount(); ++index)
+        {
             const CanvasEntity *child = group->GetChild(index);
-            if (child && child->GetStyle().visible) {
+            if (child && child->GetStyle().visible)
+            {
                 margin = qMax(margin, GetEntityCullingMarginPixels(
                                  *child, logicalDpiX, lineWidthVisible, zoom));
             }
@@ -1595,14 +1787,16 @@ qreal GetEntityCullingMarginPixels(const CanvasEntity &entity,
 
 } // namespace
 
-namespace detail {
+namespace detail
+{
 
 void RenderCanvasDataCommands(QPainter &painter,
                               const CanvasRenderContext &context,
                               const QStringList &commands,
                               bool isGlobal)
 {
-    if (commands.isEmpty()) {
+    if (commands.isEmpty())
+    {
         return;
     }
 
@@ -1617,9 +1811,11 @@ void RenderCanvasDataCommands(QPainter &painter,
 #endif
 
     painter.save();
-    for (const QString &line : commands) {
+    for (const QString &line : commands)
+    {
         const QStringList arguments = line.split(QLatin1Char(','), splitBehavior);
-        if (!arguments.isEmpty()) {
+        if (!arguments.isEmpty())
+        {
             DrawCanvasDataCommand(painter, context, arguments, maximumWorldError,
                                   isGlobal);
         }
@@ -1665,7 +1861,8 @@ void CanvasPainterRenderer::Render(
         bool lineWidthVisible) const
 {
     const CanvasDocument *document = context.document;
-    if (!document) {
+    if (!document)
+    {
         return;
     }
 
@@ -1687,7 +1884,8 @@ void CanvasPainterRenderer::Render(
     bool hasBatch = false;
     const auto flushBatch = [&painter, &batchPath, &batchPen, &hasBatch]()
     {
-        if (hasBatch) {
+        if (hasBatch)
+        {
             painter.setBrush(Qt::NoBrush);
             painter.setPen(batchPen);
             painter.drawPath(batchPath);
@@ -1696,11 +1894,13 @@ void CanvasPainterRenderer::Render(
         }
     };
 
-    for (const ItemId id : document->GetItemIds()) {
+    for (const ItemId id : document->GetItemIds())
+    {
         const CanvasEntity *entity = document->GetEntity(id);
         QRectF bounds;
         if (cullingEnabled && entity && TryGetGeometryBounds(*entity, &bounds)
-                && !HasCanvasDataInTree(*entity)) {
+                && !HasCanvasDataInTree(*entity))
+        {
             const qreal visualMarginPixels = qMax(
                         cullingMarginPixels,
                         GetEntityCullingMarginPixels(*entity, logicalDpiX,
@@ -1712,7 +1912,8 @@ void CanvasPainterRenderer::Render(
             if (bounds.right() < cullingRect.left()
                     || bounds.left() > cullingRect.right()
                     || bounds.bottom() < cullingRect.top()
-                    || bounds.top() > cullingRect.bottom()) {
+                    || bounds.top() > cullingRect.bottom())
+            {
                 continue;
             }
         }
@@ -1721,7 +1922,8 @@ void CanvasPainterRenderer::Render(
         QPen dotPen;
         QPointF dotPosition;
         if (entity && TryGetSubPixelDot(*document, *entity, context, logicalDpiX,
-                                        lineWidthVisible, &dotPen, &dotPosition)) {
+                                        lineWidthVisible, &dotPen, &dotPosition))
+        {
             flushBatch();
             painter.setPen(dotPen);
             painter.setBrush(Qt::NoBrush);
@@ -1734,8 +1936,10 @@ void CanvasPainterRenderer::Render(
         if (entity && TryBuildBatchSegment(*document, *entity, context,
                                            maximumWorldError, logicalDpiX,
                                            lineWidthVisible,
-                                           &segmentPen, &segmentPath)) {
-            if (!hasBatch || segmentPen != batchPen) {
+                                           &segmentPen, &segmentPath))
+        {
+            if (!hasBatch || segmentPen != batchPen)
+            {
                 flushBatch();
                 batchPen = segmentPen;
                 hasBatch = true;

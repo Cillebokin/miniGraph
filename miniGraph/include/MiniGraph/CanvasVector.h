@@ -5,7 +5,8 @@
 #include <QMetaType>
 #include <QtGlobal>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 // 表示画布世界坐标或二维位移向量的值类型。
 class MINIGRAPH_EXPORT CanvasVector

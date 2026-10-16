@@ -7,7 +7,8 @@
 #include <QRectF>
 #include <QSizeF>
 
-namespace mini_graph {
+namespace mini_graph
+{
 
 // 管理画布世界坐标与视口坐标之间的变换。
 // 变换以中心点、缩放比例和 X/Y 轴显示方向描述视图状态；默认世界坐标

@@ -116,7 +116,8 @@ int main(int argumentCount, char *argumentValues[])
     QObject::connect(actAdvanceItemData,
                      &QAction::triggered,
                      [&canvasDocument, itemCanvasData, itemDataId]() {
-        if (!itemCanvasData) {
+        if (!itemCanvasData)
+        {
             return;
         }
         itemCanvasData->AdvanceRevision();
@@ -193,7 +194,8 @@ int main(int argumentCount, char *argumentValues[])
                      [&canvasDocument, &wndMain]() {
         const QVector<mini_graph::ItemId> selectedIds =
                 canvasDocument.GetSelectedItemIds();
-        if (selectedIds.size() != 1) {
+        if (selectedIds.size() != 1)
+        {
             return;
         }
 

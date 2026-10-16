@@ -21,13 +21,15 @@ BasicCircleCreationAction::BasicCircleCreationAction(QObject *parent)
 
 void BasicCircleCreationAction::MousePressEvent(QMouseEvent *event)
 {
-    if (!event || event->button() != Qt::LeftButton) {
+    if (!event || event->button() != Qt::LeftButton)
+    {
         return;
     }
 
     mini_graph::CanvasView *view = GetCanvasView();
     mini_graph::CanvasDocument *document = view ? view->GetDocument() : nullptr;
-    if (!view || !document) {
+    if (!view || !document)
+    {
         return;
     }
 
@@ -35,11 +37,13 @@ void BasicCircleCreationAction::MousePressEvent(QMouseEvent *event)
     const mini_graph::CanvasVector position = snap.IsValid()
             ? snap.position
             : view->MapToWorld(event->localPos());
-    if (!position.IsValid()) {
+    if (!position.IsValid())
+    {
         return;
     }
 
-    if (!m_HasCenter) {
+    if (!m_HasCenter)
+    {
         m_Center = position;
         m_HasCenter = true;
         m_HasPreviewRadiusPoint = false;
@@ -52,12 +56,14 @@ void BasicCircleCreationAction::MousePressEvent(QMouseEvent *event)
     const qreal deltaX = position.GetX() - m_Center.GetX();
     const qreal deltaY = position.GetY() - m_Center.GetY();
     const qreal radius = std::hypot(deltaX, deltaY);
-    if (!std::isfinite(radius) || radius <= 0.0) {
+    if (!std::isfinite(radius) || radius <= 0.0)
+    {
         RequestUpdate();
         return;
     }
 
-    if (document->AddCircle(m_Center, radius) != 0) {
+    if (document->AddCircle(m_Center, radius) != 0)
+    {
         m_Center = mini_graph::CanvasVector();
         m_PreviewRadiusPoint = mini_graph::CanvasVector();
         m_HasCenter = false;
@@ -73,12 +79,14 @@ void BasicCircleCreationAction::MouseDoubleClickEvent(QMouseEvent *event)
 
 void BasicCircleCreationAction::MouseMoveEvent(QMouseEvent *event)
 {
-    if (!event || !m_HasCenter) {
+    if (!event || !m_HasCenter)
+    {
         return;
     }
 
     mini_graph::CanvasView *view = GetCanvasView();
-    if (!view) {
+    if (!view)
+    {
         return;
     }
 
@@ -87,7 +95,8 @@ void BasicCircleCreationAction::MouseMoveEvent(QMouseEvent *event)
             ? snap.position
             : view->MapToWorld(event->localPos());
     if (!position.IsValid()
-            || (m_HasPreviewRadiusPoint && position == m_PreviewRadiusPoint)) {
+            || (m_HasPreviewRadiusPoint && position == m_PreviewRadiusPoint))
+    {
         return;
     }
 
@@ -100,14 +109,16 @@ void BasicCircleCreationAction::RenderOverlay(
         QPainter &painter,
         const mini_graph::CanvasRenderContext &context)
 {
-    if (!m_HasCenter || !m_HasPreviewRadiusPoint) {
+    if (!m_HasCenter || !m_HasPreviewRadiusPoint)
+    {
         return;
     }
 
     const QPointF centerPosition = context.MapFromWorld(m_Center);
     const QPointF radiusPosition = context.MapFromWorld(m_PreviewRadiusPoint);
     const qreal radiusInPixels = QLineF(centerPosition, radiusPosition).length();
-    if (!std::isfinite(radiusInPixels) || radiusInPixels <= 0.0) {
+    if (!std::isfinite(radiusInPixels) || radiusInPixels <= 0.0)
+    {
         return;
     }
 
